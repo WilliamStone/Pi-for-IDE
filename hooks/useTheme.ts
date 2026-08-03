@@ -19,7 +19,7 @@ function getSnapshot(): Theme {
 }
 
 function getServerSnapshot(): Theme {
-  return "light";
+  return "dark";
 }
 
 type ToggleOrigin = { x: number; y: number };

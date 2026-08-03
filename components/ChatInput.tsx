@@ -15,6 +15,7 @@ import {
 import { FolderIcon, getFileIcon } from "./FileIcons";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
+import { isVsCodeMode, sendVsCodeRequest } from "@/lib/vscode-bridge";
 
 export interface AttachedImage {
   data: string;   // base64, no prefix
@@ -585,7 +586,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   // server-side against the full listing. Local matches render immediately
   // and are replaced when the (debounced) server result for the current
   // query arrives; stale responses are ignored via the query/cwd tag.
-  const needsServerSearch = Boolean(atQueryText && fileIndex?.truncated && fileIndex.cwd === cwd);
+  const VS_CODE_MODE = isVsCodeMode();
+  const needsServerSearch = !VS_CODE_MODE && Boolean(atQueryText && fileIndex?.truncated && fileIndex.cwd === cwd);
   useEffect(() => {
     if (!needsServerSearch || !cwd || !atQueryText) return;
     const fetchCwd = cwd;
@@ -604,11 +606,56 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     return () => clearTimeout(timer);
   }, [needsServerSearch, atQueryText, cwd]);
 
-  const serverResultInUse = needsServerSearch
-    && atServerResult !== null
+  // In VSCode mode the extension host is the only source (@-completions come
+  // from `sendVsCodeRequest({ kind: "completeAt" })`), so `atServerResult`
+  // must drive the menu directly. In standalone mode the server result only
+  // augments the local index when it is truncated.
+  const serverResultInUse = atServerResult !== null
     && atServerResult.cwd === cwd
-    && atServerResult.query === atQueryText;
+    && atServerResult.query === atQueryText
+    && (needsServerSearch || VS_CODE_MODE);
   const atMatches: FileIndexEntry[] = serverResultInUse ? atServerResult.matches : atLocalMatches;
+
+  // VSCode mode: when the @ token is active, ask the extension host for file
+  // completions. The host ranks against VSCode's own file index (workspaces
+  // + open editors) which is always current. Results replace local matches
+  // while the token is open; closing the token clears them.
+  useEffect(() => {
+    const tokenActive = atQuery !== null;
+    if (!VS_CODE_MODE || !tokenActive || !cwd || atQueryText === null) {
+      if (VS_CODE_MODE && atServerResult !== null) setAtServerResult(null);
+      return;
+    }
+    const fetchCwd = cwd;
+    const query = atQueryText;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      sendVsCodeRequest<{ matches?: Array<{ path: string; isDir: boolean }> }>(
+        { kind: "completeAt", cwd: fetchCwd, query },
+        4000,
+      )
+        .then((res) => {
+          if (cancelled) return;
+          const matches: FileIndexEntry[] = (res?.matches ?? []).map((m) => ({
+            path: m.path,
+            name: m.path.split("/").pop() ?? m.path,
+            isDir: m.isDir,
+          }));
+          setAtServerResult({ cwd: fetchCwd, query, matches });
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          // Bridge failed (timeout / no workspace) — surface an empty result so
+          // the menu doesn't keep showing stale local matches.
+          console.warn("[pi-web] @-complete bridge failed:", err);
+          setAtServerResult({ cwd: fetchCwd, query, matches: [] });
+        });
+    }, 120);
+    return () => { cancelled = true; clearTimeout(timer); };
+    // NOTE: atServerResult is intentionally excluded from deps — including it
+    // would cause an infinite loop: response → setAtServerResult → effect
+    // re-runs → sends another request → response → …
+  }, [VS_CODE_MODE, atQuery, atQueryText, cwd]);
 
   // Open/reset the menu whenever the @token appears or changes (mirrors the
   // slash menu: Escape closes it, the next keystroke re-opens it).
@@ -627,7 +674,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   // ~10s, so re-opening refreshes cheaply; while typing nothing refetches.
   const atTokenActive = atQuery !== null;
   useEffect(() => {
-    if (!atTokenActive || !cwd) return;
+    if (!atTokenActive || !cwd || VS_CODE_MODE) return;
     const meta = fileIndexMetaRef.current;
     if (meta && meta.cwd === cwd && Date.now() - meta.fetchedAt < 10_000) return;
     if (fileIndexFetchingRef.current === cwd) return;

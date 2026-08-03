@@ -20,6 +20,7 @@ import { copyText } from "@/lib/clipboard";
 import { getFileName } from "@/lib/file-paths";
 import { buildAtMentionText, buildFileAtMentionsText, buildFileLineMentionText } from "@/lib/file-fuzzy";
 import { getInitialNavigation } from "@/lib/initial-navigation";
+import { isVsCodeMode, notifyVsCode, onVsCodeNotification } from "@/lib/vscode-bridge";
 import {
   getDefaultRightPanelWidth,
   getRightPanelMaxWidth,
@@ -259,6 +260,24 @@ export function AppShell() {
     chatInputRef.current?.insertText(buildFileLineMentionText(relativePath, startLine, endLine));
   }, []);
 
+  // VSCode 模式：监听扩展宿推送的「提及」通知（右键菜单触发）。
+  // 仅插入 @path 或 @path:start-end 行范围提及，不插入代码块。
+  useEffect(() => {
+    if (!isVsCodeMode()) return;
+    const unsubscribe = onVsCodeNotification((msg) => {
+      if (msg.kind !== "mention") return;
+      const p = msg.relativePath as string;
+      const start = msg.startLine as number | undefined;
+      const end = msg.endLine as number | undefined;
+      if (start != null && end != null) {
+        chatInputRef.current?.insertText(buildFileLineMentionText(p, start, end));
+      } else {
+        chatInputRef.current?.insertText(buildAtMentionText(p, false));
+      }
+    });
+    return unsubscribe;
+  }, []);
+
   const initialSessionId = initialNavigation.sessionId;
   const [activeCwd, setActiveCwd] = useState<string | null>(null);
   const activeProjectRootRef = useRef<string | null>(null);
@@ -489,6 +508,11 @@ export function AppShell() {
     fileName: string,
     options?: { sourceSessionId?: string | null; modeHint?: "diff" },
   ) => {
+    // VSCode 模式下，文件打开委托给 VSCode 原生编辑器。
+    if (isVsCodeMode()) {
+      notifyVsCode({ kind: "openFile", filePath, mode: options?.modeHint === "diff" ? "diff" : "source" });
+      return;
+    }
     const sourceSessionId = options?.sourceSessionId;
     const modeHint = options?.modeHint;
     const tabId = `file:${filePath}`;

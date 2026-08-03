@@ -10,6 +10,7 @@ try {
 } catch { /* package not found, use default */ }
 
 const nextConfig: NextConfig = {
+  output: "standalone",
   serverExternalPackages: [
     "undici",
     "@earendil-works/pi-coding-agent",

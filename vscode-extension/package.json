@@ -1,0 +1,172 @@
+{
+  "name": "pi-web-vscode",
+  "displayName": "Pi Web",
+  "description": "Pi Web 的 VSCode 版本 — 与 pi 编程智能体对话、浏览会话、配置模型/技能/插件。文件浏览交由 VSCode 原生资源管理器承担。",
+  "version": "0.1.0",
+  "publisher": "agegr",
+  "license": "MIT",
+  "icon": "resources/icons/icon-128.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/agegr/pi-web.git"
+  },
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other",
+    "Machine Learning",
+    "Chat"
+  ],
+  "keywords": [
+    "pi",
+    "coding-agent",
+    "ai",
+    "chat",
+    "agent"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:piWeb.open",
+    "onCommand:piWeb.start",
+    "onCommand:piWeb.reveal",
+    "onCommand:piWeb.mentionFile",
+    "onCommand:piWeb.mentionSelection"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "piWeb.open",
+        "title": "打开 Pi Web",
+        "category": "Pi Web",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "piWeb.start",
+        "title": "启动 Pi Web 服务器",
+        "category": "Pi Web",
+        "icon": "$(debug-start)"
+      },
+      {
+        "command": "piWeb.reveal",
+        "title": "显示 Pi Web 面板",
+        "category": "Pi Web",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "piWeb.stop",
+        "title": "停止 Pi Web 服务器",
+        "category": "Pi Web",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "piWeb.mentionFile",
+        "title": "在 Pi Web 中提及此文件",
+        "category": "Pi Web",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "piWeb.mentionSelection",
+        "title": "在 Pi Web 中提及此代码",
+        "category": "Pi Web",
+        "icon": "$(comment-discussion)"
+      }
+    ],
+    "configuration": {
+      "title": "Pi Web",
+      "properties": {
+        "piWeb.executablePath": {
+          "type": "string",
+          "default": "",
+          "description": "pi-web 可执行文件的绝对路径（bin/pi-web.js）。留空则自动从 PATH 或工作区中查找。"
+        },
+        "piWeb.workspaceRoot": {
+          "type": "string",
+          "default": "",
+          "description": "传给 pi-web 会话的项目目录。留空则使用当前工作区文件夹。"
+        },
+        "piWeb.openBeside": {
+          "type": "boolean",
+          "default": true,
+          "description": "将 Pi Web 面板打开在右侧（相邻分栏），而不是当前活动分栏。"
+        }
+      }
+    },
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "piWeb.open"
+        },
+        {
+          "command": "piWeb.start"
+        },
+        {
+          "command": "piWeb.stop"
+        },
+        {
+          "command": "piWeb.reveal",
+          "when": "false"
+        },
+        {
+          "command": "piWeb.mentionFile",
+          "when": "false"
+        },
+        {
+          "command": "piWeb.mentionSelection",
+          "when": "false"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "piWeb.open",
+          "group": "navigation@0",
+          "when": "activeEditor == 'workbench.editors.files.textFileEditor'"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "piWeb.mentionSelection",
+          "when": "editorHasSelection",
+          "group": "piweb@1"
+        },
+        {
+          "command": "piWeb.mentionSelection",
+          "when": "!editorHasSelection",
+          "group": "piweb@1"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "piWeb.mentionFile",
+          "when": "explorerResourceIsFolder || explorerResourceIsFile",
+          "group": "piweb@1"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "piWeb.stop",
+          "when": "view == 'piWeb.webview' && piWeb.serverRunning",
+          "group": "navigation@2"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts",
+    "package:pi-web": "node scripts/package-pi-web.js",
+    "package": "npm run package:pi-web && vsce package --no-yarn --no-dependencies --skip-license"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.80.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "eslint": "^8.0.0",
+    "typescript": "^5.4.0",
+    "@vscode/vsce": "^3.0.0"
+  }
+}

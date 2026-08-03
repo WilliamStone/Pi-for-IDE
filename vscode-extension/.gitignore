@@ -1,0 +1,6 @@
+out/
+node_modules/
+resources/pi-web/
+*.vsix
+.vscode-test/
+sample-workspace/
