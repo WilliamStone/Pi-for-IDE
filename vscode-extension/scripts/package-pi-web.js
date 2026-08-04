@@ -31,7 +31,12 @@ function rmrf(p) {
 
 function cpR(src, dest) {
   fs.mkdirSync(path.dirname(dest), { recursive: true });
-  fs.cpSync(src, dest, { recursive: true });
+  // Next.js standalone 在 .next/node_modules/ 下会生成指向独立产物内真实目录
+  // 的符号链接（如 undici-<hash>、@earendil-works/<pkg>-<hash>）。
+  // fs.cpSync 默认会把符号链接原样复制过去，后续 vsce/yazl 打包时遇到
+  // 指向目录的 symlink 会抛 "not a file"。这里用 dereference: true
+  // 跟随 symlink 复制底层真实文件。
+  fs.cpSync(src, dest, { recursive: true, dereference: true });
 }
 
 function main() {

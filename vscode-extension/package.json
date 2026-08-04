@@ -1,14 +1,14 @@
 {
-  "name": "pi-web-vscode",
+  "name": "pi-code",
   "displayName": "PI Code",
   "description": "PI Code — 基于 pi-web 构建的 VSCode 扩展，把 pi 编程智能体的 Web UI 封装为自包含的 webview 面板，在 VSCode 内与 AI 对话、浏览会话、配置模型/技能/插件，并集成文件审查、Diff、一键回退与当前文件上下文注入。",
   "version": "0.1.0",
-  "publisher": "agegr",
+  "publisher": "xiaowangwang",
   "license": "MIT",
   "icon": "resources/icons/icon-128.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/agegr/pi-web.git"
+    "url": "https://github.com/wangjinxin613/pi-code.git"
   },
   "engines": {
     "vscode": "^1.80.0"
