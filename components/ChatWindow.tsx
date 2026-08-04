@@ -8,6 +8,7 @@ import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantB
 import { MessageView } from "./MessageView";
 import { FileReviewCard } from "./FileReviewCard";
 import { extractFileChanges } from "@/lib/file-changes";
+import { isVsCodeMode, revertEditViaVsCode, revertFilesViaVsCode } from "@/lib/vscode-bridge";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
@@ -197,11 +198,16 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     chatInputRef?.current?.insertIfEmpty(content);
   }, [chatInputRef]);
 
+  // 回退某一轮：恢复该轮改动的代码 + 删除该轮会话记录，然后重新加载会话。
+  // 入口在用户消息左侧的回退按钮（MessageView.UserMessageView）。
+  const [revertingTurnId, setRevertingTurnId] = useState<string | null>(null);
+
   const {
     loading, error, messages, entryIds, streamState,
     agentRunning, bashRunning, pendingBash, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, sessionStats,
+    activeFile,
     slashCommands, slashCommandsLoading, queuedMessages,
     notices, addNotice, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
     isAutoModelSelection,
@@ -211,7 +217,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     lastUserMsgRef, entryIdToTurnIdRef,
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
-    handleRecallQueue,
+    handleRecallQueue, loadSession,
     handleBuiltinSlashCommand,
     handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands,
   } = useAgentSession({
@@ -219,6 +225,73 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
   });
   const sessionBusy = agentRunning || bashRunning;
+
+  // 回退某一轮：恢复该轮改动的代码 + 删除该轮会话记录，然后重新加载会话。
+  // 入口在用户消息左侧的回退按钮（MessageView.UserMessageView）。
+  const handleRevertTurn = useCallback(async (userEntryId: string) => {
+    if (revertingTurnId) return;
+    const sid = session?.id ?? sessionIdRef.current;
+    const cwd = session?.cwd ?? newSessionCwd ?? undefined;
+    if (!sid || !cwd) {
+      addNotice?.({ type: "error", message: t("chat.revertFailed", { message: "缺少 session 或 cwd" }) });
+      return;
+    }
+    // 找该轮：entryIds 与 messages 平行，定位用户消息索引
+    const userIdx = entryIds.indexOf(userEntryId);
+    if (userIdx < 0) return;
+    let endIdx = userIdx + 1;
+    while (endIdx < messages.length && !isGroupAnchor(messages[endIdx])) endIdx += 1;
+    const turnMessages = messages.slice(userIdx, endIdx);
+    const turnChanges = extractFileChanges(turnMessages, cwd);
+    const turnId = entryIdToTurnIdRef?.current.get(userEntryId) ?? userEntryId;
+    // 该轮所有 entryId（含用户消息本身）→ 删除记录
+    const turnEntryIds = entryIds.slice(userIdx, endIdx).filter((e): e is string => !!e);
+
+    setRevertingTurnId(userEntryId);
+    try {
+      // 1) 恢复代码（纯前端，edit 反向 apply / write 走快照）
+      let okCount = 0;
+      const errs: string[] = [];
+      if (!isVsCodeMode()) {
+        throw new Error(t("chat.revertWebModeUnsupported"));
+      }
+      for (const change of turnChanges) {
+        if (change.kind === "edit" && change.edits && change.edits.length > 0) {
+          const r = await revertEditViaVsCode(change.path, cwd, change.edits);
+          if (r.success) okCount++;
+          else errs.push(`${change.relativePath}: ${r.message ?? "失败"}`);
+        } else if (change.kind === "write") {
+          const r = await revertFilesViaVsCode(turnId, [change.path], cwd);
+          if (r.success) okCount++;
+          else errs.push(`${change.relativePath}: ${r.message ?? "失败"}`);
+        } else {
+          errs.push(`${change.relativePath}: 该类型不支持回退`);
+        }
+      }
+      // 2) 删除该轮会话记录
+      const delRes = await fetch(`/api/sessions/${encodeURIComponent(sid)}/revert-turn`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entryIds: turnEntryIds }),
+      });
+      const delData = await delRes.json().catch(() => ({ error: "无法解析响应" })) as { error?: string };
+      if (!delRes.ok || delData.error) {
+        errs.push(`删除会话记录失败：${delData.error ?? `HTTP ${delRes.status}`}`);
+      }
+
+      if (errs.length === 0) {
+        addNotice?.({ type: "success", message: t("chat.revertSuccess", { count: okCount }) });
+        // 3) 重新加载会话（删除记录后文件变了）
+        await loadSession(sid);
+      } else {
+        addNotice?.({ type: "error", message: t("chat.revertFailed", { message: errs.join("; ") }) });
+      }
+    } catch (e) {
+      addNotice?.({ type: "error", message: t("chat.revertFailed", { message: String(e) }) });
+    } finally {
+      setRevertingTurnId(null);
+    }
+  }, [revertingTurnId, session?.id, session?.cwd, newSessionCwd, sessionIdRef, entryIds, messages, entryIdToTurnIdRef, addNotice, t, loadSession]);
 
   // Register the abort handler for the global Esc shortcut
   useEffect(() => {
@@ -327,20 +400,6 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   const isEmptyNew = isNew && messages.length === 0 && !streamState.isStreaming && !sessionBusy;
   const messageCwd = session?.cwd ?? newSessionCwd ?? undefined;
 
-  // VSCode 模式下文件回退：预先算出最近 3 轮 user message 的 entryId 集合，
-  // 用于决定每轮 FileReviewCard 的 canRevert。turn = 以 user message（或
-  // compaction 锚点）开头的一段。从后往前数最多3个锚点。
-  const recentRevertableEntryIds = useMemo<Set<string>>(() => {
-    if (!entryIdToTurnIdRef?.current || entryIdToTurnIdRef.current.size === 0) return new Set();
-    const ids: string[] = [];
-    for (let i = messages.length - 1; i >= 0 && ids.length < 3; i--) {
-      if (isGroupAnchor(messages[i]) && entryIds[i]) {
-        ids.push(entryIds[i]!);
-      }
-    }
-    return new Set(ids);
-  }, [messages, entryIds, entryIdToTurnIdRef]);
-
   const availableThinkingLevels = displayModelValue
     ? (modelThinkingLevels[`${displayModelValue.provider}:${displayModelValue.modelId}`] ?? null)
     : null;
@@ -389,6 +448,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       onAudioUnlock={unlockAudio}
       draftKey={session?.id ?? (newSessionCwd ? `new:${newSessionCwd}` : undefined)}
       cwd={session?.cwd ?? newSessionCwd}
+      activeFile={activeFile?.relativePath ?? null}
     />
   );
 
@@ -555,7 +615,20 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                 if (idx === lastUserIdx) { (lastUserMsgRef as { current: HTMLDivElement | null }).current = el; }
               };
 
-              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean } = {}): ReactNode => {
+              // 组装某轮的「回退」能力，用于用户消息左侧的回退按钮
+              const buildRevertInfo = (userIdx: number, endIdx: number): { canRevert: boolean; onRevert: (entryId: string) => void; reverting: boolean } => {
+                const userEntryId = entryIds[userIdx];
+                const turnChanges = extractFileChanges(messages.slice(userIdx, endIdx), messageCwd);
+                const hasChanges = turnChanges.some((c) => c.kind === "edit" || c.kind === "write");
+                const canRevert = !!userEntryId && hasChanges && !sessionBusy;
+                return {
+                  canRevert,
+                  onRevert: canRevert ? (entryId: string) => void handleRevertTurn(entryId) : () => {},
+                  reverting: userEntryId === revertingTurnId,
+                };
+              };
+
+              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; revertInfo?: { canRevert: boolean; onRevert: (entryId: string) => void; reverting: boolean } } = {}): ReactNode => {
                 const msg = options.messageOverride ?? messages[idx];
                 const prevAssistantEntryId =
                   msg.role === "user" && idx > 0 && messages[idx - 1].role === "assistant"
@@ -595,6 +668,9 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                     showTimestamp={showTimestamp}
                     prevTimestamp={idx > 0 ? (messages[idx - 1] as AgentMessage & { timestamp?: number }).timestamp : undefined}
                     sessionId={session?.id ?? sessionIdRef.current ?? undefined}
+                    canRevertTurn={options.revertInfo?.canRevert && msg.role === "user"}
+                    onRevertTurn={msg.role === "user" ? options.revertInfo?.onRevert : undefined}
+                    revertingTurn={options.revertInfo?.reverting}
                   />
                 );
                 if (!isVisible || options.attachRef === false || currentRefIdx === undefined) return view;
@@ -637,7 +713,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                   continue;
                 }
 
-                rendered.push(renderMessage(userIdx));
+                rendered.push(renderMessage(userIdx, { revertInfo: buildRevertInfo(userIdx, endIdx) }));
 
                 const processIndices: number[] = [];
                 for (let processIdx = userIdx + 1; processIdx < finalAssistantIdx; processIdx++) {
@@ -692,7 +768,6 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                   const turnId = userEntryId
                     ? (entryIdToTurnIdRef?.current.get(userEntryId) ?? userEntryId)
                     : `turn-${userIdx}`;
-                  const canRevert = !!userEntryId && recentRevertableEntryIds.has(userEntryId);
                   if (turnChanges.length > 0) {
                     rendered.push(
                       <FileReviewCard
@@ -700,9 +775,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                         turnId={turnId}
                         changes={turnChanges}
                         cwd={messageCwd}
-                        canRevert={canRevert}
                         onOpenFile={onOpenFile}
-                        onNotice={(type, message) => addNotice?.({ type, message })}
                       />
                     );
                   }

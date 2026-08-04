@@ -69,6 +69,8 @@ interface Props {
   draftKey?: string;
   /** Session working directory — enables the @ file autocomplete menu */
   cwd?: string | null;
+  /** VSCode 当前活动编辑器文件（相对路径）。存在时在输入框下方显示提示。 */
+  activeFile?: string | null;
 }
 
 export interface ChatInputHandle {
@@ -288,6 +290,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onPromptWithStreamingBehavior,
   draftKey,
   cwd,
+  activeFile,
 }: Props, ref) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
@@ -1804,6 +1807,30 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         {bashMode && (
           <div className="text-xs px-2 py-1" style={{ color: bashExcluded ? "var(--text-muted)" : "var(--accent)", marginTop: 4 }}>
              {t("chat.shell")} · {bashExcluded ? t("chat.outputLocal") : t("chat.outputModel")}
+          </div>
+        )}
+
+        {/* 当前打开的文件提示（VSCode 模式） */}
+        {activeFile && !bashMode && (
+          <div
+            title={t("chat.activeFileTitle")}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              marginTop: 6, padding: "3px 10px",
+              background: "var(--bg-subtle)",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              fontSize: 11,
+              color: "var(--text-dim)",
+              whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+            }}
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+            </svg>
+            <span style={{ flexShrink: 0, opacity: 0.8 }}>{t("chat.activeFileLabel")}</span>
+            <span style={{ fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis" }}>{activeFile}</span>
           </div>
         )}
 

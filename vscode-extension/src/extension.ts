@@ -18,7 +18,7 @@
 import * as vscode from "vscode";
 import { PiWebServer } from "./piWebServer";
 import { PiWebWebviewPanel } from "./webviewProvider";
-import { Bridge } from "./bridge";
+import { Bridge, clearActiveEditorCache, resolveActiveEditor } from "./bridge";
 
 let server: Promise<PiWebServer | undefined>;
 let provider: PiWebWebviewPanel | undefined;
@@ -221,6 +221,39 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         endLine: adjustedEnd,
         selectedText: selectedText || undefined,
       });
+    }),
+  );
+
+  // -------------------------------------------------------------------------
+  // 当前活动编辑器文件 → 推送给 pi-web（用于隐藏 system prompt 上下文 + 输入框提示）
+  // -------------------------------------------------------------------------
+
+  /** 把当前活动编辑器文件推给 pi-web（面板未打开时为空操作，等面板刷新时同步）。 */
+  const pushActiveEditor = (): void => {
+    const active = resolveActiveEditor();
+    provider?.pushActiveEditor({
+      relativePath: active?.relativePath ?? null,
+      filePath: active?.filePath ?? null,
+    });
+  };
+
+  // 活动编辑器切换 / 编辑器打开关闭时同步
+  context.subscriptions.push(
+    vscode.window.onDidChangeActiveTextEditor(pushActiveEditor),
+  );
+  context.subscriptions.push(
+    vscode.workspace.onDidOpenTextDocument(() => {
+      // 刚打开的文件若成为活动编辑器也会触发 onDidChangeActiveTextEditor；
+      // 这里兜底，覆盖「非活动列打开文件」的场景。
+      setTimeout(pushActiveEditor, 0);
+    }),
+  );
+  context.subscriptions.push(
+    vscode.workspace.onDidCloseTextDocument((doc) => {
+      if (doc.uri.scheme !== "file") return;
+      clearActiveEditorCache(doc.uri.fsPath);
+      // 关闭后立即重新推送（可能因缓存失效变为 null，或回退到别的文件）。
+      setTimeout(pushActiveEditor, 0);
     }),
   );
 }

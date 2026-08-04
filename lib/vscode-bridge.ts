@@ -56,6 +56,11 @@ export interface VsCodeClipboardReadRequest {
   kind: "clipboardRead";
 }
 
+/** 查询当前 VSCode 活动编辑器文件（webview 刷新后恢复状态用）。 */
+export interface VsCodeGetActiveEditorRequest {
+  kind: "getActiveEditor";
+}
+
 export interface VsCodeClipboardWriteRequest {
   kind: "clipboardWrite";
   text: string;
@@ -119,6 +124,7 @@ export type VsCodeRequest =
   | VsCodeMentionRequest
   | VsCodeClipboardReadRequest
   | VsCodeClipboardWriteRequest
+  | VsCodeGetActiveEditorRequest
   | VsCodeCaptureSnapshotRequest
   | VsCodeGetBeforeContentRequest
   | VsCodeShowDiffRequest
@@ -139,6 +145,13 @@ export interface VsCodeReadFileResponse {
 export interface VsCodeClipboardReadResponse {
   kind: "clipboardRead";
   text: string;
+}
+
+/** 当前 VSCode 活动编辑器。relativePath 为空表示无活动文件（非 file scheme）。 */
+export interface VsCodeGetActiveEditorResponse {
+  kind: "getActiveEditor";
+  relativePath: string | null;
+  filePath: string | null;
 }
 
 export interface VsCodeCaptureSnapshotResponse {
@@ -168,6 +181,7 @@ export type VsCodeResponse =
   | VsCodeCompleteAtResponse
   | VsCodeReadFileResponse
   | VsCodeClipboardReadResponse
+  | VsCodeGetActiveEditorResponse
   | VsCodeCaptureSnapshotResponse
   | VsCodeGetBeforeContentResponse
   | VsCodeRevertFilesResponse
@@ -299,6 +313,22 @@ export function onVsCodeNotification(listener: NotificationListener): () => void
   ensureMessageListener();
   notificationListeners.add(listener);
   return () => notificationListeners.delete(listener);
+}
+
+/**
+ * 查询当前 VSCode 活动编辑器文件（webview 刷新后恢复状态用）。
+ * 返回相对工作区路径（无活动文件时为 null）。
+ */
+export async function getActiveEditorViaVsCode(): Promise<{ relativePath: string | null; filePath: string | null }> {
+  try {
+    const res = await sendVsCodeRequest<VsCodeGetActiveEditorResponse>(
+      { kind: "getActiveEditor" },
+      2000,
+    );
+    return { relativePath: res?.relativePath ?? null, filePath: res?.filePath ?? null };
+  } catch {
+    return { relativePath: null, filePath: null };
+  }
 }
 
 /**

@@ -4,7 +4,7 @@ import { memo, useState, useCallback, useMemo } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { getFileIcon } from "./FileIcons";
 import { SplitPatchView, PatchTextView } from "./MessageView";
-import { isVsCodeMode, showDiffViaVsCode, getBeforeContentViaVsCode, revertFilesViaVsCode, revertEditViaVsCode } from "@/lib/vscode-bridge";
+import { isVsCodeMode, showDiffViaVsCode, getBeforeContentViaVsCode } from "@/lib/vscode-bridge";
 import { encodeFilePathForApi } from "@/lib/file-paths";
 import type { FileChange } from "@/lib/file-changes";
 
@@ -15,14 +15,8 @@ interface Props {
   changes: FileChange[];
   /** session 工作目录（绝对路径）。 */
   cwd?: string;
-  /** 是否在最近 3 轮内（决定回退按钮是否可用）。 */
-  canRevert: boolean;
-  /** 回退后的回调（前端据此禁用按钮 + 提示）。 */
-  onReverted?: () => void;
   /** 打开文件查看器（Web 模式点击文件时调用）。 */
   onOpenFile?: (filePath: string) => void;
-  /** 弹 toast 提示（成功/失败）。 */
-  onNotice?: (type: "info" | "success" | "warning" | "error", message: string) => void;
 }
 
 /**
@@ -35,16 +29,13 @@ interface Props {
  *            渲染为「全增」行。
  *   - bash：无具体文件，显示提示行。
  *
- * 回退（仅 VSCode 模式）：仍走 bridge.revertFiles（需要磁盘快照恢复旧内容）。
- * 仅在最近 3 轮内可回退。
+ * 回退入口不在本卡片——在用户消息左侧（MessageView.UserMessageView），
+ * 回退 = 恢复代码 + 删除该轮会话记录。
  */
-function FileReviewCardImpl({ turnId, changes, cwd, canRevert, onReverted, onOpenFile, onNotice }: Props) {
+function FileReviewCardImpl({ turnId, changes, cwd, onOpenFile }: Props) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(true);
   const [openDiffPath, setOpenDiffPath] = useState<string | null>(null);
-  const [confirming, setConfirming] = useState(false);
-  const [reverting, setReverting] = useState(false);
-  const [reverted, setReverted] = useState(false);
 
   const hasFiles = changes.some((c) => c.path);
   const hasBashUntracked = changes.some((c) => c.kind === "bash" && !c.path);
@@ -90,55 +81,6 @@ function FileReviewCardImpl({ turnId, changes, cwd, canRevert, onReverted, onOpe
     onOpenFile?.(change.path);
   }, [onOpenFile]);
 
-  // 点击「回退」按钮 → 进入确认状态（不弹 confirm，因为 VSCode webview iframe
-  // 是 sandboxed，window.confirm 被策略拦截会静默返回 false）
-  const handleRevertClick = useCallback(() => {
-    if (!inVsCode) {
-      onNotice?.("warning", t("chat.revertWebModeUnsupported"));
-      return;
-    }
-    if (!cwd || reverting || reverted) return;
-    setConfirming(true);
-  }, [inVsCode, cwd, reverting, reverted, t, onNotice]);
-
-  const handleRevert = useCallback(async () => {
-    if (!cwd || reverting || reverted) return;
-    setConfirming(false);
-    setReverting(true);
-    try {
-      // 按 change 类型分流回退：
-      // - edit：用 toolCall.input.edits 反向 apply（newText→oldText），纯 fs 零 git
-      // - write：用 prompt 前快照恢复旧内容
-      // - bash/other：无法回退
-      let okCount = 0;
-      const errs: string[] = [];
-      for (const change of fileChanges) {
-        if (change.kind === "edit" && change.edits && change.edits.length > 0) {
-          const r = await revertEditViaVsCode(change.path, cwd, change.edits);
-          if (r.success) okCount++;
-          else errs.push(`${change.relativePath}: ${r.message ?? "失败"}`);
-        } else if (change.kind === "write") {
-          const r = await revertFilesViaVsCode(turnId, [change.path], cwd);
-          if (r.success) okCount++;
-          else errs.push(`${change.relativePath}: ${r.message ?? "失败"}`);
-        } else {
-          errs.push(`${change.relativePath}: 该类型不支持回退`);
-        }
-      }
-      if (errs.length === 0) {
-        setReverted(true);
-        onNotice?.("success", t("chat.revertSuccess", { count: okCount }));
-        onReverted?.();
-      } else {
-        onNotice?.("error", t("chat.revertFailed", { message: errs.join("; ") }));
-      }
-    } catch (e) {
-      onNotice?.("error", t("chat.revertFailed", { message: String(e) }));
-    } finally {
-      setReverting(false);
-    }
-  }, [turnId, cwd, reverting, reverted, fileChanges, t, onReverted, onNotice]);
-
   return (
     <div style={{
       marginTop: 10,
@@ -171,55 +113,6 @@ function FileReviewCardImpl({ turnId, changes, cwd, canRevert, onReverted, onOpe
           <span style={{ color: "var(--text-dim)" }}>{t("chat.fileReviewEmpty")}</span>
         )}
         <div style={{ flex: 1 }} />
-        {!reverted && !confirming && (
-          <button
-            onClick={(e) => { e.stopPropagation(); handleRevertClick(); }}
-            disabled={reverting}
-            title={t("chat.revertTurnTitle")}
-            style={{
-              display: "flex", alignItems: "center", gap: 4,
-              padding: "3px 8px", height: 22,
-              background: "none", border: "1px solid var(--border)",
-              borderRadius: 5, color: reverting ? "var(--text-dim)" : "var(--accent)",
-              cursor: reverting ? "not-allowed" : "pointer",
-              fontSize: 11, fontWeight: 400, whiteSpace: "nowrap",
-              transition: "color 0.12s",
-            }}
-          >
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="9 14 4 9 9 4" />
-              <path d="M20 20v-7a4 4 0 0 0-4-4H4" />
-            </svg>
-            {reverting ? "..." : t("chat.revertTurn")}
-          </button>
-        )}
-        {confirming && !reverted && (
-          <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11 }}>
-            <span style={{ color: "var(--text-dim)" }}>{t("chat.revertConfirm")}</span>
-            <button
-              onClick={(e) => { e.stopPropagation(); void handleRevert(); }}
-              style={{
-                padding: "2px 8px", height: 20,
-                background: "var(--accent)", border: "none",
-                borderRadius: 4, color: "#fff",
-                cursor: "pointer", fontSize: 11, fontWeight: 500,
-                whiteSpace: "nowrap",
-              }}
-            >{t("chat.revertConfirmYes")}</button>
-            <button
-              onClick={(e) => { e.stopPropagation(); setConfirming(false); }}
-              style={{
-                padding: "2px 8px", height: 20,
-                background: "none", border: "1px solid var(--border)",
-                borderRadius: 4, color: "var(--text-muted)",
-                cursor: "pointer", fontSize: 11, whiteSpace: "nowrap",
-              }}
-            >{t("chat.revertConfirmNo")}</button>
-          </span>
-        )}
-        {reverted && (
-          <span style={{ color: "#16a34a", fontSize: 11 }}>✓ {t("chat.revertSuccess", { count: fileChanges.length })}</span>
-        )}
       </div>
 
       {/* 文件列表 */}

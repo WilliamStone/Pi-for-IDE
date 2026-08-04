@@ -1,5 +1,36 @@
 import * as vscode from "vscode";
 
+// ---------------------------------------------------------------------
+// 活动编辑器缓存：用户切到 pi-web 面板时编辑器会失焦（activeTextEditor
+// 变为 undefined），但用户正在看的那个文件标签仍展示着。缓存最后一次
+// 有效的活动编辑器，失焦时继续返回它，保证隐藏 system prompt 注入与
+// 输入框提示不因焦点切换而丢失。
+// ---------------------------------------------------------------------
+let lastActiveEditor: { relativePath: string; filePath: string } | null = null;
+
+/** 解析当前活动编辑器；失焦时返回最后一次有效的缓存。 */
+export function resolveActiveEditor(): { relativePath: string; filePath: string } | null {
+  const editor = vscode.window.activeTextEditor;
+  const doc = editor?.document;
+  if (!doc || doc.uri.scheme !== "file") {
+    return lastActiveEditor;
+  }
+  const filePath = doc.uri.fsPath;
+  const ws = vscode.workspace.getWorkspaceFolder(doc.uri);
+  const relativePath = ws
+    ? vscode.workspace.asRelativePath(doc.uri, false)
+    : filePath;
+  lastActiveEditor = { relativePath, filePath };
+  return lastActiveEditor;
+}
+
+/** 文件被关闭时清除对应缓存（避免已关闭的文件仍被算作当前文件）。 */
+export function clearActiveEditorCache(filePath: string): void {
+  if (lastActiveEditor?.filePath === filePath) {
+    lastActiveEditor = null;
+  }
+}
+
 /**
  * Bridges requests that originate from the pi-web page (via the webview)
  * to VSCode APIs, then returns responses back to the page.
@@ -33,6 +64,8 @@ export class Bridge {
       case "clipboardWrite":
         await this.clipboardWrite(request);
         return {};
+      case "getActiveEditor":
+        return await this.getActiveEditor();
       case "captureSnapshot":
         return await this.captureSnapshot(request);
       case "getBeforeContent":
@@ -123,6 +156,15 @@ export class Bridge {
 
   private async clipboardWrite(req: ClipboardWriteRequest): Promise<void> {
     await vscode.env.clipboard.writeText(req.text);
+  }
+
+  private async getActiveEditor(): Promise<GetActiveEditorResponse> {
+    const active = resolveActiveEditor();
+    return {
+      kind: "getActiveEditor",
+      relativePath: active?.relativePath ?? null,
+      filePath: active?.filePath ?? null,
+    };
   }
 
   // ---------------------------------------------------------------------
@@ -533,6 +575,7 @@ type BridgeRequest =
   | MentionRequest
   | ClipboardReadRequest
   | ClipboardWriteRequest
+  | GetActiveEditorRequest
   | CaptureSnapshotRequest
   | GetBeforeContentRequest
   | ShowDiffRequest
@@ -562,6 +605,16 @@ interface ClipboardReadRequest {
 interface ClipboardWriteRequest {
   kind: "clipboardWrite";
   text: string;
+}
+
+interface GetActiveEditorRequest {
+  kind: "getActiveEditor";
+}
+
+interface GetActiveEditorResponse {
+  kind: "getActiveEditor";
+  relativePath: string | null;
+  filePath: string | null;
 }
 
 interface CaptureSnapshotRequest {

@@ -69,6 +69,12 @@ interface Props {
   showTimestamp?: boolean;
   prevTimestamp?: number;
   sessionId?: string;
+  /** 该轮是否有文件改动可回退（决定回退按钮是否显示）。 */
+  canRevertTurn?: boolean;
+  /** 回退该轮：恢复代码 + 删除该轮会话记录。 */
+  onRevertTurn?: (entryId: string) => void;
+  /** 回退进行中（禁用按钮）。 */
+  revertingTurn?: boolean;
 }
 
 function formatTime(ts?: number): string | null {
@@ -98,9 +104,9 @@ function haveSameRelevantToolResults(
   return true;
 }
 
-export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp, sessionId }: Props) {
+export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp, sessionId, canRevertTurn, onRevertTurn, revertingTurn }: Props) {
   if (message.role === "user") {
-    return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} />;
+    return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} canRevertTurn={canRevertTurn} onRevertTurn={onRevertTurn} revertingTurn={revertingTurn} />;
   }
   if (message.role === "assistant") {
     return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} />;
@@ -134,10 +140,13 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     && prev.onEditContent === next.onEditContent
     && prev.showTimestamp === next.showTimestamp
     && prev.prevTimestamp === next.prevTimestamp
-    && prev.sessionId === next.sessionId;
+    && prev.sessionId === next.sessionId
+    && prev.canRevertTurn === next.canRevertTurn
+    && prev.onRevertTurn === next.onRevertTurn
+    && prev.revertingTurn === next.revertingTurn;
 });
 
-function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent }: {
+function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, canRevertTurn, onRevertTurn, revertingTurn }: {
   message: UserMessage;
   cwd?: string;
   onOpenFile?: (filePath: string) => void;
@@ -147,10 +156,14 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
   onNavigate?: (entryId: string) => void;
   prevAssistantEntryId?: string;
   onEditContent?: (content: string) => void;
+  canRevertTurn?: boolean;
+  onRevertTurn?: (entryId: string) => void;
+  revertingTurn?: boolean;
 }) {
   const { t } = useI18n();
   const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [confirming, setConfirming] = useState(false);
 
   const content =
     typeof message.content === "string"
@@ -183,6 +196,74 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
       onMouseLeave={() => setHovered(false)}
     >
       <div style={{ display: "flex", alignItems: "flex-end", gap: 6, maxWidth: "85%" }}>
+        {/* 左侧：回退按钮（hover 显示，固定宽度占位避免布局跳动） */}
+        {canRevertTurn && onRevertTurn && entryId && (
+          <div style={{
+            width: 72, flexShrink: 0,
+            display: "flex", flexDirection: "column", alignItems: "flex-start",
+            gap: 4, paddingBottom: 2,
+          }}>
+            {confirming ? (
+              <>
+                <span style={{ fontSize: 10, color: "var(--text-dim)", whiteSpace: "nowrap" }}>
+                  {t("chat.revertConfirm")}
+                </span>
+                <span style={{ display: "flex", gap: 4 }}>
+                  <button
+                    onClick={() => {
+                      setConfirming(false);
+                      onRevertTurn(entryId);
+                    }}
+                    disabled={revertingTurn}
+                    title={t("chat.revertConfirmYes")}
+                    style={{
+                      padding: "2px 7px", height: 20,
+                      background: "var(--accent)", border: "none",
+                      borderRadius: 4, color: "#fff",
+                      cursor: revertingTurn ? "not-allowed" : "pointer",
+                      fontSize: 10, fontWeight: 500, whiteSpace: "nowrap",
+                    }}
+                  >{t("chat.revertConfirmYes")}</button>
+                  <button
+                    onClick={() => setConfirming(false)}
+                    disabled={revertingTurn}
+                    title={t("chat.revertConfirmNo")}
+                    style={{
+                      padding: "2px 7px", height: 20,
+                      background: "none", border: "1px solid var(--border)",
+                      borderRadius: 4, color: "var(--text-muted)",
+                      cursor: "pointer", fontSize: 10, whiteSpace: "nowrap",
+                    }}
+                  >{t("chat.revertConfirmNo")}</button>
+                </span>
+              </>
+            ) : (
+              <button
+                onClick={() => setConfirming(true)}
+                title={t("chat.revertTurnTitle")}
+                style={{
+                  display: "flex", alignItems: "center", gap: 4,
+                  padding: "3px 8px", height: 22,
+                  background: "none", border: "none",
+                  borderRadius: 5,
+                  color: "var(--text-dim)",
+                  cursor: "pointer", fontSize: 11, fontWeight: 400,
+                  whiteSpace: "nowrap",
+                  opacity: hovered ? 1 : 0,
+                  transition: "opacity 0.12s",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; }}
+              >
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="9 14 4 9 9 4" />
+                  <path d="M20 20v-7a4 4 0 0 0-4-4H4" />
+                </svg>
+                {t("chat.revertTurn")}
+              </button>
+            )}
+          </div>
+        )}
         <div
           style={{
             flex: 1,

@@ -133,6 +133,24 @@ export class PiWebWebviewPanel extends vscode.Disposable {
     });
   }
 
+  /**
+   * 向 pi-web 页面推送「当前活动编辑器」通知（扩展宿主动发起）。
+   * 用于让 AI 知道用户正在看哪个文件：前端把当前文件注入 system prompt 的隐藏
+   * 上下文，并在输入框下方展示提示。
+   */
+  pushActiveEditor(payload: {
+    /** 相对工作区根目录的路径（不含前导 ./），如 "src/app.tsx"。 */
+    relativePath: string | null;
+    /** 绝对路径。 */
+    filePath: string | null;
+  }): void {
+    if (!this.panel) return;
+    this.panel.webview.postMessage({
+      source: "vscode",
+      payload: { kind: "activeEditorChanged", ...payload },
+    });
+  }
+
   override dispose(): void {
     this.panel?.dispose();
     this.panel = undefined;

@@ -13,7 +13,7 @@ import { normalizeToolCalls } from "@/lib/normalize";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { getToolNamesForPreset, type ToolEntry } from "@/lib/tool-presets";
 import type { SessionStatsInfo } from "@/lib/pi-types";
-import { isVsCodeMode, captureSnapshotViaVsCode } from "@/lib/vscode-bridge";
+import { isVsCodeMode, captureSnapshotViaVsCode, getActiveEditorViaVsCode, onVsCodeNotification } from "@/lib/vscode-bridge";
 
 export interface SessionData {
   sessionId: string;
@@ -367,6 +367,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [noticeState, dispatchNotice] = useReducer(noticeReducer, { visible: [], pending: [] });
   const [sessionStatsOverride, setSessionStatsOverride] = useState<SessionStatsInfo | null>(null);
   const [extensionDialog, setExtensionDialog] = useState<ExtensionUiDialogRequest | null>(null);
+  // VSCode 当前活动编辑器文件（相对路径）。用于隐藏 system prompt 注入 + 输入框提示。
+  const [activeFile, setActiveFile] = useState<{ relativePath: string | null; filePath: string | null } | null>(null);
   const [extensionCustomUi, setExtensionCustomUi] = useState<ExtensionUiCustomRequest | null>(null);
   const [extensionStatuses, setExtensionStatuses] = useState<ExtensionStatusItem[]>([]);
   const [extensionWidgets, setExtensionWidgets] = useState<ExtensionWidgetItem[]>([]);
@@ -929,6 +931,28 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     agentRunningRef.current = agentRunning;
   }, [agentRunning]);
 
+  // VSCode 模式：监听扩展宿主推送的 activeEditorChanged 通知，并主动拉一次初始状态。
+  useEffect(() => {
+    if (!isVsCodeMode()) return;
+    let cancelled = false;
+    void getActiveEditorViaVsCode().then((active) => {
+      if (!cancelled) setActiveFile(active);
+    }).catch(() => {
+      if (!cancelled) setActiveFile({ relativePath: null, filePath: null });
+    });
+    const unsubscribe = onVsCodeNotification((payload) => {
+      if (payload.kind !== "activeEditorChanged") return;
+      setActiveFile({
+        relativePath: (payload as { relativePath?: string | null }).relativePath ?? null,
+        filePath: (payload as { filePath?: string | null }).filePath ?? null,
+      });
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, []);
+
   const handleAgentEvent = useCallback((event: AgentEvent) => {
     switch (event.type) {
       case "agent_start":
@@ -1157,6 +1181,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             type: "prompt",
             message,
             ...(piImages?.length ? { images: piImages } : {}),
+            ...(activeFile?.relativePath ? { activeFiles: [activeFile.relativePath] } : {}),
           });
           promoteNewSession(1, message);
         }
@@ -1168,6 +1193,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           type: "prompt",
           message,
           ...(piImages?.length ? { images: piImages } : {}),
+          ...(activeFile?.relativePath ? { activeFiles: [activeFile.relativePath] } : {}),
         });
       }
       if (isSlashCommandPrompt && sentSessionId) {
@@ -1205,7 +1231,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setAgentPhase(null);
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, closeEvents, opts.chatInputRef]);
+  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, closeEvents, opts.chatInputRef, activeFile]);
 
   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
     if (agentRunningRef.current || bashRunningRef.current) return;
@@ -1715,6 +1741,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     agentRunning, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, sessionStats,
+    activeFile,
     slashCommands, slashCommandsLoading, queuedMessages,
     notices: noticeState.visible, addNotice, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
     isAutoModelSelection: isNew && newSessionModel === null,
@@ -1727,7 +1754,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     // Actions
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
-    handleRecallQueue,
+    handleRecallQueue, loadSession,
     handleBuiltinSlashCommand,
     handleToolPresetChange, handleThinkingLevelChange, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages,
     dispatch, setAgentRunning, setForkingEntryId,
