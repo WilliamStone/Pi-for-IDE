@@ -64,6 +64,9 @@ export class Bridge {
       case "clipboardWrite":
         await this.clipboardWrite(request);
         return {};
+      case "openInBrowser":
+        await this.openInBrowser(request);
+        return {};
       case "getActiveEditor":
         return await this.getActiveEditor();
       case "captureSnapshot":
@@ -144,6 +147,24 @@ export class Bridge {
       void vscode.window.showWarningMessage(req.message);
     } else {
       void vscode.window.showInformationMessage(req.message);
+    }
+  }
+
+  private async openInBrowser(req: OpenInBrowserRequest): Promise<void> {
+    // 只允许打开本机服务器地址（127.0.0.1 / localhost），避免被页面诱导
+    // 打开任意外部 URL。
+    try {
+      const parsed = new URL(req.url);
+      const host = parsed.hostname;
+      if (host !== "127.0.0.1" && host !== "localhost") {
+        this.logger(`openInBrowser 拒绝非本机地址: ${host}`);
+        return;
+      }
+      const origin = parsed.origin;
+      this.logger(`openInBrowser: 打开 ${origin}`);
+      await vscode.env.openExternal(vscode.Uri.parse(origin));
+    } catch (error) {
+      this.logger(`openInBrowser 失败: ${error}`);
     }
   }
 
@@ -580,7 +601,8 @@ type BridgeRequest =
   | GetBeforeContentRequest
   | ShowDiffRequest
   | RevertFilesRequest
-  | RevertEditRequest;
+  | RevertEditRequest
+  | OpenInBrowserRequest;
 
 interface CompleteAtResponse {
   kind: "completeAt";
@@ -605,6 +627,11 @@ interface ClipboardReadRequest {
 interface ClipboardWriteRequest {
   kind: "clipboardWrite";
   text: string;
+}
+
+interface OpenInBrowserRequest {
+  kind: "openInBrowser";
+  url: string;
 }
 
 interface GetActiveEditorRequest {

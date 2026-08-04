@@ -1,6 +1,6 @@
 // VSCode webview ↔ extension host bridge.
 //
-// Pi Web runs unchanged as a standalone Next.js app. When it is loaded inside
+// PI Code runs unchanged as a standalone Next.js app. When it is loaded inside
 // a VSCode webview, the extension passes `?vscode=1` in the URL and hosts the
 // page inside an <iframe> whose parent document owns acquireVsCodeApi().
 //
@@ -67,6 +67,15 @@ export interface VsCodeClipboardWriteRequest {
 }
 
 /**
+ * 在系统默认浏览器中打开 PI Code。url 为页面当前地址（iframe 内加载的
+ * 完整 URL），扩展宿会解析出 origin 再调用 vscode.env.openExternal。
+ */
+export interface VsCodeOpenInBrowserRequest {
+  kind: "openInBrowser";
+  url: string;
+}
+
+/**
  * 在新一轮 prompt 发出前，让扩展宿主为本轮建一个文件快照。
  * 扩展只读 git status（不创建任何 git 对象）+ 读磁盘文件，存内存。
  * 必须在 prompt 到达 AgentSession 之前完成，否则 before 内容不准。
@@ -129,7 +138,8 @@ export type VsCodeRequest =
   | VsCodeGetBeforeContentRequest
   | VsCodeShowDiffRequest
   | VsCodeRevertFilesRequest
-  | VsCodeRevertEditRequest;
+  | VsCodeRevertEditRequest
+  | VsCodeOpenInBrowserRequest;
 
 export interface VsCodeCompleteAtResponse {
   kind: "completeAt";
@@ -349,6 +359,14 @@ export async function clipboardReadViaVsCode(): Promise<string> {
  */
 export async function clipboardWriteViaVsCode(text: string): Promise<void> {
   await sendVsCodeRequest<unknown>({ kind: "clipboardWrite", text }, 2000);
+}
+
+/**
+ * 通知扩展宿主在系统默认浏览器中打开 PI Code（fire-and-forget，无响应）。
+ * 非 VSCode 模式下为 no-op，调用方应自行处理（如 window.open）。
+ */
+export function openInBrowserViaVsCode(url: string): void {
+  notifyVsCode({ kind: "openInBrowser", url });
 }
 
 /**

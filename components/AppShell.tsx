@@ -20,7 +20,7 @@ import { copyText } from "@/lib/clipboard";
 import { getFileName } from "@/lib/file-paths";
 import { buildAtMentionText, buildFileAtMentionsText, buildFileLineMentionText } from "@/lib/file-fuzzy";
 import { getInitialNavigation } from "@/lib/initial-navigation";
-import { isVsCodeMode, notifyVsCode, onVsCodeNotification, installGlobalClipboardInterceptor } from "@/lib/vscode-bridge";
+import { isVsCodeMode, notifyVsCode, onVsCodeNotification, installGlobalClipboardInterceptor, openInBrowserViaVsCode } from "@/lib/vscode-bridge";
 import {
   getDefaultRightPanelWidth,
   getRightPanelMaxWidth,
@@ -217,6 +217,19 @@ export function AppShell() {
     if (isMobile) setActiveTopPanel(null);
     setSidebarOpen((open) => !open);
   }, [isMobile]);
+
+  /**
+   * 在系统默认浏览器中打开 PI Code。
+   * VSCode 模式下通知扩展宿主 openExternal；独立浏览器模式下直接开新标签。
+   */
+  const handleOpenInBrowser = useCallback(() => {
+    if (typeof window === "undefined") return;
+    if (isVsCodeMode()) {
+      openInBrowserViaVsCode(window.location.href);
+    } else {
+      window.open(window.location.href, "_blank");
+    }
+  }, []);
 
   useEffect(() => {
     if (!activeTopPanel || !topBarRef.current) return;
@@ -631,7 +644,7 @@ export function AppShell() {
 
   const activeFileTab = fileTabs.find((t) => t.id === activeFileTabId) ?? null;
   const activeCwdName = activeCwd ? getFileName(activeCwd) || activeCwd : null;
-  const windowTitle = activeCwdName ? `${activeCwdName} - Pi Web` : "Pi Web";
+  const windowTitle = activeCwdName ? `${activeCwdName} - PI Code` : "PI Code";
 
   useEffect(() => {
     const syncWindowTitle = () => {
@@ -1151,6 +1164,32 @@ export function AppShell() {
                   <line x1="8" y1="17" x2="13" y2="17" />
                 </svg>
                  {!isMobile && <span>{translate("system.label")}</span>}
+              </button>
+              <button
+                type="button"
+                onClick={handleOpenInBrowser}
+                title={translate("system.openInBrowser")}
+                aria-label={translate("system.openInBrowser")}
+                style={{
+                  display: "flex", alignItems: "center", gap: 6,
+                  height: "100%", padding: "0 12px",
+                  background: "none",
+                  border: "none",
+                  borderTop: "2px solid transparent",
+                  borderRight: "1px solid var(--border)",
+                  cursor: "pointer",
+                  color: "var(--text-muted)",
+                  fontSize: 11, whiteSpace: "nowrap", transition: "color 0.1s, background 0.1s",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                  <polyline points="15 3 21 3 21 9" />
+                  <line x1="10" y1="14" x2="21" y2="3" />
+                </svg>
+                {!isMobile && <span>{translate("system.openInBrowser")}</span>}
               </button>
             </div>
           )}

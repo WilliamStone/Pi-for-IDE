@@ -54,7 +54,7 @@ export class PiWebWebviewPanel extends vscode.Disposable {
     if (!this.panel) {
       this.panel = vscode.window.createWebviewPanel(
         "piWeb.webview",
-        "Pi Web",
+        "PI Code",
         viewColumn,
         {
           enableScripts: true,
@@ -170,12 +170,12 @@ export class PiWebWebviewPanel extends vscode.Disposable {
       server = await this.ensureServer();
     }
 
-    const title = this.currentCwd ? `Pi Web — ${shortPath(this.currentCwd)}` : "Pi Web";
+    const title = this.currentCwd ? `PI Code — ${shortPath(this.currentCwd)}` : "PI Code";
     this.panel.title = title;
 
     if (!server) {
       this.panel.webview.html = this.renderError(
-        "Pi Web 服务器启动失败。详情请见输出面板（查看 → 输出 → Pi Web）。",
+        "PI Code 服务器启动失败。详情请见输出面板（查看 → 输出 → PI Code）。",
       );
       return;
     }
@@ -197,14 +197,14 @@ export class PiWebWebviewPanel extends vscode.Disposable {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Pi Web</title>
+  <title>PI Code</title>
   <style>
     html, body { margin: 0; padding: 0; height: 100%; background: #1a1a1a; }
     iframe { width: 100%; height: 100%; border: 0; display: block; }
   </style>
 </head>
 <body>
-  <iframe id="pi-web-frame" src="${piWebUrl}" title="Pi Web"></iframe>
+  <iframe id="pi-web-frame" src="${piWebUrl}" title="PI Code"></iframe>
   <script>
     (function () {
       const vscode = acquireVsCodeApi();
@@ -232,7 +232,7 @@ export class PiWebWebviewPanel extends vscode.Disposable {
   private renderError(message: string): string {
     return /* html */ `<!DOCTYPE html>
 <html><body style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; color: #e8e8e8; background: #1a1a1a; padding: 24px;">
-<h2 style="color:#f87171;">Pi Web</h2>
+<h2 style="color:#f87171;">PI Code</h2>
 <p>${message}</p>
 </body></html>`;
   }

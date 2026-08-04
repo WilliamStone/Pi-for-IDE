@@ -1,6 +1,6 @@
 import type { LocalePlugin } from "../types";
 
-/** Pi Web 内置英语语言包。 */
+/** PI Code 内置英语语言包。 */
 export const enLocale: LocalePlugin = {
   id: "en",
   label: "English",
@@ -28,6 +28,7 @@ export const enLocale: LocalePlugin = {
     "system.empty": "System prompt is empty (tools are disabled)",
     "system.load": "Send a message to load the system prompt",
     "system.label": "System",
+    "system.openInBrowser": "Open in Browser",
     "session.info": "Session info",
     "session.name": "Name",
     "session.file": "File",

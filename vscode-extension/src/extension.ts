@@ -1,7 +1,7 @@
 /**
- * Pi Web VSCode 扩展 — 主入口。
+ * PI Code VSCode 扩展 — 主入口。
  *
- * Pi Web 是 pi 编程智能体的独立 Next.js Web 界面。本扩展将这一 Web 界面托管
+ * PI Code 是 pi 编程智能体的独立 Next.js Web 界面。本扩展将这一 Web 界面托管
  * 在 webview 内，并在后台启动一个本地 pi-web 服务器。除了文件浏览器之外，
  * 其余体验与原版一致：会话浏览、聊天、模型/技能/插件配置、i18n 均照常工作；
  * 打开文件、@ 补全等动作通过桥接转交给 VSCode 原生 API。
@@ -27,7 +27,7 @@ let bridgeChannel: vscode.OutputChannel;
 let statusBarItem: vscode.StatusBarItem;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  bridgeChannel = vscode.window.createOutputChannel("Pi Web 桥接");
+  bridgeChannel = vscode.window.createOutputChannel("PI Code 桥接");
   context.subscriptions.push(bridgeChannel);
   bridge = new Bridge((line) => bridgeChannel.appendLine(line));
 
@@ -36,8 +36,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.StatusBarAlignment.Right,
     100,
   );
-  statusBarItem.text = "$(comment-discussion) Pi Web";
-  statusBarItem.tooltip = "Pi Web — 点击打开聊天面板";
+  statusBarItem.text = "$(comment-discussion) PI Code";
+  statusBarItem.tooltip = "PI Code — 点击打开聊天面板";
   statusBarItem.command = "piWeb.open";
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
@@ -54,9 +54,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     server = PiWebServer.ensureStarted(context).then((s) => {
       setRunningContext(!!s);
       if (s) {
-        statusBarItem.text = "$(comment-discussion) Pi Web";
+        statusBarItem.text = "$(comment-discussion) PI Code";
         statusBarItem.backgroundColor = undefined;
-        statusBarItem.tooltip = `Pi Web — 运行中，地址 ${s.origin}`;
+        statusBarItem.tooltip = `PI Code — 运行中，地址 ${s.origin}`;
       }
       return s;
     }).catch((error) => {
@@ -84,7 +84,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("piWeb.start", async () => {
       const s = await ensureServer();
       if (s) {
-        vscode.window.showInformationMessage(`Pi Web 服务器已启动，地址 ${s.origin}`);
+        vscode.window.showInformationMessage(`PI Code 服务器已启动，地址 ${s.origin}`);
       }
     }),
   );
@@ -95,7 +95,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (s) {
         await s.stop();
         setRunningContext(false);
-        vscode.window.showInformationMessage("Pi Web 服务器已停止。");
+        vscode.window.showInformationMessage("PI Code 服务器已停止。");
       }
     }),
   );
@@ -120,7 +120,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           canSelectFiles: false,
           canSelectFolders: true,
           canSelectMany: false,
-          title: "Pi Web：选择项目目录",
+          title: "PI Code：选择项目目录",
         });
         if (!picked || picked.length === 0) return;
         cwd = picked[0].fsPath;
@@ -135,6 +135,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     vscode.commands.registerCommand("piWeb.reveal", () => {
       provider!.focus();
+    }),
+  );
+
+  // 在系统默认浏览器中打开 PI Code（面板工具条按钮 / 命令面板 / 面板标题栏）。
+  context.subscriptions.push(
+    vscode.commands.registerCommand("piWeb.openInBrowser", async () => {
+      const s = await server;
+      if (s?.resolvedOrigin) {
+        await vscode.env.openExternal(vscode.Uri.parse(s.resolvedOrigin));
+      } else {
+        vscode.window.showWarningMessage("PI Code 服务器尚未启动，无法在浏览器中打开。");
+      }
     }),
   );
 
@@ -182,7 +194,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("piWeb.mentionFile", async (uri: vscode.Uri) => {
       const relativePath = relativePathFor(uri);
       if (!relativePath) {
-        vscode.window.showWarningMessage("Pi Web：无法获取该文件相对工作区的路径。");
+        vscode.window.showWarningMessage("PI Code：无法获取该文件相对工作区的路径。");
         return;
       }
       await triggerMention({ relativePath });
@@ -197,7 +209,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const uri = editor.document.uri;
       const relativePath = relativePathFor(uri);
       if (!relativePath) {
-        vscode.window.showWarningMessage("Pi Web：无法获取该文件相对工作区的路径。");
+        vscode.window.showWarningMessage("PI Code：无法获取该文件相对工作区的路径。");
         return;
       }
       const selection = editor.selection;

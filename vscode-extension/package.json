@@ -1,7 +1,7 @@
 {
   "name": "pi-web-vscode",
-  "displayName": "Pi Web",
-  "description": "Pi Web 的 VSCode 版本 — 与 pi 编程智能体对话、浏览会话、配置模型/技能/插件。文件浏览交由 VSCode 原生资源管理器承担。",
+  "displayName": "PI Code",
+  "description": "PI Code — 基于 pi-web 构建的 VSCode 扩展，把 pi 编程智能体的 Web UI 封装为自包含的 webview 面板，在 VSCode 内与 AI 对话、浏览会话、配置模型/技能/插件，并集成文件审查、Diff、一键回退与当前文件上下文注入。",
   "version": "0.1.0",
   "publisher": "agegr",
   "license": "MIT",
@@ -38,58 +38,71 @@
     "commands": [
       {
         "command": "piWeb.open",
-        "title": "打开 Pi Web",
-        "category": "Pi Web",
+        "title": "打开 PI Code",
+        "category": "PI Code",
         "icon": "$(comment-discussion)"
       },
       {
         "command": "piWeb.start",
-        "title": "启动 Pi Web 服务器",
-        "category": "Pi Web",
+        "title": "启动 PI Code 服务器",
+        "category": "PI Code",
         "icon": "$(debug-start)"
       },
       {
         "command": "piWeb.reveal",
-        "title": "显示 Pi Web 面板",
-        "category": "Pi Web",
+        "title": "显示 PI Code 面板",
+        "category": "PI Code",
         "icon": "$(comment-discussion)"
       },
       {
         "command": "piWeb.stop",
-        "title": "停止 Pi Web 服务器",
-        "category": "Pi Web",
+        "title": "停止 PI Code 服务器",
+        "category": "PI Code",
         "icon": "$(debug-stop)"
       },
       {
+        "command": "piWeb.openInBrowser",
+        "title": "在浏览器中打开 PI Code",
+        "category": "PI Code",
+        "icon": "$(globe)"
+      },
+      {
         "command": "piWeb.mentionFile",
-        "title": "在 Pi Web 中提及此文件",
-        "category": "Pi Web",
+        "title": "在 PI Code 中提及此文件",
+        "category": "PI Code",
         "icon": "$(comment-discussion)"
       },
       {
         "command": "piWeb.mentionSelection",
-        "title": "在 Pi Web 中提及此代码",
-        "category": "Pi Web",
+        "title": "在 PI Code 中提及此代码",
+        "category": "PI Code",
         "icon": "$(comment-discussion)"
       }
     ],
     "configuration": {
-      "title": "Pi Web",
+      "title": "PI Code",
       "properties": {
         "piWeb.executablePath": {
           "type": "string",
           "default": "",
-          "description": "pi-web 可执行文件的绝对路径（bin/pi-web.js）。留空则自动从 PATH 或工作区中查找。"
+          "description": "PI Code 底层运行 pi-web（@agegr/pi-web）作为 Web 服务器。此处可指定 pi-web 可执行文件（bin/pi-web.js）的绝对路径；留空则自动从 PATH 或工作区中查找。"
         },
         "piWeb.workspaceRoot": {
           "type": "string",
           "default": "",
-          "description": "传给 pi-web 会话的项目目录。留空则使用当前工作区文件夹。"
+          "description": "传给 pi-web 会话的项目目录（cwd）。留空则使用当前工作区文件夹。"
         },
         "piWeb.openBeside": {
           "type": "boolean",
           "default": true,
-          "description": "将 Pi Web 面板打开在右侧（相邻分栏），而不是当前活动分栏。"
+          "description": "将 PI Code 面板打开在右侧（相邻分栏），而不是当前活动分栏。"
+        },
+        "piWeb.port": {
+          "type": "number",
+          "default": 3030,
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "PI Code 服务器起始端口（默认 3030）。该端口被占用时自动 +1 查找下一个空闲端口。"
         }
       }
     },
@@ -122,6 +135,11 @@
           "command": "piWeb.open",
           "group": "navigation@0",
           "when": "activeEditor == 'workbench.editors.files.textFileEditor'"
+        },
+        {
+          "command": "piWeb.openInBrowser",
+          "group": "navigation@1",
+          "when": "activeEditor == 'piWeb.webview'"
         }
       ],
       "editor/context": [

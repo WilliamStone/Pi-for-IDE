@@ -1,5 +1,6 @@
 import * as cp from "child_process";
 import { existsSync } from "fs";
+import * as net from "net";
 import * as path from "path";
 import * as vscode from "vscode";
 
@@ -12,9 +13,43 @@ import * as vscode from "vscode";
  * `resources/pi-web/`。启动时直接 `node resources/pi-web/server.js`，
  * 不再依赖 PATH 上的 `pi-web`。
  *
- * 服务器监听 OS 分配的端口（`PORT=0`），我们从 stdout 抓取 Next 打印的
- * `http://127.0.0.1:<port>` 作为解析后的 origin。
+ * 服务器默认监听 `piWeb.port` 指定的端口（默认 3030）。启动前先从该端口
+ * 开始探测一个空闲端口（被占用则 +1 继续），再以固定端口启动，方便用户在
+ * 浏览器中直接访问。我们从 stdout 抓取 Next 打印的
+ * `http://127.0.0.1:<port>` 作为解析后的 origin（兜底确认实际端口）。
  */
+
+/** 默认起始端口：3030，被占用时自动 +1。 */
+export const DEFAULT_PORT = 3030;
+
+/**
+ * 探测从 startPort 开始的第一个空闲 TCP 端口（每次 +1，最多尝试 200 个）。
+ */
+function findFreePort(startPort: number): Promise<number> {
+  return new Promise((resolve) => {
+    const tryPort = (port: number, attempts = 0): void => {
+      if (attempts >= 200) {
+        // 兜底：让 OS 分配端口，避免无限探测。
+        resolve(0);
+        return;
+      }
+      const tester = net.createServer();
+      tester.unref();
+      tester.once("error", () => {
+        try {
+          tester.close();
+        } catch {
+          // 未监听，忽略。
+        }
+        tryPort(port + 1, attempts + 1);
+      });
+      tester.listen(port, "127.0.0.1", () => {
+        tester.close(() => resolve(port));
+      });
+    };
+    tryPort(startPort);
+  });
+}
 export class PiWebServer {
   context: vscode.ExtensionContext;
   child?: cp.ChildProcess;
@@ -33,7 +68,7 @@ export class PiWebServer {
 
   constructor(context: vscode.ExtensionContext) {
     this.context = context;
-    this.channel = vscode.window.createOutputChannel("Pi Web");
+    this.channel = vscode.window.createOutputChannel("PI Code");
     this.context.subscriptions.push(this.channel);
     this.ready = this.startProcess();
     this.ready.then((origin) => {
@@ -70,11 +105,11 @@ export class PiWebServer {
   private startProcess(): Promise<string | undefined> {
     const serverPath = this.resolveServerPath();
     if (!serverPath) {
-      this.channel.appendLine("未找到 Pi Web 服务器。扩展包可能损坏。");
-      void vscode.window.showErrorMessage("Pi Web 找不到内置服务器（resources/pi-web/server.js），扩展包可能损坏，请重新安装。");
+      this.channel.appendLine("未找到 PI Code 服务器。扩展包可能损坏。");
+      void vscode.window.showErrorMessage("PI Code 找不到内置服务器（resources/pi-web/server.js），扩展包可能损坏，请重新安装。");
       return Promise.resolve(undefined);
     }
-    this.channel.appendLine(`Pi Web 服务器入口: ${serverPath}`);
+    this.channel.appendLine(`PI Code 服务器入口: ${serverPath}`);
     return this.spawn(serverPath);
   }
 
@@ -87,13 +122,25 @@ export class PiWebServer {
     return undefined;
   }
 
-  /** 用 PORT=0 启动 standalone 服务器并等待 Next 打印的 URL。 */
-  private spawn(serverPath: string): Promise<string | undefined> {
+  /** 探测空闲端口后启动 standalone 服务器，并等待 Next 打印的 URL。 */
+  private async spawn(serverPath: string): Promise<string | undefined> {
+    // 读取用户配置的起始端口（默认 3030），探测第一个空闲端口。
+    const config = vscode.workspace.getConfiguration("piWeb");
+    const preferred =
+      typeof config.get<number>("port") === "number"
+        ? config.get<number>("port", DEFAULT_PORT)
+        : DEFAULT_PORT;
+    const port = await findFreePort(Math.max(1, preferred || DEFAULT_PORT));
+    this.channel.appendLine(
+      `PI Code 端口探测：起始 ${preferred}，使用 ${port}${port === 0 ? "（OS 分配）" : ""}`,
+    );
+
     return new Promise((resolve) => {
-      // PORT=0 让 OS 分配空闲端口；Next 启动后会打印监听地址。
+      // 固定端口启动；若启动瞬间被抢占，Next 会打印实际地址或直接退出，
+      // 由下方的 stdout 解析 / exit 处理兜底。
       const env: any = {
         ...process.env,
-        PORT: "0",
+        PORT: String(port),
         HOSTNAME: "127.0.0.1",
         NODE_ENV: "production",
       };
@@ -126,13 +173,13 @@ export class PiWebServer {
         this.channel.appendLine(chunk.toString());
       });
       child.on("exit", (code) => {
-        this.channel.appendLine(`Pi Web 进程退出，退出码 ${code}`);
+        this.channel.appendLine(`PI Code 进程退出，退出码 ${code}`);
         if (this.resolvedOrigin === undefined) resolve(undefined);
       });
       // 硬超时：30 秒还没打印 URL 就放弃。
       setTimeout(() => {
         if (this.resolvedOrigin === undefined) {
-          this.channel.appendLine("Pi Web 启动超时。");
+          this.channel.appendLine("PI Code 启动超时。");
           resolve(undefined);
         }
       }, 30_000);

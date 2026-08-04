@@ -1,6 +1,6 @@
 import type { LocalePlugin } from "../types";
 
-/** Pi Web 内置简体中文语言包。 */
+/** PI Code 内置简体中文语言包。 */
 export const zhCNLocale: LocalePlugin = {
   id: "zh-CN",
   label: "简体中文",
@@ -28,6 +28,7 @@ export const zhCNLocale: LocalePlugin = {
     "system.empty": "系统提示词为空（工具已禁用）",
     "system.load": "发送消息以加载系统提示词",
     "system.label": "系统",
+    "system.openInBrowser": "浏览器中打开",
     "session.info": "会话信息",
     "session.name": "名称",
     "session.file": "文件",
