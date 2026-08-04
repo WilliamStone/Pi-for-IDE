@@ -1,6 +1,6 @@
 # PI Code — VSCode 扩展
 
-![PI Code 截图](./screen.png)
+![PI Code 截图](/vscode-extension/screen.png)
 
 **PI Code** 是在 [pi-web](https://github.com/agegr/pi-web)（pi 编程智能体的 Next.js Web UI）基础上构建的 VSCode 扩展。它把 pi-web 的完整 Web 界面封装为一个自包含的 webview 面板，让你不必离开 VSCode 就能与 pi 编程智能体对话、浏览会话历史、配置模型与技能，并叠加了一层针对 VSCode 工作流的深度集成。
 
