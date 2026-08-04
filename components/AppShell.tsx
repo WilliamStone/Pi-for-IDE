@@ -20,7 +20,7 @@ import { copyText } from "@/lib/clipboard";
 import { getFileName } from "@/lib/file-paths";
 import { buildAtMentionText, buildFileAtMentionsText, buildFileLineMentionText } from "@/lib/file-fuzzy";
 import { getInitialNavigation } from "@/lib/initial-navigation";
-import { isVsCodeMode, notifyVsCode, onVsCodeNotification } from "@/lib/vscode-bridge";
+import { isVsCodeMode, notifyVsCode, onVsCodeNotification, installGlobalClipboardInterceptor } from "@/lib/vscode-bridge";
 import {
   getDefaultRightPanelWidth,
   getRightPanelMaxWidth,
@@ -276,6 +276,13 @@ export function AppShell() {
       }
     });
     return unsubscribe;
+  }, []);
+
+  // VSCode 模式：安装全局 document 级剪贴键拦截器，让输入框以外的文字
+  // （消息内容、代码块、会话列表等）也支持 Cmd+C/X/A 复制/剪切/全选。
+  // 焦点在 textarea/input 时自动跳过，让 ChatInput 自己的精确处理接管。
+  useEffect(() => {
+    return installGlobalClipboardInterceptor();
   }, []);
 
   const initialSessionId = initialNavigation.sessionId;

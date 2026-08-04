@@ -15,7 +15,7 @@ import {
 import { FolderIcon, getFileIcon } from "./FileIcons";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
-import { isVsCodeMode, sendVsCodeRequest } from "@/lib/vscode-bridge";
+import { isVsCodeMode, sendVsCodeRequest, clipboardReadViaVsCode, clipboardWriteViaVsCode } from "@/lib/vscode-bridge";
 
 export interface AttachedImage {
   data: string;   // base64, no prefix
@@ -852,8 +852,81 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       : Math.max(0, slashActiveIndex - 1);
   }, [filteredSlashCommands.length, slashActiveIndex]);
 
+  // VSCode 模式下 webview 跨源 iframe 的 Cmd/Ctrl+C/V/X/A 默认行为被
+  // VSCode/Electron 命令层拦截，到不了 textarea。这里在 keydown 阶段截住，
+  // preventDefault 后用 vscode.env.clipboard 桥读写系统剪贴板 + 手动操作
+  // textarea 选区，绕过拦截。
+  const handleVsCodeClipboardKeydown = useCallback(
+    (e: KeyboardEvent<HTMLTextAreaElement>): boolean => {
+      if (!VS_CODE_MODE) return false;
+      const meta = e.metaKey || e.ctrlKey;
+      if (!meta) return false;
+      const k = e.key.toLowerCase();
+      if (k !== "c" && k !== "v" && k !== "x" && k !== "a") return false;
+      const ta = e.currentTarget;
+      // 输入法组合中不拦截，避免打断中文输入。
+      if (isComposingRef.current || e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return false;
+
+      // 同步截住：不让 VSCode 命令层拿走这个键。
+      e.preventDefault();
+      e.stopPropagation();
+
+      const start = ta.selectionStart;
+      const end = ta.selectionEnd;
+      const selected = start !== null && end !== null ? value.slice(start, end) : "";
+
+      if (k === "a") {
+        ta.select();
+        return true;
+      }
+
+      // 复制 / 剪切：写选中文本到系统剪贴板，剪切还要删选中。
+      if (k === "c" || k === "x") {
+        if (selected) {
+          void clipboardWriteViaVsCode(selected).catch(() => {
+            try { void navigator.clipboard?.writeText(selected); } catch { /* ignore */ }
+          });
+          if (k === "x") {
+            const next = value.slice(0, start!) + value.slice(end!);
+            setValue(next);
+            requestAnimationFrame(() => {
+              ta.selectionStart = ta.selectionEnd = start!;
+            });
+          }
+        }
+        return true;
+      }
+
+      // 粘贴：从系统剪贴板读文本插入。fire-and-forget，preventDefault 已同步拦住默认行为。
+      void (async () => {
+        let text = "";
+        try {
+          text = await clipboardReadViaVsCode();
+        } catch {
+          try { text = await navigator.clipboard?.readText() ?? ""; } catch { /* ignore */ }
+        }
+        if (!text) return;
+        const s = start ?? value.length;
+        const en = end ?? value.length;
+        const next = value.slice(0, s) + text + value.slice(en);
+        setValue(next);
+        const caret = s + text.length;
+        requestAnimationFrame(() => {
+          ta.selectionStart = ta.selectionEnd = caret;
+          ta.style.height = "auto";
+          ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+        });
+      })();
+      return true;
+    },
+    [VS_CODE_MODE, value, setValue],
+  );
+
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
+      // VSCode 模式剪贴键拦截必须在最前面，同步 preventDefault 才能拦住 VSCode 命令层。
+      if (handleVsCodeClipboardKeydown(e)) return;
+
       const nativeEvent = e.nativeEvent;
       const recentlyComposed = Date.now() - lastCompositionEndAtRef.current < COMPOSITION_END_ENTER_GRACE_MS;
       const isComposing =

@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { basename, dirname, join } from "path";
 import { promisify } from "util";
-import { fileURLToPath, pathToFileURL } from "url";
+import { fileURLToPath } from "url";
 import { NextResponse } from "next/server";
 import { resolveSessionPath } from "@/lib/session-reader";
 
@@ -233,9 +233,26 @@ async function exportSession(filePath: string, outputPath: string): Promise<void
   const packageDir = await getPiPackageDir();
   if (!packageDir) throw new Error("pi CLI not found");
 
-  const exporterUrl = pathToFileURL(join(packageDir, "dist", "core", "export-html", "index.js")).href;
-  const { exportFromFile } = (await import(exporterUrl)) as ExportHtmlModule;
-  await exportFromFile(filePath, outputPath);
+  // IMPORTANT: cannot use a plain `await import(exporterPath)` here.
+  //
+  // Next.js (standalone production build) runs API routes through a webpack
+  // runtime that intercepts dynamic `import()` / `require()` expressions.
+  // When the specifier is a runtime-computed value (an absolute path string),
+  // webpack cannot statically analyze it and replaces the call with an empty
+  // context stub that throws `Cannot find module '<path>'` for every value
+  // at runtime — even when the file exists on disk. dev mode bypasses webpack
+  // bundling so the bug is invisible there; it only manifests in the
+  // standalone server (which is exactly what the VSCode extension ships).
+  //
+  // `/* webpackIgnore: true */` instructs webpack to leave this `import()`
+  // call untouched, so Node's native ESM loader resolves the absolute path
+  // at runtime directly from disk. (createRequire + require() does NOT work
+  // here — webpack also intercepts that and rewrites it to the same stub.)
+  const exporterPath = join(packageDir, "dist", "core", "export-html", "index.js");
+  const exporterModule = (await import(
+    /* webpackIgnore: true */ exporterPath
+  )) as ExportHtmlModule;
+  await exporterModule.exportFromFile(filePath, outputPath);
 }
 
 export async function GET(

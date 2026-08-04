@@ -91,7 +91,7 @@ export class PiWebServer {
   private spawn(serverPath: string): Promise<string | undefined> {
     return new Promise((resolve) => {
       // PORT=0 让 OS 分配空闲端口；Next 启动后会打印监听地址。
-      const env = {
+      const env: any = {
         ...process.env,
         PORT: "0",
         HOSTNAME: "127.0.0.1",

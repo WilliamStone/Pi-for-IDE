@@ -818,7 +818,7 @@ function PairedDiffResult({ diff }: {
   );
 }
 
-function SplitPatchView({ text }: { text: string }) {
+export function SplitPatchView({ text }: { text: string }) {
   const { t } = useI18n();
   const files = useMemo(() => parseUnifiedPatch(text), [text]);
   if (!files) return <PatchTextView text={text} />;
@@ -874,7 +874,7 @@ function SplitPatchView({ text }: { text: string }) {
   );
 }
 
-function SplitDiffHeader({ title, side }: { title: string; side: "left" | "right" }) {
+export function SplitDiffHeader({ title, side }: { title: string; side: "left" | "right" }) {
   return (
     <div
       title={title}
@@ -892,7 +892,7 @@ function SplitDiffHeader({ title, side }: { title: string; side: "left" | "right
   );
 }
 
-function SplitDiffCellView({ cell, side }: { cell: SplitDiffCell; side: "left" | "right" }) {
+export function SplitDiffCellView({ cell, side }: { cell: SplitDiffCell; side: "left" | "right" }) {
   const bg =
     cell.type === "added"
       ? "rgba(34,197,94,0.12)"
@@ -957,7 +957,7 @@ function SplitDiffCellView({ cell, side }: { cell: SplitDiffCell; side: "left" |
   );
 }
 
-function PatchTextView({ text }: { text: string }) {
+export function PatchTextView({ text }: { text: string }) {
   const lines = text.split(/\r?\n/);
 
   return (

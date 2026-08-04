@@ -6,6 +6,8 @@ import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
 import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, splitFinalAssistantBlocks } from "@/lib/message-display";
 import { MessageView } from "./MessageView";
+import { FileReviewCard } from "./FileReviewCard";
+import { extractFileChanges } from "@/lib/file-changes";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
@@ -201,12 +203,12 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
-    notices, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
+    notices, addNotice, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
     isAutoModelSelection,
     agentPhase,
     isNew,
     sessionIdRef, messagesEndRef, scrollContainerRef,
-    lastUserMsgRef,
+    lastUserMsgRef, entryIdToTurnIdRef,
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
@@ -324,6 +326,20 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
 
   const isEmptyNew = isNew && messages.length === 0 && !streamState.isStreaming && !sessionBusy;
   const messageCwd = session?.cwd ?? newSessionCwd ?? undefined;
+
+  // VSCode 模式下文件回退：预先算出最近 3 轮 user message 的 entryId 集合，
+  // 用于决定每轮 FileReviewCard 的 canRevert。turn = 以 user message（或
+  // compaction 锚点）开头的一段。从后往前数最多3个锚点。
+  const recentRevertableEntryIds = useMemo<Set<string>>(() => {
+    if (!entryIdToTurnIdRef?.current || entryIdToTurnIdRef.current.size === 0) return new Set();
+    const ids: string[] = [];
+    for (let i = messages.length - 1; i >= 0 && ids.length < 3; i--) {
+      if (isGroupAnchor(messages[i]) && entryIds[i]) {
+        ids.push(entryIds[i]!);
+      }
+    }
+    return new Set(ids);
+  }, [messages, entryIds, entryIdToTurnIdRef]);
 
   const availableThinkingLevels = displayModelValue
     ? (modelThinkingLevels[`${displayModelValue.provider}:${displayModelValue.modelId}`] ?? null)
@@ -666,6 +682,32 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                 if (finalAnswerMessage) {
                   rendered.push(renderMessage(finalAssistantIdx, { messageOverride: finalAnswerMessage }));
                 }
+
+                // 在 final answer 后插入文件审查卡片。
+                // 只对已完成的 turn（非 live tail）渲染，提取本轮 messages 子数组。
+                {
+                  const turnMessages = messages.slice(userIdx, endIdx);
+                  const turnChanges = extractFileChanges(turnMessages, messageCwd);
+                  const userEntryId = entryIds[userIdx];
+                  const turnId = userEntryId
+                    ? (entryIdToTurnIdRef?.current.get(userEntryId) ?? userEntryId)
+                    : `turn-${userIdx}`;
+                  const canRevert = !!userEntryId && recentRevertableEntryIds.has(userEntryId);
+                  if (turnChanges.length > 0) {
+                    rendered.push(
+                      <FileReviewCard
+                        key={`file-review-${userIdx}`}
+                        turnId={turnId}
+                        changes={turnChanges}
+                        cwd={messageCwd}
+                        canRevert={canRevert}
+                        onOpenFile={onOpenFile}
+                        onNotice={(type, message) => addNotice?.({ type, message })}
+                      />
+                    );
+                  }
+                }
+
                 for (let renderIdx = finalAssistantIdx + 1; renderIdx < endIdx; renderIdx++) {
                   rendered.push(renderMessage(renderIdx));
                 }

@@ -35,46 +35,53 @@ function cpR(src, dest) {
 }
 
 function main() {
-  // 1. build
-  console.log("=== 1/3 构建 pi-web（standalone）===");
-  run("npm", ["run", "build"]);
+  // 0. build 前先移走旧产物，避免 Next 把 vscode-extension/resources/pi-web
+  // 下的源码副本当成项目文件编译（会导致 declare global 变量重复声明、
+  // 类型冲突 build 失败）。
+  const stashed = targetDir + ".__stash__";
+  if (fs.existsSync(stashed)) rmrf(stashed);
+  if (fs.existsSync(targetDir)) fs.renameSync(targetDir, stashed);
+  try {
+    // 1. build
+    console.log("=== 1/3 构建 pi-web（standalone）===");
+    // 显式清掉 TURBOPACK，避免与 next.config 的 webpack 模式冲突。
+    run("npm", ["run", "build"], { env: { ...process.env, TURBOPACK: "" } });
 
-  // 2. 定位 standalone 产物
-  const standaloneRoot = path.join(repoRoot, ".next", "standalone");
-  if (!fs.existsSync(standaloneRoot)) {
-    throw new Error("未找到 .next/standalone，next build 可能失败或未开启 standalone 模式");
+    // 2. 定位 standalone 产物
+    const standaloneRoot = path.join(repoRoot, ".next", "standalone");
+    if (!fs.existsSync(standaloneRoot)) {
+      throw new Error("未找到 .next/standalone，next build 可能失败或未开启 standalone 模式");
+    }
+    // standalone 嵌在 .next/standalone/<...>/pi-code，深度随 monorepo 而变，
+    // 用 find 兜底。
+    const serverJs = findFile(standaloneRoot, "server.js");
+    if (!serverJs) throw new Error("未在 standalone 中找到 server.js");
+    const serverDir = path.dirname(serverJs);
+    console.log(`standalone 服务器目录: ${path.relative(repoRoot, serverDir)}`);
+
+    // 3. 复制 standalone 产物
+    console.log("=== 2/3 复制 standalone 产物到扩展目录 ===");
+    rmrf(targetDir);
+    fs.mkdirSync(targetDir, { recursive: true });
+    cpR(serverDir, targetDir);
+
+    // 4. 复制 .next/static（standalone 不含）
+    console.log("=== 3/3 复制 .next/static ===");
+    const staticSrc = path.join(repoRoot, ".next", "static");
+    const staticDest = path.join(targetDir, ".next", "static");
+    if (fs.existsSync(staticSrc)) {
+      cpR(staticSrc, staticDest);
+    }
+
+    // 5. 补齐 pi-coding-agent / pi-ai 等运行时资源文件。
+    console.log("=== 补齐 @earendil-works 运行时资源 ===");
+    copyRuntimeAssets(repoRoot, targetDir);
+
+    console.log(`\n✓ 完成。${path.relative(repoRoot, targetDir)} 大小: ${du(targetDir)}`);
+  } finally {
+    // 无论 build 成功失败都清理 stash（旧产物已被新 build 覆盖，stash 不再需要）
+    if (fs.existsSync(stashed)) rmrf(stashed);
   }
-  // standalone 嵌在 .next/standalone/<...>/pi-code，深度随 monorepo 而变，
-  // 用 find 兜底。
-  const serverJs = findFile(standaloneRoot, "server.js");
-  if (!serverJs) throw new Error("未在 standalone 中找到 server.js");
-  const serverDir = path.dirname(serverJs);
-  console.log(`standalone 服务器目录: ${path.relative(repoRoot, serverDir)}`);
-
-  // 3. 清理旧产物并复制
-  console.log("=== 2/3 复制 standalone 产物到扩展目录 ===");
-  rmrf(targetDir);
-  fs.mkdirSync(targetDir, { recursive: true });
-  cpR(serverDir, targetDir);
-
-  // 4. 复制 .next/static（standalone 不含）
-  console.log("=== 3/3 复制 .next/static ===");
-  const staticSrc = path.join(repoRoot, ".next", "static");
-  const staticDest = path.join(targetDir, ".next", "static");
-  if (fs.existsSync(staticSrc)) {
-    cpR(staticSrc, staticDest);
-  }
-
-  // 5. 补齐 pi-coding-agent / pi-ai 等运行时资源文件。
-  // Next.js standalone 通过 import/require 追踪依赖，只复制被 require 的
-  // .js/.json，但这些 pi 包用 fs.readFile 动态读取 .json（如
-  // dist/modes/interactive/theme/dark.json），trace 追不到，会 ENOENT。
-  // 解决：把 @earendil-works 包的运行时资源（.json/.png/.html/.css）从
-  // 源 node_modules 覆盖进 standalone。
-  console.log("=== 补齐 @earendil-works 运行时资源 ===");
-  copyRuntimeAssets(repoRoot, targetDir);
-
-  console.log(`\n✓ 完成。${path.relative(repoRoot, targetDir)} 大小: ${du(targetDir)}`);
 }
 
 /**
@@ -93,10 +100,18 @@ function copyRuntimeAssets(srcRoot, destRoot) {
     let copied = 0;
     for (const file of walkFiles(srcDist)) {
       const ext = path.extname(file);
+      const rel = path.relative(srcDist, file);
       // 只复制运行时资源；.js 已被 Next trace 带上，.map/.ts 是开发期产物
       // （源码映射/类型声明），运行时不需要，跳过以减小体积。
-      if (![".json", ".png", ".html", ".css"].includes(ext)) continue;
-      const rel = path.relative(srcDist, file);
+      //
+      // 例外：export-html/ 下的 .js（index.js / tool-renderer.js /
+      // ansi-to-html.js）以及 vendor/*.min.js、template.js。
+      // 这些 .js 通过 `await import(fileUrl)` 或 readFileSync 动态加载，
+      // Next.js trace 追不到，standalone 里会缺失导致运行时 ENOENT。
+      const isExportHtmlJs =
+        ext === ".js" && rel.split(path.sep).includes("export-html");
+      if (![".json", ".png", ".html", ".css"].includes(ext) && !isExportHtmlJs)
+        continue;
       const dest = path.join(destDist, rel);
       fs.mkdirSync(path.dirname(dest), { recursive: true });
       fs.copyFileSync(file, dest);

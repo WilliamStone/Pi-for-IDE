@@ -13,6 +13,7 @@ import { normalizeToolCalls } from "@/lib/normalize";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { getToolNamesForPreset, type ToolEntry } from "@/lib/tool-presets";
 import type { SessionStatsInfo } from "@/lib/pi-types";
+import { isVsCodeMode, captureSnapshotViaVsCode } from "@/lib/vscode-bridge";
 
 export interface SessionData {
   sessionId: string;
@@ -393,6 +394,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const promptRunIdRef = useRef(0);
   const optimisticUserMessageKeyRef = useRef<string | null>(null);
 
+  // VSCode 模式下文件回退用的 turnId 管理：
+  //   pendingTurnIdRef: 本轮发 prompt 前生成的 turnId，等 pi 返回真实 entryId 后配对
+  //   entryIdToTurnId: user message entryId → 本轮 turnId（FileReviewCard 用）
+  const pendingTurnIdRef = useRef<string | null>(null);
+  const entryIdToTurnIdRef = useRef<Map<string, string>>(new Map());
+
   const setToolPresetState = opts.setToolPreset ?? setToolPreset;
 
   const currentModel = currentModelOverride ?? data?.context.model ?? pendingModel ?? null;
@@ -459,6 +466,21 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setActiveLeafId(d.leafId);
       setMessages(d.context.messages);
       setEntryIds(d.context.entryIds ?? []);
+      // VSCode 模式：把本轮 pendingTurnId 配对到 user message 的真实 entryId。
+      // entryIds 和 messages 是平行数组。找最后一条 user message 的 entryId。
+      const pendingTurnId = pendingTurnIdRef.current;
+      if (pendingTurnId && d.context.entryIds) {
+        for (let i = d.context.messages.length - 1; i >= 0; i--) {
+          if (d.context.messages[i].role === "user") {
+            const eid = d.context.entryIds[i];
+            if (eid) {
+              entryIdToTurnIdRef.current.set(eid, pendingTurnId);
+              pendingTurnIdRef.current = null;
+            }
+            break;
+          }
+        }
+      }
       setCurrentModelOverride(null);
       setError(null);
       if (d.context.thinkingLevel && d.context.thinkingLevel !== "off") {
@@ -1077,6 +1099,20 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       return;
     }
 
+    // VSCode 模式下，在 prompt 到达 AgentSession 之前建本轮文件快照。
+    // 必须同步等快照建完再发 prompt，否则 agent 可能已改文件、before 不准。
+    // turnId 用前端生成的 UUID，等 pi 返回真实 entryId 后在 message_end 配对。
+    const turnId = (crypto.randomUUID?.() ?? `turn-${Date.now()}`);
+    const snapshotCwd = newSessionCwd ?? session?.cwd;
+    if (isVsCodeMode() && snapshotCwd) {
+      try {
+        await captureSnapshotViaVsCode(turnId, snapshotCwd);
+      } catch {
+        // 快照失败不阻断发消息，只是本轮回退按钮会不可用。
+      }
+      pendingTurnIdRef.current = turnId;
+    }
+
     const promptRunId = promptRunIdRef.current + 1;
 
     const imageBlocks = images?.map((img) => ({ type: "image" as const, source: { type: "base64" as const, media_type: img.mimeType, data: img.data } }));
@@ -1680,13 +1716,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
-    notices: noticeState.visible, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
+    notices: noticeState.visible, addNotice, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
     isAutoModelSelection: isNew && newSessionModel === null,
     agentPhase,
     isNew,
     // Refs
     sessionIdRef, eventSourceRef, messagesEndRef, scrollContainerRef,
     lastUserMsgRef, pendingScrollToUserRef, initialScrollDoneRef,
+    entryIdToTurnIdRef,
     // Actions
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
