@@ -75,6 +75,11 @@ export interface EmbedOpenInBrowserRequest {
   url: string;
 }
 
+/** 能力握手：页面询问宿主支持哪些请求/通知 kind，按能力优雅降级。 */
+export interface EmbedGetCapabilitiesRequest {
+  kind: "getCapabilities";
+}
+
 /**
  * 在新一轮 prompt 发出前，让宿主为本轮建一个文件快照。
  * 宿主只读 git status（不创建任何 git 对象）+ 读磁盘文件，存内存。
@@ -139,7 +144,8 @@ export type EmbedRequest =
   | EmbedShowDiffRequest
   | EmbedRevertFilesRequest
   | EmbedRevertEditRequest
-  | EmbedOpenInBrowserRequest;
+  | EmbedOpenInBrowserRequest
+  | EmbedGetCapabilitiesRequest;
 
 export interface EmbedCompleteAtResponse {
   kind: "completeAt";
@@ -187,6 +193,15 @@ export interface EmbedRevertEditResponse {
   message?: string;
 }
 
+export interface EmbedGetCapabilitiesResponse {
+  kind: "getCapabilities";
+  /**
+   * 宿主声明支持的能力 kind 列表（请求 kind + 宿主可推送的通知 kind）。
+   * 缺省/缺失字段表示旧版宿主（未实现本接口），按全部支持处理以向后兼容。
+   */
+  capabilities?: string[];
+}
+
 export type EmbedResponse =
   | EmbedCompleteAtResponse
   | EmbedReadFileResponse
@@ -195,7 +210,8 @@ export type EmbedResponse =
   | EmbedCaptureSnapshotResponse
   | EmbedGetBeforeContentResponse
   | EmbedRevertFilesResponse
-  | EmbedRevertEditResponse;
+  | EmbedRevertEditResponse
+  | EmbedGetCapabilitiesResponse;
 
 const EMBED_QUERY_KEY = "embed";
 const MESSAGE_SOURCE_PAGE = "embed";
@@ -335,6 +351,52 @@ export function onEmbedHostNotification(listener: NotificationListener): () => v
   ensureMessageListener();
   notificationListeners.add(listener);
   return () => notificationListeners.delete(listener);
+}
+
+// ---------------------------------------------------------------------------
+// 能力握手
+//
+// 宿主在第一次请求时若不认识 "getCapabilities" 会按未知 kind 返回空对象或
+// 超时——此时 capabilitiesCache 置为 null，含义是"旧版宿主，按全量支持处理"
+// （等价引入握手前的行为，避免新页面配旧宿主时功能回归）。显式返回
+// capabilities: [] 才表示无任何能力。
+// ---------------------------------------------------------------------------
+
+/** undefined = 尚未握手；null = 旧版宿主（全支持）；Set = 显式能力集。 */
+let capabilitiesCache: Set<string> | null | undefined;
+let capabilitiesPromise: Promise<Set<string> | null> | null = null;
+
+/** 向宿主握手查询能力集；返回 null 表示旧版宿主（视为全量支持）。 */
+export function getHostCapabilities(): Promise<Set<string> | null> {
+  if (!isEmbedMode()) return Promise.resolve(new Set());
+  if (capabilitiesCache !== undefined) return Promise.resolve(capabilitiesCache);
+  capabilitiesPromise ??= sendEmbedRequest<EmbedGetCapabilitiesResponse>(
+    { kind: "getCapabilities" },
+    2000,
+  )
+    .then((res) => {
+      capabilitiesCache = Array.isArray(res?.capabilities) ? new Set(res.capabilities) : null;
+      return capabilitiesCache;
+    })
+    .catch(() => {
+      capabilitiesCache = null;
+      return capabilitiesCache;
+    });
+  return capabilitiesPromise;
+}
+
+/**
+ * 宿主是否支持某能力（请求 kind 或通知 kind）。握手未返回时按"支持"处理
+ * （等价旧版全量行为），避免页面加载瞬间功能闪烁。
+ */
+export function hasCapability(kind: string): boolean {
+  if (!isEmbedMode()) return false;
+  if (capabilitiesCache === undefined) {
+    void getHostCapabilities();
+    return true;
+  }
+  if (capabilitiesCache === null) return true;
+  return capabilitiesCache.has(kind);
 }
 
 /**

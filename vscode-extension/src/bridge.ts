@@ -80,6 +80,8 @@ export class Bridge {
         return await this.revertFiles(request);
       case "revertEdit":
         return await this.revertEdit(request);
+      case "getCapabilities":
+        return { kind: "getCapabilities", capabilities: HOST_CAPABILITIES };
       default:
         return {};
     }
@@ -602,7 +604,40 @@ type BridgeRequest =
   | ShowDiffRequest
   | RevertFilesRequest
   | RevertEditRequest
-  | OpenInBrowserRequest;
+  | OpenInBrowserRequest
+  | GetCapabilitiesRequest;
+
+/**
+ * 本宿主实现的能力清单：桥请求 kind + 宿主可推送的通知 kind
+ * （mention / activeEditorChanged）。页面据此按能力降级；
+ * 缺省该接口的旧版宿主被页面视为全量支持。
+ */
+const HOST_CAPABILITIES = [
+  "openFile",
+  "completeAt",
+  "readFile",
+  "notify",
+  "clipboardRead",
+  "clipboardWrite",
+  "openInBrowser",
+  "getActiveEditor",
+  "captureSnapshot",
+  "getBeforeContent",
+  "showDiff",
+  "revertFiles",
+  "revertEdit",
+  "mention",
+  "activeEditorChanged",
+] as const;
+
+interface GetCapabilitiesRequest {
+  kind: "getCapabilities";
+}
+
+interface GetCapabilitiesResponse {
+  kind: "getCapabilities";
+  capabilities: string[];
+}
 
 interface CompleteAtResponse {
   kind: "completeAt";
