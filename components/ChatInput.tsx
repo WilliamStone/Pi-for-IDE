@@ -16,9 +16,9 @@ import { FolderIcon, getFileIcon } from "./FileIcons";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
 import { isEmbedMode } from "@/lib/embed/bridge";
-import { useEmbedAtCompletion } from "./embed/use-embed-at-completion";
-import { useEmbedClipboardKeys } from "./embed/use-embed-clipboard-keys";
-import { ActiveFileHint } from "./embed/active-file-hint";
+import { useEmbedAtCompletion } from "./embed/useEmbedAtCompletion";
+import { useEmbedClipboardKeys } from "./embed/useEmbedClipboardKeys";
+import { ActiveFileHint } from "./embed/ActiveFileHint";
 
 export interface AttachedImage {
   data: string;   // base64, no prefix

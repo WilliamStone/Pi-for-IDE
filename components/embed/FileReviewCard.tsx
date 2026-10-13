@@ -2,8 +2,8 @@
 
 import { memo, useState, useCallback, useMemo } from "react";
 import { useI18n } from "@/hooks/useI18n";
-import { getFileIcon } from "./FileIcons";
-import { SplitPatchView, PatchTextView } from "./MessageView";
+import { getFileIcon } from "../FileIcons";
+import { SplitPatchView, PatchTextView } from "../MessageView";
 import { isEmbedMode, showDiffViaHost, getBeforeContentViaHost } from "@/lib/embed/bridge";
 import { encodeFilePathForApi } from "@/lib/file-paths";
 import type { FileChange } from "@/lib/file-changes";
@@ -39,7 +39,6 @@ function FileReviewCardImpl({ turnId, changes, cwd, onOpenFile }: Props) {
 
   const hasFiles = changes.some((c) => c.path);
   const hasBashUntracked = changes.some((c) => c.kind === "bash" && !c.path);
-  if (!hasFiles && !hasBashUntracked) return null;
 
   const fileChanges = changes.filter((c) => c.path);
   const fileCount = fileChanges.length;
@@ -80,6 +79,8 @@ function FileReviewCardImpl({ turnId, changes, cwd, onOpenFile }: Props) {
     e.stopPropagation();
     onOpenFile?.(change.path);
   }, [onOpenFile]);
+
+  if (!hasFiles && !hasBashUntracked) return null;
 
   return (
     <div style={{
@@ -123,7 +124,6 @@ function FileReviewCardImpl({ turnId, changes, cwd, onOpenFile }: Props) {
               key={`${change.path}-${i}`}
               change={change}
               isOpen={openDiffPath === change.path}
-              inEmbed={inEmbed}
               onClick={() => handleFileClick(change)}
               onOpenInEditor={inEmbed ? (e) => void handleOpenInEditor(change, e) : undefined}
               onOpenInViewer={!inEmbed ? (e) => handleOpenInViewer(change, e) : undefined}
@@ -149,14 +149,12 @@ function FileReviewCardImpl({ turnId, changes, cwd, onOpenFile }: Props) {
 const FileReviewRow = memo(function FileReviewRow({
   change,
   isOpen,
-  inEmbed,
   onClick,
   onOpenInEditor,
   onOpenInViewer,
 }: {
   change: FileChange;
   isOpen: boolean;
-  inEmbed: boolean;
   onClick: () => void;
   onOpenInEditor?: (e: React.MouseEvent) => void;
   onOpenInViewer?: (e: React.MouseEvent) => void;

@@ -3,6 +3,7 @@
 import { memo, useState, useRef, useEffect, useMemo } from "react";
 import { MarkdownBody } from "./MarkdownBody";
 import { copyText } from "@/lib/clipboard";
+import { TurnRevertButton } from "./embed/TurnRevertButton";
 import { useI18n } from "@/hooks/useI18n";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getAssistantErrorMessage, isEmptyThinkingBlock } from "@/lib/message-display";
@@ -163,7 +164,6 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
   const { t } = useI18n();
   const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [confirming, setConfirming] = useState(false);
 
   const content =
     typeof message.content === "string"
@@ -196,73 +196,9 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
       onMouseLeave={() => setHovered(false)}
     >
       <div style={{ display: "flex", alignItems: "flex-end", gap: 6, maxWidth: "85%" }}>
-        {/* 左侧：回退按钮（hover 显示，固定宽度占位避免布局跳动） */}
+        {/* 左侧：回退按钮（embed 模式；hover 显示，固定宽度占位避免布局跳动） */}
         {canRevertTurn && onRevertTurn && entryId && (
-          <div style={{
-            width: 72, flexShrink: 0,
-            display: "flex", flexDirection: "column", alignItems: "flex-start",
-            gap: 4, paddingBottom: 2,
-          }}>
-            {confirming ? (
-              <>
-                <span style={{ fontSize: 10, color: "var(--text-dim)", whiteSpace: "nowrap" }}>
-                  {t("chat.revertConfirm")}
-                </span>
-                <span style={{ display: "flex", gap: 4 }}>
-                  <button
-                    onClick={() => {
-                      setConfirming(false);
-                      onRevertTurn(entryId);
-                    }}
-                    disabled={revertingTurn}
-                    title={t("chat.revertConfirmYes")}
-                    style={{
-                      padding: "2px 7px", height: 20,
-                      background: "var(--accent)", border: "none",
-                      borderRadius: 4, color: "#fff",
-                      cursor: revertingTurn ? "not-allowed" : "pointer",
-                      fontSize: 10, fontWeight: 500, whiteSpace: "nowrap",
-                    }}
-                  >{t("chat.revertConfirmYes")}</button>
-                  <button
-                    onClick={() => setConfirming(false)}
-                    disabled={revertingTurn}
-                    title={t("chat.revertConfirmNo")}
-                    style={{
-                      padding: "2px 7px", height: 20,
-                      background: "none", border: "1px solid var(--border)",
-                      borderRadius: 4, color: "var(--text-muted)",
-                      cursor: "pointer", fontSize: 10, whiteSpace: "nowrap",
-                    }}
-                  >{t("chat.revertConfirmNo")}</button>
-                </span>
-              </>
-            ) : (
-              <button
-                onClick={() => setConfirming(true)}
-                title={t("chat.revertTurnTitle")}
-                style={{
-                  display: "flex", alignItems: "center", gap: 4,
-                  padding: "3px 8px", height: 22,
-                  background: "none", border: "none",
-                  borderRadius: 5,
-                  color: "var(--text-dim)",
-                  cursor: "pointer", fontSize: 11, fontWeight: 400,
-                  whiteSpace: "nowrap",
-                  opacity: hovered ? 1 : 0,
-                  transition: "opacity 0.12s",
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; }}
-              >
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="9 14 4 9 9 4" />
-                  <path d="M20 20v-7a4 4 0 0 0-4-4H4" />
-                </svg>
-                {t("chat.revertTurn")}
-              </button>
-            )}
-          </div>
+          <TurnRevertButton entryId={entryId} reverting={revertingTurn} onRevert={onRevertTurn} hovered={hovered} />
         )}
         <div
           style={{

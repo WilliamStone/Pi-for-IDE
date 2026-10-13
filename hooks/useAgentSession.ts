@@ -13,7 +13,7 @@ import { normalizeToolCalls } from "@/lib/normalize";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { getToolNamesForPreset, type ToolEntry } from "@/lib/tool-presets";
 import type { SessionStatsInfo } from "@/lib/pi-types";
-import { useActiveFile } from "@/components/embed/use-active-file";
+import { useActiveFile } from "@/components/embed/useActiveFile";
 import { TurnSnapshotTracker } from "@/lib/embed/turn-snapshot";
 
 export interface SessionData {
