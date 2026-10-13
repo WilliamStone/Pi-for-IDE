@@ -1,3 +1,7 @@
+import { exec } from "child_process";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
 import * as vscode from "vscode";
 
 // ---------------------------------------------------------------------
@@ -106,7 +110,7 @@ export class Bridge {
     const cwd = req.cwd;
     // Find the workspace folder that matches the requested cwd. If the cwd is
     // outside any workspace, fall back to the first workspace folder.
-    let targetFolder = workspace.find((f) => cwd.startsWith(f.uri.fsPath)) ?? workspace[0];
+    const targetFolder = workspace.find((f) => cwd.startsWith(f.uri.fsPath)) ?? workspace[0];
 
     this.logger(
       `completeAt: cwd=${cwd}, query=${JSON.stringify(req.query)}, ` +
@@ -435,7 +439,6 @@ export class Bridge {
 
   /** 运行 git 子进程（仅读操作）。 */
   private runGit(cwd: string, args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-    const { exec } = require("child_process") as typeof import("child_process");
     return new Promise((resolve) => {
       exec(
         `git ${args.map((a) => `"${a.replace(/"/g, '\\"')}"`).join(" ")}`,
@@ -480,10 +483,7 @@ export class Bridge {
   private diffCacheDir: string | undefined;
   private async ensureDiffCacheDir(): Promise<string> {
     if (this.diffCacheDir) return this.diffCacheDir;
-    const os = require("os");
-    const path = require("path");
     const dir = path.join(os.tmpdir(), "pi-web-diff-cache");
-    const fs = require("fs");
     await fs.promises.mkdir(dir, { recursive: true });
     this.diffCacheDir = dir;
     return dir;
@@ -632,11 +632,6 @@ const HOST_CAPABILITIES = [
 
 interface GetCapabilitiesRequest {
   kind: "getCapabilities";
-}
-
-interface GetCapabilitiesResponse {
-  kind: "getCapabilities";
-  capabilities: string[];
 }
 
 interface CompleteAtResponse {

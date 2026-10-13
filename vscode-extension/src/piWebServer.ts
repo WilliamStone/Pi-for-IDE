@@ -138,7 +138,7 @@ export class PiWebServer {
     return new Promise((resolve) => {
       // 固定端口启动；若启动瞬间被抢占，Next 会打印实际地址或直接退出，
       // 由下方的 stdout 解析 / exit 处理兜底。
-      const env: any = {
+      const env: NodeJS.ProcessEnv = {
         ...process.env,
         PORT: String(port),
         HOSTNAME: "127.0.0.1",
