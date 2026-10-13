@@ -5,6 +5,7 @@ import { randomUUID } from "crypto";
 import { existsSync, realpathSync, writeFileSync } from "fs";
 import { resolve } from "path";
 import { validateAgentImages } from "./image-attachments";
+import { applyActiveFilesHint, stripActiveFilesHint } from "./embed/active-files";
 import { invalidateModelsCache } from "./models-cache";
 import { resolveVisibleModels, selectInitialModelScope } from "./model-scope";
 import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
@@ -268,19 +269,6 @@ export class AgentSessionWrapper {
     }
   }
 
-  // 隐藏的 active-files 注入 marker。prompt 前注入 system prompt，get_state / UI 展示前剥掉。
-  private static readonly ACTIVE_FILES_MARK_START = "\n\n<!-- pi-web:active-files -->\n";
-  private static readonly ACTIVE_FILES_MARK_END = "\n<!-- /pi-web:active-files -->";
-
-  /** 从 systemPrompt 里剥掉 active-files 注入段，返回纯用户可见版本。 */
-  private stripActiveFilesHint(systemPrompt: string): string {
-    const startIdx = systemPrompt.indexOf(AgentSessionWrapper.ACTIVE_FILES_MARK_START);
-    if (startIdx === -1) return systemPrompt;
-    const endIdx = systemPrompt.indexOf(AgentSessionWrapper.ACTIVE_FILES_MARK_END, startIdx);
-    if (endIdx === -1) return systemPrompt;
-    return systemPrompt.slice(0, startIdx) + systemPrompt.slice(endIdx + AgentSessionWrapper.ACTIVE_FILES_MARK_END.length);
-  }
-
   private emit(event: AgentEvent): void {
     for (const l of this.listeners) l(event);
   }
@@ -350,37 +338,9 @@ export class AgentSessionWrapper {
         this.promptRunning = true;
         notifyRunningChange();
 
-        // embed 模式：把宿主当前活动编辑器文件注入 system prompt（隐藏提示词）。
-        // LLM 可见、UI 不显示、不落盘到 session 文件。用 marker 包裹，下次 prompt
-        // 前先把旧注入剥掉再拼新的，避免 setActiveTools/reload 重建 base 后残留。
-        const activeFiles = command.activeFiles as string[] | undefined;
-        const innerAny = this.inner as unknown as {
-          _baseSystemPrompt?: string;
-          agent: { state: { systemPrompt: string } };
-        };
-        const MARK_START = AgentSessionWrapper.ACTIVE_FILES_MARK_START;
-        const MARK_END = AgentSessionWrapper.ACTIVE_FILES_MARK_END;
-        let base = innerAny._baseSystemPrompt ?? "";
-        const startIdx = base.indexOf(MARK_START);
-        if (startIdx !== -1) {
-          const endIdx = base.indexOf(MARK_END, startIdx);
-          if (endIdx !== -1) {
-            base = base.slice(0, startIdx) + base.slice(endIdx + MARK_END.length);
-          }
-        }
-        if (activeFiles && activeFiles.length > 0) {
-          const hint =
-            MARK_START +
-            "[宿主当前打开的编辑器文件]\n" +
-            activeFiles.join("\n") +
-            "\n[说明：若你的修改目标涉及上述文件，优先直接修改这些正在打开的文件。]" +
-            MARK_END;
-          base += hint;
-        }
-        if (innerAny._baseSystemPrompt !== undefined) {
-          innerAny._baseSystemPrompt = base;
-          innerAny.agent.state.systemPrompt = base;
-        }
+        // embed 模式：把宿主当前活动编辑器文件注入 system prompt（隐藏提示词，
+        // 经 lib/embed/active-files.ts 触碰 pi SDK 内部字段）。
+        applyActiveFilesHint(this.inner, command.activeFiles as string[] | undefined);
 
         this.inner.prompt(command.message as string, {
           ...(promptImages?.length ? { images: promptImages } : {}),
@@ -430,7 +390,7 @@ export class AgentSessionWrapper {
             ? { percent: contextUsage.percent, contextWindow: contextUsage.contextWindow, tokens: contextUsage.tokens }
             : null,
           // 剥掉隐藏的 active-files 注入段（marker 包裹），避免 UI 的系统提示词面板泄露
-          systemPrompt: this.stripActiveFilesHint(this.inner.agent.state?.systemPrompt ?? ""),
+          systemPrompt: stripActiveFilesHint(this.inner.agent.state?.systemPrompt ?? ""),
           thinkingLevel: this.inner.agent.state?.thinkingLevel ?? "off",
           extensionStatuses: this.getExtensionStatuses(),
           extensionWidgets: this.getExtensionWidgets(),
