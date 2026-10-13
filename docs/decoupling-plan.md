@@ -41,28 +41,28 @@
 - **功能性 delta 与改名/打包噪音分离**："Pi Web→PI Code" 类字符串改动剥成独立的 `branding` 提交/patch（或放弃改名），不与功能 delta 混杂。
 - i18n 新字符串放独立文件运行时合并，不改上游 messages 文件。
 
-### 3. 单仓多血统
+### 3. 单仓多血统 + 合并模型（不改写历史）
 
 不加新 fork。remote/branch 表达全部关系：
 
 ```
 remotes:
-  origin    = WilliamStone/pi-code      （本仓）
-  upstream  = wangjinxin613/pi-code     （扩展代码来源；若复活可合并）
-  agegr     = agegr/pi-web              （pi-web 上游）
+  origin        = WilliamStone/pi-code   （本仓）
+  upstream      = wangjinxin613/pi-code  （扩展代码来源；若复活可合并，降为"参考"）
+  agegr-pi-web  = agegr/pi-web           （pi-web 上游，tag vX.Y.Z 齐全）
 
 branches:
-  main          = 产品分支：embed 抽象层 + vscode-extension/ + 打过 delta 的 pi-web 树
-  delta/embed   = 可 rebase 的 delta 提交序列，建在 pi-web 上游 tag 上
-                  （上游有 vX.Y.Z 形式的 tag；当前基线 v0.8.5 = cbb080d）
+  main = 产品分支：embed 抽象层 + vscode-extension/ + 打过 delta 的 pi-web 树
 ```
 
-- `upstream/main` 远程跟踪分支即承担"pi-code-upstream"角色，不另建本地分支。
+- **delta = 净差异，不是提交序列**：`git diff v0.8.5..main`（过滤产品侧路径后）即当前 delta。重构、修复一律以普通新提交推进，**永不改写已推送历史**。
+- 上游同步 = `git merge <tag>`：三方树合并，冲突一次解决；冲突面由原则 2（最小面）控制，不靠逐提交重放。
+- `upstream/main` 远程跟踪分支即承担"pi-code-upstream"角色，不另建本地分支；抽象层落地后与 pi-code 代码基实质脱离，跟踪降为参考。
 - 向 agegr/pi-web 上游化 PR 时，从本仓分支直接发起（同网络内合法）。
 
-### 4. delta 的可移植性（patch 队列形态）
+### 4. delta 的可移植性（patch 导出形态）
 
-delta 维护为按功能切分的提交序列；`git format-patch` 可导出为 `patches/*.patch`，apply 到**任何 pi-web 系 checkout**（含 omp-web）。
+delta 即 `git diff <base-tag>..main` 的净差异；`scripts/export-patches.sh` 生成 patch，apply 到**任何 pi-web 系 checkout**（含 omp-web）。
 
 - omp-web 定位：**支持而非维护**——提供 apply 通道，冲突由使用方解决，不承诺兼容。
 - 导出 patch 时过滤 `vscode-extension/`、`docs/decoupling-plan.md` 等产品侧路径。
@@ -73,10 +73,10 @@ delta 维护为按功能切分的提交序列；`git format-patch` 可导出为 
 
 ```
 scripts/sync-upstream.sh <vX.Y.Z>
-  = git fetch agegr
-  + git rebase --onto <new-tag> <old-tag> delta/embed
+  = git fetch agegr-pi-web
+  + git merge <new-tag>          # 合并进 main，冲突一次解决
   + npm install + tsc --noEmit + lint
-scripts/export-patches.sh   → patches/*.patch
+scripts/export-patches.sh   → patches/*.patch   （git diff <base>..main 过滤产品路径）
 scripts/apply-to.sh <dir>   → 把 patch 应用到指定 checkout（omp-web 等）
 ```
 
@@ -94,7 +94,7 @@ scripts/apply-to.sh <dir>   → 把 patch 应用到指定 checkout（omp-web 等
 
 ## 执行步骤
 
-1. **delta 瘦身重构**：剥离改名噪音；嵌入侧代码收进 `lib/embed/`、`components/embed/`；上游文件插入点单行化；拆成按功能切分的提交序列（建在 `delta/embed`）。
+1. **delta 瘦身重构**：剥离改名噪音；嵌入侧代码收进 `lib/embed/`、`components/embed/`；协议去 vscode 化（`?embed=<host>`、能力握手）；上游文件插入点单行化。前进式提交在 `main` 上进行，不改写历史。
 2. **扩展侧改造**：`piWebServer.ts` 实现外部 pi-web 解析（`piWeb.executablePath` → PATH → `npm root -g` → `npx -y <pkg>` 兜底，自动下载保留"装扩展即用"体验）；能力检测端点；去掉 `package:pi-web` 打包步骤。
 3. **同步上游**：`sync-upstream` 脚本落地，rebase 到最新 release 提交，回归测试。
 4. **发布形态**：本仓 pi-web 以独立包名发 npm（包名待定）；文档更新安装/升级说明。
