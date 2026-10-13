@@ -1,0 +1,58 @@
+// embed 模式的界面文案——独立于上游 messages/{en,zh-CN}.ts 维护，
+// 在 lib/i18n/registry.ts 注册时合并，避免在上游翻译文件里制造冲突面。
+
+/** embed 功能的英文字符串。 */
+export const embedEnMessages: Record<string, string> = {
+  "system.openInBrowser": "Open in Browser",
+  "chat.fileReview": "File review",
+  "chat.fileReviewCount": "{count} file(s)",
+  "chat.fileReviewEmpty": "No file changes this turn",
+  "chat.fileReviewExpand": "Expand",
+  "chat.fileReviewCollapse": "Collapse",
+  "chat.fileReviewClickDiff": "Click to view diff",
+  "chat.fileReviewBashUntracked": "Bash commands may have changed files (untracked)",
+  "chat.fileReviewNoDiff": "No diff text available for this turn (edit tool returned no details)",
+  "chat.fileReviewNoSnapshot": "No snapshot (non-git or not backed up)",
+  "chat.fileReviewDiffFailed": "Could not retrieve diff",
+  "chat.revertTurn": "Revert this turn",
+  "chat.revertTurnTitle": "Revert this turn: restore changed files and delete this turn's conversation records",
+  "chat.revertConfirm": "Confirm revert?",
+  "chat.revertConfirmYes": "Confirm",
+  "chat.revertConfirmNo": "Cancel",
+  "chat.revertOk": "Revert",
+  "chat.revertCancel": "Cancel",
+  "chat.revertSuccess": "Reverted {count} file(s)",
+  "chat.revertFailed": "Revert failed: {message}",
+  "chat.revertWebModeUnsupported": "Revert not supported in Web mode (requires host snapshot)",
+  "chat.revertUnavailable": "No snapshot available (older than 3 turns or non-git)",
+  "chat.activeFileLabel": "Open now: ",
+  "chat.activeFileTitle": "This file is open in the host editor — the AI will prioritize modifying it directly",
+};
+
+/** embed 功能的简体中文字符串。 */
+export const embedZhCNMessages: Record<string, string> = {
+  "system.openInBrowser": "浏览器中打开",
+  "chat.fileReview": "文件审查",
+  "chat.fileReviewCount": "{count} 个文件",
+  "chat.fileReviewEmpty": "本轮无文件改动",
+  "chat.fileReviewExpand": "展开",
+  "chat.fileReviewCollapse": "收起",
+  "chat.fileReviewClickDiff": "点击查看 diff",
+  "chat.fileReviewBashUntracked": "本轮可能有 bash 命令改动未追踪",
+  "chat.fileReviewNoDiff": "本轮无 diff 文本可显示（edit 工具未返回详情）",
+  "chat.fileReviewNoSnapshot": "无快照（非 git 或本轮前未备份）",
+  "chat.fileReviewDiffFailed": "无法获取 diff",
+  "chat.revertTurn": "回退此轮",
+  "chat.revertTurnTitle": "回退此轮：恢复改动的文件并删除该轮对话记录",
+  "chat.revertConfirm": "确认回退？",
+  "chat.revertConfirmYes": "确认",
+  "chat.revertConfirmNo": "取消",
+  "chat.revertOk": "回退",
+  "chat.revertCancel": "取消",
+  "chat.revertSuccess": "已回退 {count} 个文件",
+  "chat.revertFailed": "回退失败：{message}",
+  "chat.revertWebModeUnsupported": "Web 模式不支持回退（需要宿主快照能力）",
+  "chat.revertUnavailable": "无可用快照（可能已超过 3 轮或非 git 仓库）",
+  "chat.activeFileLabel": "当前打开：",
+  "chat.activeFileTitle": "宿主编辑器正在打开此文件——AI 会优先考虑直接修改它",
+};

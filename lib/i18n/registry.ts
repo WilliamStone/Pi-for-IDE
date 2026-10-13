@@ -1,5 +1,6 @@
 import { enLocale } from "./messages/en";
 import { zhCNLocale } from "./messages/zh-CN";
+import { embedEnMessages, embedZhCNMessages } from "../embed/messages";
 import type { Locale, LocalePlugin } from "./types";
 
 const localePlugins = new Map<string, LocalePlugin>();
@@ -39,5 +40,6 @@ export function resolveBrowserLocale(languages: readonly string[]): Locale {
   return "en";
 }
 
-registerLocale(enLocale);
-registerLocale(zhCNLocale);
+// 内置语言包注册。embed 功能文案独立维护在 lib/embed/messages.ts，注册时合并。
+registerLocale({ ...enLocale, messages: { ...enLocale.messages, ...embedEnMessages } });
+registerLocale({ ...zhCNLocale, messages: { ...zhCNLocale.messages, ...embedZhCNMessages } });
