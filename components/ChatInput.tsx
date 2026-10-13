@@ -15,7 +15,10 @@ import {
 import { FolderIcon, getFileIcon } from "./FileIcons";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
-import { isEmbedMode, sendEmbedRequest, clipboardReadViaHost, clipboardWriteViaHost } from "@/lib/embed/bridge";
+import { isEmbedMode } from "@/lib/embed/bridge";
+import { useEmbedAtCompletion } from "./embed/use-embed-at-completion";
+import { useEmbedClipboardKeys } from "./embed/use-embed-clipboard-keys";
+import { ActiveFileHint } from "./embed/active-file-hint";
 
 export interface AttachedImage {
   data: string;   // base64, no prefix
@@ -619,46 +622,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     && (needsServerSearch || EMBED_MODE);
   const atMatches: FileIndexEntry[] = serverResultInUse ? atServerResult.matches : atLocalMatches;
 
-  // Embed mode: when the @ token is active, ask the embed host for file
-  // completions. The host ranks against its own file index (workspace
-  // + open editors) which is always current. Results replace local matches
-  // while the token is open; closing the token clears them.
-  useEffect(() => {
-    const tokenActive = atQuery !== null;
-    if (!EMBED_MODE || !tokenActive || !cwd || atQueryText === null) {
-      if (EMBED_MODE && atServerResult !== null) setAtServerResult(null);
-      return;
-    }
-    const fetchCwd = cwd;
-    const query = atQueryText;
-    let cancelled = false;
-    const timer = setTimeout(() => {
-      sendEmbedRequest<{ matches?: Array<{ path: string; isDir: boolean }> }>(
-        { kind: "completeAt", cwd: fetchCwd, query },
-        4000,
-      )
-        .then((res) => {
-          if (cancelled) return;
-          const matches: FileIndexEntry[] = (res?.matches ?? []).map((m) => ({
-            path: m.path,
-            name: m.path.split("/").pop() ?? m.path,
-            isDir: m.isDir,
-          }));
-          setAtServerResult({ cwd: fetchCwd, query, matches });
-        })
-        .catch((err) => {
-          if (cancelled) return;
-          // Bridge failed (timeout / no workspace) — surface an empty result so
-          // the menu doesn't keep showing stale local matches.
-          console.warn("[pi-web] @-complete bridge failed:", err);
-          setAtServerResult({ cwd: fetchCwd, query, matches: [] });
-        });
-    }, 120);
-    return () => { cancelled = true; clearTimeout(timer); };
-    // NOTE: atServerResult is intentionally excluded from deps — including it
-    // would cause an infinite loop: response → setAtServerResult → effect
-    // re-runs → sends another request → response → …
-  }, [EMBED_MODE, atQuery, atQueryText, cwd]);
+  // Embed 模式：@ token 激活时向宿主请求文件补全（宿主文件索引总是最新）。
+  useEmbedAtCompletion({ cwd, atQuery, atQueryText, atServerResult, setAtServerResult });
 
   // Open/reset the menu whenever the @token appears or changes (mirrors the
   // slash menu: Escape closes it, the next keystroke re-opens it).
@@ -855,74 +820,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       : Math.max(0, slashActiveIndex - 1);
   }, [filteredSlashCommands.length, slashActiveIndex]);
 
-  // embed 模式下跨源 iframe 的 Cmd/Ctrl+C/V/X/A 默认行为可能被宿主的
-  // 命令层拦截，到不了 textarea。这里在 keydown 阶段截住，preventDefault
-  // 后用宿主剪贴板桥读写系统剪贴板 + 手动操作 textarea 选区，绕过拦截。
-  const handleEmbedClipboardKeydown = useCallback(
-    (e: KeyboardEvent<HTMLTextAreaElement>): boolean => {
-      if (!EMBED_MODE) return false;
-      const meta = e.metaKey || e.ctrlKey;
-      if (!meta) return false;
-      const k = e.key.toLowerCase();
-      if (k !== "c" && k !== "v" && k !== "x" && k !== "a") return false;
-      const ta = e.currentTarget;
-      // 输入法组合中不拦截，避免打断中文输入。
-      if (isComposingRef.current || e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return false;
-
-      // 同步截住：不让宿主命令层拿走这个键。
-      e.preventDefault();
-      e.stopPropagation();
-
-      const start = ta.selectionStart;
-      const end = ta.selectionEnd;
-      const selected = start !== null && end !== null ? value.slice(start, end) : "";
-
-      if (k === "a") {
-        ta.select();
-        return true;
-      }
-
-      // 复制 / 剪切：写选中文本到系统剪贴板，剪切还要删选中。
-      if (k === "c" || k === "x") {
-        if (selected) {
-          void clipboardWriteViaHost(selected).catch(() => {
-            try { void navigator.clipboard?.writeText(selected); } catch { /* ignore */ }
-          });
-          if (k === "x") {
-            const next = value.slice(0, start!) + value.slice(end!);
-            setValue(next);
-            requestAnimationFrame(() => {
-              ta.selectionStart = ta.selectionEnd = start!;
-            });
-          }
-        }
-        return true;
-      }
-
-      // 粘贴：从系统剪贴板读文本插入。fire-and-forget，preventDefault 已同步拦住默认行为。
-      void (async () => {
-        let text = "";
-        try {
-          text = await clipboardReadViaHost();
-        } catch {
-          try { text = await navigator.clipboard?.readText() ?? ""; } catch { /* ignore */ }
-        }
-        if (!text) return;
-        const s = start ?? value.length;
-        const en = end ?? value.length;
-        const next = value.slice(0, s) + text + value.slice(en);
-        setValue(next);
-        const caret = s + text.length;
-        requestAnimationFrame(() => {
-          ta.selectionStart = ta.selectionEnd = caret;
-          ta.style.height = "auto";
-          ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
-        });
-      })();
-      return true;
-    },
-    [EMBED_MODE, value, setValue],
-  );
+  // embed 模式：宿主命令层会拦截跨源 iframe 的剪贴键，这里在 keydown 阶段
+  // 同步截住并改走宿主剪贴板桥。
+  const handleEmbedClipboardKeydown = useEmbedClipboardKeys({ value, setValue, isComposingRef });
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1810,28 +1710,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         )}
 
         {/* 当前打开的文件提示（embed 模式） */}
-        {activeFile && !bashMode && (
-          <div
-            title={t("chat.activeFileTitle")}
-            style={{
-              display: "flex", alignItems: "center", gap: 6,
-              marginTop: 6, padding: "3px 10px",
-              background: "var(--bg-subtle)",
-              border: "1px solid var(--border)",
-              borderRadius: 6,
-              fontSize: 11,
-              color: "var(--text-dim)",
-              whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-            }}
-          >
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-              <polyline points="14 2 14 8 20 8" />
-            </svg>
-            <span style={{ flexShrink: 0, opacity: 0.8 }}>{t("chat.activeFileLabel")}</span>
-            <span style={{ fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis" }}>{activeFile}</span>
-          </div>
-        )}
+        {activeFile && !bashMode && <ActiveFileHint path={activeFile} />}
 
         {/* Bottom bar: left | center (context) | right */}
         <div style={{
