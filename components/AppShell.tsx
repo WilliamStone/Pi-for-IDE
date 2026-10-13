@@ -20,7 +20,9 @@ import { copyText } from "@/lib/clipboard";
 import { getFileName } from "@/lib/file-paths";
 import { buildAtMentionText, buildFileAtMentionsText, buildFileLineMentionText } from "@/lib/file-fuzzy";
 import { getInitialNavigation } from "@/lib/initial-navigation";
-import { isEmbedMode, notifyEmbedHost, onEmbedHostNotification, installGlobalClipboardInterceptor, openInBrowserViaHost } from "@/lib/embed/bridge";
+import { isEmbedMode, notifyEmbedHost, installGlobalClipboardInterceptor } from "@/lib/embed/bridge";
+import { OpenInBrowserButton } from "./embed/OpenInBrowserButton";
+import { useMentionNotification } from "./embed/useMentionNotification";
 import {
   getDefaultRightPanelWidth,
   getRightPanelMaxWidth,
@@ -218,19 +220,6 @@ export function AppShell() {
     setSidebarOpen((open) => !open);
   }, [isMobile]);
 
-  /**
-   * 在系统默认浏览器中打开 PI Code。
-   * embed 模式下通知宿主 openExternal；独立浏览器模式下直接开新标签。
-   */
-  const handleOpenInBrowser = useCallback(() => {
-    if (typeof window === "undefined") return;
-    if (isEmbedMode()) {
-      openInBrowserViaHost(window.location.href);
-    } else {
-      window.open(window.location.href, "_blank");
-    }
-  }, []);
-
   useEffect(() => {
     if (!activeTopPanel || !topBarRef.current) return;
     const update = () => {
@@ -274,22 +263,7 @@ export function AppShell() {
   }, []);
 
   // embed 模式：监听宿主推送的「提及」通知（如宿主的右键菜单触发）。
-  // 仅插入 @path 或 @path:start-end 行范围提及，不插入代码块。
-  useEffect(() => {
-    if (!isEmbedMode()) return;
-    const unsubscribe = onEmbedHostNotification((msg) => {
-      if (msg.kind !== "mention") return;
-      const p = msg.relativePath as string;
-      const start = msg.startLine as number | undefined;
-      const end = msg.endLine as number | undefined;
-      if (start != null && end != null) {
-        chatInputRef.current?.insertText(buildFileLineMentionText(p, start, end));
-      } else {
-        chatInputRef.current?.insertText(buildAtMentionText(p, false));
-      }
-    });
-    return unsubscribe;
-  }, []);
+  useMentionNotification(chatInputRef);
 
   // embed 模式：安装全局 document 级剪贴键拦截器，让输入框以外的文字
   // （消息内容、代码块、会话列表等）也支持 Cmd+C/X/A 复制/剪切/全选。
@@ -1165,32 +1139,7 @@ export function AppShell() {
                 </svg>
                  {!isMobile && <span>{translate("system.label")}</span>}
               </button>
-              <button
-                type="button"
-                onClick={handleOpenInBrowser}
-                title={translate("system.openInBrowser")}
-                aria-label={translate("system.openInBrowser")}
-                style={{
-                  display: "flex", alignItems: "center", gap: 6,
-                  height: "100%", padding: "0 12px",
-                  background: "none",
-                  border: "none",
-                  borderTop: "2px solid transparent",
-                  borderRight: "1px solid var(--border)",
-                  cursor: "pointer",
-                  color: "var(--text-muted)",
-                  fontSize: 11, whiteSpace: "nowrap", transition: "color 0.1s, background 0.1s",
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
-              >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                  <polyline points="15 3 21 3 21 9" />
-                  <line x1="10" y1="14" x2="21" y2="3" />
-                </svg>
-                {!isMobile && <span>{translate("system.openInBrowser")}</span>}
-              </button>
+              <OpenInBrowserButton />
             </div>
           )}
           {/* Session stats — right-aligned in top bar */}
