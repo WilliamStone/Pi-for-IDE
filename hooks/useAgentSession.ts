@@ -13,7 +13,7 @@ import { normalizeToolCalls } from "@/lib/normalize";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { getToolNamesForPreset, type ToolEntry } from "@/lib/tool-presets";
 import type { SessionStatsInfo } from "@/lib/pi-types";
-import { isVsCodeMode, captureSnapshotViaVsCode, getActiveEditorViaVsCode, onVsCodeNotification } from "@/lib/vscode-bridge";
+import { isEmbedMode, captureSnapshotViaHost, getActiveEditorViaHost, onEmbedHostNotification } from "@/lib/embed/bridge";
 
 export interface SessionData {
   sessionId: string;
@@ -367,7 +367,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [noticeState, dispatchNotice] = useReducer(noticeReducer, { visible: [], pending: [] });
   const [sessionStatsOverride, setSessionStatsOverride] = useState<SessionStatsInfo | null>(null);
   const [extensionDialog, setExtensionDialog] = useState<ExtensionUiDialogRequest | null>(null);
-  // VSCode 当前活动编辑器文件（相对路径）。用于隐藏 system prompt 注入 + 输入框提示。
+  // 宿主当前活动编辑器文件（相对路径）。用于隐藏 system prompt 注入 + 输入框提示。
   const [activeFile, setActiveFile] = useState<{ relativePath: string | null; filePath: string | null } | null>(null);
   const [extensionCustomUi, setExtensionCustomUi] = useState<ExtensionUiCustomRequest | null>(null);
   const [extensionStatuses, setExtensionStatuses] = useState<ExtensionStatusItem[]>([]);
@@ -396,7 +396,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const promptRunIdRef = useRef(0);
   const optimisticUserMessageKeyRef = useRef<string | null>(null);
 
-  // VSCode 模式下文件回退用的 turnId 管理：
+  // embed 模式下文件回退用的 turnId 管理：
   //   pendingTurnIdRef: 本轮发 prompt 前生成的 turnId，等 pi 返回真实 entryId 后配对
   //   entryIdToTurnId: user message entryId → 本轮 turnId（FileReviewCard 用）
   const pendingTurnIdRef = useRef<string | null>(null);
@@ -468,7 +468,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setActiveLeafId(d.leafId);
       setMessages(d.context.messages);
       setEntryIds(d.context.entryIds ?? []);
-      // VSCode 模式：把本轮 pendingTurnId 配对到 user message 的真实 entryId。
+      // embed 模式：把本轮 pendingTurnId 配对到 user message 的真实 entryId。
       // entryIds 和 messages 是平行数组。找最后一条 user message 的 entryId。
       const pendingTurnId = pendingTurnIdRef.current;
       if (pendingTurnId && d.context.entryIds) {
@@ -931,16 +931,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     agentRunningRef.current = agentRunning;
   }, [agentRunning]);
 
-  // VSCode 模式：监听扩展宿主推送的 activeEditorChanged 通知，并主动拉一次初始状态。
+  // embed 模式：监听宿主推送的 activeEditorChanged 通知，并主动拉一次初始状态。
   useEffect(() => {
-    if (!isVsCodeMode()) return;
+    if (!isEmbedMode()) return;
     let cancelled = false;
-    void getActiveEditorViaVsCode().then((active) => {
+    void getActiveEditorViaHost().then((active) => {
       if (!cancelled) setActiveFile(active);
     }).catch(() => {
       if (!cancelled) setActiveFile({ relativePath: null, filePath: null });
     });
-    const unsubscribe = onVsCodeNotification((payload) => {
+    const unsubscribe = onEmbedHostNotification((payload) => {
       if (payload.kind !== "activeEditorChanged") return;
       setActiveFile({
         relativePath: (payload as { relativePath?: string | null }).relativePath ?? null,
@@ -1123,14 +1123,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       return;
     }
 
-    // VSCode 模式下，在 prompt 到达 AgentSession 之前建本轮文件快照。
+    // embed 模式下，在 prompt 到达 AgentSession 之前建本轮文件快照。
     // 必须同步等快照建完再发 prompt，否则 agent 可能已改文件、before 不准。
     // turnId 用前端生成的 UUID，等 pi 返回真实 entryId 后在 message_end 配对。
     const turnId = (crypto.randomUUID?.() ?? `turn-${Date.now()}`);
     const snapshotCwd = newSessionCwd ?? session?.cwd;
-    if (isVsCodeMode() && snapshotCwd) {
+    if (isEmbedMode() && snapshotCwd) {
       try {
-        await captureSnapshotViaVsCode(turnId, snapshotCwd);
+        await captureSnapshotViaHost(turnId, snapshotCwd);
       } catch {
         // 快照失败不阻断发消息，只是本轮回退按钮会不可用。
       }

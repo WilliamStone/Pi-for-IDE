@@ -350,7 +350,7 @@ export class AgentSessionWrapper {
         this.promptRunning = true;
         notifyRunningChange();
 
-        // VSCode 模式：把当前活动编辑器文件注入 system prompt（隐藏提示词）。
+        // embed 模式：把宿主当前活动编辑器文件注入 system prompt（隐藏提示词）。
         // LLM 可见、UI 不显示、不落盘到 session 文件。用 marker 包裹，下次 prompt
         // 前先把旧注入剥掉再拼新的，避免 setActiveTools/reload 重建 base 后残留。
         const activeFiles = command.activeFiles as string[] | undefined;
@@ -371,7 +371,7 @@ export class AgentSessionWrapper {
         if (activeFiles && activeFiles.length > 0) {
           const hint =
             MARK_START +
-            "[VSCode 当前打开的编辑器文件]\n" +
+            "[宿主当前打开的编辑器文件]\n" +
             activeFiles.join("\n") +
             "\n[说明：若你的修改目标涉及上述文件，优先直接修改这些正在打开的文件。]" +
             MARK_END;

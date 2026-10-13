@@ -15,7 +15,7 @@ import {
 import { FolderIcon, getFileIcon } from "./FileIcons";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
-import { isVsCodeMode, sendVsCodeRequest, clipboardReadViaVsCode, clipboardWriteViaVsCode } from "@/lib/vscode-bridge";
+import { isEmbedMode, sendEmbedRequest, clipboardReadViaHost, clipboardWriteViaHost } from "@/lib/embed/bridge";
 
 export interface AttachedImage {
   data: string;   // base64, no prefix
@@ -69,7 +69,7 @@ interface Props {
   draftKey?: string;
   /** Session working directory — enables the @ file autocomplete menu */
   cwd?: string | null;
-  /** VSCode 当前活动编辑器文件（相对路径）。存在时在输入框下方显示提示。 */
+  /** 宿主当前活动编辑器文件（相对路径）。存在时在输入框下方显示提示。 */
   activeFile?: string | null;
 }
 
@@ -589,8 +589,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   // server-side against the full listing. Local matches render immediately
   // and are replaced when the (debounced) server result for the current
   // query arrives; stale responses are ignored via the query/cwd tag.
-  const VS_CODE_MODE = isVsCodeMode();
-  const needsServerSearch = !VS_CODE_MODE && Boolean(atQueryText && fileIndex?.truncated && fileIndex.cwd === cwd);
+  const EMBED_MODE = isEmbedMode();
+  const needsServerSearch = !EMBED_MODE && Boolean(atQueryText && fileIndex?.truncated && fileIndex.cwd === cwd);
   useEffect(() => {
     if (!needsServerSearch || !cwd || !atQueryText) return;
     const fetchCwd = cwd;
@@ -609,31 +609,31 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     return () => clearTimeout(timer);
   }, [needsServerSearch, atQueryText, cwd]);
 
-  // In VSCode mode the extension host is the only source (@-completions come
-  // from `sendVsCodeRequest({ kind: "completeAt" })`), so `atServerResult`
+  // In embed mode the host is the only source (@-completions come
+  // from `sendEmbedRequest({ kind: "completeAt" })`), so `atServerResult`
   // must drive the menu directly. In standalone mode the server result only
   // augments the local index when it is truncated.
   const serverResultInUse = atServerResult !== null
     && atServerResult.cwd === cwd
     && atServerResult.query === atQueryText
-    && (needsServerSearch || VS_CODE_MODE);
+    && (needsServerSearch || EMBED_MODE);
   const atMatches: FileIndexEntry[] = serverResultInUse ? atServerResult.matches : atLocalMatches;
 
-  // VSCode mode: when the @ token is active, ask the extension host for file
-  // completions. The host ranks against VSCode's own file index (workspaces
+  // Embed mode: when the @ token is active, ask the embed host for file
+  // completions. The host ranks against its own file index (workspace
   // + open editors) which is always current. Results replace local matches
   // while the token is open; closing the token clears them.
   useEffect(() => {
     const tokenActive = atQuery !== null;
-    if (!VS_CODE_MODE || !tokenActive || !cwd || atQueryText === null) {
-      if (VS_CODE_MODE && atServerResult !== null) setAtServerResult(null);
+    if (!EMBED_MODE || !tokenActive || !cwd || atQueryText === null) {
+      if (EMBED_MODE && atServerResult !== null) setAtServerResult(null);
       return;
     }
     const fetchCwd = cwd;
     const query = atQueryText;
     let cancelled = false;
     const timer = setTimeout(() => {
-      sendVsCodeRequest<{ matches?: Array<{ path: string; isDir: boolean }> }>(
+      sendEmbedRequest<{ matches?: Array<{ path: string; isDir: boolean }> }>(
         { kind: "completeAt", cwd: fetchCwd, query },
         4000,
       )
@@ -658,7 +658,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     // NOTE: atServerResult is intentionally excluded from deps — including it
     // would cause an infinite loop: response → setAtServerResult → effect
     // re-runs → sends another request → response → …
-  }, [VS_CODE_MODE, atQuery, atQueryText, cwd]);
+  }, [EMBED_MODE, atQuery, atQueryText, cwd]);
 
   // Open/reset the menu whenever the @token appears or changes (mirrors the
   // slash menu: Escape closes it, the next keystroke re-opens it).
@@ -677,7 +677,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   // ~10s, so re-opening refreshes cheaply; while typing nothing refetches.
   const atTokenActive = atQuery !== null;
   useEffect(() => {
-    if (!atTokenActive || !cwd || VS_CODE_MODE) return;
+    if (!atTokenActive || !cwd || EMBED_MODE) return;
     const meta = fileIndexMetaRef.current;
     if (meta && meta.cwd === cwd && Date.now() - meta.fetchedAt < 10_000) return;
     if (fileIndexFetchingRef.current === cwd) return;
@@ -855,13 +855,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       : Math.max(0, slashActiveIndex - 1);
   }, [filteredSlashCommands.length, slashActiveIndex]);
 
-  // VSCode 模式下 webview 跨源 iframe 的 Cmd/Ctrl+C/V/X/A 默认行为被
-  // VSCode/Electron 命令层拦截，到不了 textarea。这里在 keydown 阶段截住，
-  // preventDefault 后用 vscode.env.clipboard 桥读写系统剪贴板 + 手动操作
-  // textarea 选区，绕过拦截。
-  const handleVsCodeClipboardKeydown = useCallback(
+  // embed 模式下跨源 iframe 的 Cmd/Ctrl+C/V/X/A 默认行为可能被宿主的
+  // 命令层拦截，到不了 textarea。这里在 keydown 阶段截住，preventDefault
+  // 后用宿主剪贴板桥读写系统剪贴板 + 手动操作 textarea 选区，绕过拦截。
+  const handleEmbedClipboardKeydown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>): boolean => {
-      if (!VS_CODE_MODE) return false;
+      if (!EMBED_MODE) return false;
       const meta = e.metaKey || e.ctrlKey;
       if (!meta) return false;
       const k = e.key.toLowerCase();
@@ -870,7 +869,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       // 输入法组合中不拦截，避免打断中文输入。
       if (isComposingRef.current || e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return false;
 
-      // 同步截住：不让 VSCode 命令层拿走这个键。
+      // 同步截住：不让宿主命令层拿走这个键。
       e.preventDefault();
       e.stopPropagation();
 
@@ -886,7 +885,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       // 复制 / 剪切：写选中文本到系统剪贴板，剪切还要删选中。
       if (k === "c" || k === "x") {
         if (selected) {
-          void clipboardWriteViaVsCode(selected).catch(() => {
+          void clipboardWriteViaHost(selected).catch(() => {
             try { void navigator.clipboard?.writeText(selected); } catch { /* ignore */ }
           });
           if (k === "x") {
@@ -904,7 +903,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       void (async () => {
         let text = "";
         try {
-          text = await clipboardReadViaVsCode();
+          text = await clipboardReadViaHost();
         } catch {
           try { text = await navigator.clipboard?.readText() ?? ""; } catch { /* ignore */ }
         }
@@ -922,13 +921,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       })();
       return true;
     },
-    [VS_CODE_MODE, value, setValue],
+    [EMBED_MODE, value, setValue],
   );
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      // VSCode 模式剪贴键拦截必须在最前面，同步 preventDefault 才能拦住 VSCode 命令层。
-      if (handleVsCodeClipboardKeydown(e)) return;
+      // embed 模式剪贴键拦截必须在最前面，同步 preventDefault 才能拦住宿主命令层。
+      if (handleEmbedClipboardKeydown(e)) return;
 
       const nativeEvent = e.nativeEvent;
       const recentlyComposed = Date.now() - lastCompositionEndAtRef.current < COMPOSITION_END_ENTER_GRACE_MS;
@@ -1810,7 +1809,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           </div>
         )}
 
-        {/* 当前打开的文件提示（VSCode 模式） */}
+        {/* 当前打开的文件提示（embed 模式） */}
         {activeFile && !bashMode && (
           <div
             title={t("chat.activeFileTitle")}

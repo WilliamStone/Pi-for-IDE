@@ -56,11 +56,11 @@ pi-web 本身仍是独立可运行的 Web 应用，本扩展只是把它"搬进"
 
 ```
 pi-web 页面 (iframe)
-  ── window.parent.postMessage({ source: "pi-web", id, request }) ──▶ webview HTML
+  ── window.parent.postMessage({ source: "embed", id, request }) ──▶ webview HTML
   ── vscode.postMessage(...) ──▶ 扩展宿
-  ◀── webview.postMessage({ source: "vscode", id, payload }) ── 扩展宿
+  ◀── webview.postMessage({ source: "host", id, payload }) ── 扩展宿
   ◀── iframe.contentWindow.postMessage(...) ── webview HTML
-  ◀── window 'message' 监听 ── pi-web 页面 (lib/vscode-bridge.ts)
+  ◀── window 'message' 监听 ── pi-web 页面 (lib/embed/bridge.ts)
 ```
 
 ## 开发与构建
@@ -96,5 +96,5 @@ npm run package
 ## 限制
 
 - pi-web 页面在 webview iframe 中以 sandbox 运行，`window.confirm()` / `alert()` / `prompt()` 被禁用，所有确认交互改用 UI 内弹层（如回退确认、toast 通知）。
-- `?vscode=1` 让 pi-web 隐藏文件浏览器相关 UI，但**不破坏**其在普通浏览器里的独立运行能力。
+- `?embed=vscode` 让 pi-web 进入宿主模式（隐藏文件浏览器相关 UI、启用桥能力），但**不破坏**其在普通浏览器里的独立运行能力。
 - `@` 文件补全回退到 VSCode 的 `findFiles`，结果上限 50 条。

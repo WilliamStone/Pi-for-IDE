@@ -242,7 +242,7 @@ async function exportSession(filePath: string, outputPath: string): Promise<void
   // context stub that throws `Cannot find module '<path>'` for every value
   // at runtime — even when the file exists on disk. dev mode bypasses webpack
   // bundling so the bug is invisible there; it only manifests in the
-  // standalone server (which is exactly what the VSCode extension ships).
+  // standalone server (which is exactly what the embed-host packaging ships).
   //
   // `/* webpackIgnore: true */` instructs webpack to leave this `import()`
   // call untouched, so Node's native ESM loader resolves the absolute path

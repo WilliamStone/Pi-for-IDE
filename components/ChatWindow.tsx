@@ -8,7 +8,7 @@ import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantB
 import { MessageView } from "./MessageView";
 import { FileReviewCard } from "./FileReviewCard";
 import { extractFileChanges } from "@/lib/file-changes";
-import { isVsCodeMode, revertEditViaVsCode, revertFilesViaVsCode } from "@/lib/vscode-bridge";
+import { isEmbedMode, revertEditViaHost, revertFilesViaHost } from "@/lib/embed/bridge";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
@@ -252,16 +252,16 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       // 1) 恢复代码（纯前端，edit 反向 apply / write 走快照）
       let okCount = 0;
       const errs: string[] = [];
-      if (!isVsCodeMode()) {
+      if (!isEmbedMode()) {
         throw new Error(t("chat.revertWebModeUnsupported"));
       }
       for (const change of turnChanges) {
         if (change.kind === "edit" && change.edits && change.edits.length > 0) {
-          const r = await revertEditViaVsCode(change.path, cwd, change.edits);
+          const r = await revertEditViaHost(change.path, cwd, change.edits);
           if (r.success) okCount++;
           else errs.push(`${change.relativePath}: ${r.message ?? "失败"}`);
         } else if (change.kind === "write") {
-          const r = await revertFilesViaVsCode(turnId, [change.path], cwd);
+          const r = await revertFilesViaHost(turnId, [change.path], cwd);
           if (r.success) okCount++;
           else errs.push(`${change.relativePath}: ${r.message ?? "失败"}`);
         } else {

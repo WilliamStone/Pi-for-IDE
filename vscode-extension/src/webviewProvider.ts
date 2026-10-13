@@ -12,17 +12,17 @@ import type { Bridge } from "./bridge";
  * right side" instead of pinned to the bottom panel.
  *
  * The panel HTML is a thin wrapper: a full-page <iframe> pointing at the
- * running pi-web server (with ?vscode=1 so the page hides the file browser)
+ * running pi-web server (with ?embed=vscode so the page enables host mode)
  * plus a tiny bridge script that relays messages between the iframe and the
  * VSCode extension host.
  *
  * Message path:
  *   pi-web page (iframe)
- *     -- window.parent.postMessage({ source: "pi-web", id, request }) --> webview document
- *     -- vscode.postMessage({ source: "pi-web", id, request }) --> extension host
- *     <-- webview.postMessage({ source: "vscode", id, payload }) -- extension host
- *     <-- iframe.contentWindow.postMessage({ source: "vscode", id, payload }) -- webview document
- *     <-- window 'message' listener -- pi-web page (lib/vscode-bridge.ts)
+ *     -- window.parent.postMessage({ source: "embed", id, request }) --> webview document
+ *     -- vscode.postMessage({ source: "embed", id, request }) --> extension host
+ *     <-- webview.postMessage({ source: "host", id, payload }) -- extension host
+ *     <-- iframe.contentWindow.postMessage({ source: "host", id, payload }) -- webview document
+ *     <-- window 'message' listener -- pi-web page (lib/embed/bridge.ts)
  */
 export class PiWebWebviewPanel extends vscode.Disposable {
   private panel: vscode.WebviewPanel | undefined;
@@ -76,19 +76,19 @@ export class PiWebWebviewPanel extends vscode.Disposable {
       });
 
       // Bridge messages from the pi-web iframe to VSCode APIs and relay
-      // responses back. Messages arrive as { source: "pi-web", id, request }.
+      // responses back. Messages arrive as { source: "embed", id, request }.
       this.panel.webview.onDidReceiveMessage(async (message) => {
-        if (!message || message.source !== "pi-web") return;
+        if (!message || message.source !== "embed") return;
         try {
           const payload = await this.bridge.handle(message.request);
           this.panel?.webview.postMessage({
-            source: "vscode",
+            source: "host",
             id: message.id,
             payload,
           });
         } catch (error) {
           this.panel?.webview.postMessage({
-            source: "vscode",
+            source: "host",
             id: message.id,
             payload: { error: String(error) },
           });
@@ -128,7 +128,7 @@ export class PiWebWebviewPanel extends vscode.Disposable {
       return; // reveal 由 piWeb.open 命令负责，这里仅推送。
     }
     this.panel.webview.postMessage({
-      source: "vscode",
+      source: "host",
       payload: { kind: "mention", ...payload },
     });
   }
@@ -146,7 +146,7 @@ export class PiWebWebviewPanel extends vscode.Disposable {
   }): void {
     if (!this.panel) return;
     this.panel.webview.postMessage({
-      source: "vscode",
+      source: "host",
       payload: { kind: "activeEditorChanged", ...payload },
     });
   }
@@ -181,7 +181,7 @@ export class PiWebWebviewPanel extends vscode.Disposable {
     }
 
     const url = new URL(server.origin);
-    url.searchParams.set("vscode", "1");
+    url.searchParams.set("embed", "vscode");
     if (this.currentCwd) url.searchParams.set("cwd", this.currentCwd);
 
     this.panel.webview.html = this.renderHtml(url.toString());
@@ -190,8 +190,8 @@ export class PiWebWebviewPanel extends vscode.Disposable {
   private renderHtml(piWebUrl: string): string {
     // The bridge script must run before the iframe loads so it can attach a
     // message listener. A single listener routes by `source`:
-    //   "pi-web" -> forward to extension host via vscode.postMessage
-    //   "vscode" -> forward to iframe via iframe.contentWindow.postMessage
+    //   "embed" -> forward to extension host via vscode.postMessage
+    //   "host"  -> forward to iframe via iframe.contentWindow.postMessage
     return /* html */ `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -213,10 +213,10 @@ export class PiWebWebviewPanel extends vscode.Disposable {
       window.addEventListener('message', function (event) {
         const data = event.data;
         if (!data || typeof data !== 'object') return;
-        if (data.source === 'pi-web') {
+        if (data.source === 'embed') {
           // iframe -> extension host. Forward the whole envelope (id + request).
           vscode.postMessage(data);
-        } else if (data.source === 'vscode') {
+        } else if (data.source === 'host') {
           // extension host -> iframe. Forward responses and notifications.
           if (frame && frame.contentWindow) {
             frame.contentWindow.postMessage(data, '*');

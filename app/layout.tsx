@@ -59,7 +59,7 @@ export default function RootLayout({
         <meta name="google" content="notranslate" />
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem("pi-theme");var v=new URL(location.href).searchParams.get("vscode")==="1";if(t==="dark"||(t===null&&v))document.documentElement.classList.add("dark")}catch(e){}})();`,
+            __html: `(function(){try{var t=localStorage.getItem("pi-theme");var v=new URL(location.href).searchParams.get("embed");if(t==="dark"||(t===null&&v))document.documentElement.classList.add("dark")}catch(e){}})();`,
           }}
         />
       </head>

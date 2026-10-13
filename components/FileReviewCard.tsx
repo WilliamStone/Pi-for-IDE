@@ -4,7 +4,7 @@ import { memo, useState, useCallback, useMemo } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { getFileIcon } from "./FileIcons";
 import { SplitPatchView, PatchTextView } from "./MessageView";
-import { isVsCodeMode, showDiffViaVsCode, getBeforeContentViaVsCode } from "@/lib/vscode-bridge";
+import { isEmbedMode, showDiffViaHost, getBeforeContentViaHost } from "@/lib/embed/bridge";
 import { encodeFilePathForApi } from "@/lib/file-paths";
 import type { FileChange } from "@/lib/file-changes";
 
@@ -43,7 +43,7 @@ function FileReviewCardImpl({ turnId, changes, cwd, onOpenFile }: Props) {
 
   const fileChanges = changes.filter((c) => c.path);
   const fileCount = fileChanges.length;
-  const inVsCode = isVsCodeMode();
+  const inEmbed = isEmbedMode();
 
   // 点击文件行：inline 展开/收起 diff 视图（纯前端）
   const handleFileClick = useCallback((change: FileChange) => {
@@ -51,10 +51,10 @@ function FileReviewCardImpl({ turnId, changes, cwd, onOpenFile }: Props) {
     setOpenDiffPath((cur) => (cur === change.path ? null : change.path));
   }, []);
 
-  // VSCode 模式：在编辑器里用原生 diff 打开（需 before 快照）
+  // embed 模式：在宿主编辑器里用原生 diff 打开（需 before 快照）
   const handleOpenInEditor = useCallback(async (change: FileChange, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!inVsCode || !cwd) return;
+    if (!inEmbed || !cwd) return;
     let before = "";
     let after = "";
     if (change.kind === "edit") {
@@ -65,15 +65,15 @@ function FileReviewCardImpl({ turnId, changes, cwd, onOpenFile }: Props) {
           after = data.content ?? "";
         }
       } catch {}
-      before = (await getBeforeContentViaVsCode(turnId, change.path, cwd)) ?? "";
+      before = (await getBeforeContentViaHost(turnId, change.path, cwd)) ?? "";
     } else if (change.kind === "write") {
       after = change.newContent ?? "";
-      before = (await getBeforeContentViaVsCode(turnId, change.path, cwd)) ?? "";
+      before = (await getBeforeContentViaHost(turnId, change.path, cwd)) ?? "";
     } else {
       return;
     }
-    await showDiffViaVsCode(change.path, before, after, `${change.relativePath} (本轮改动)`);
-  }, [inVsCode, turnId, cwd]);
+    await showDiffViaHost(change.path, before, after, `${change.relativePath} (本轮改动)`);
+  }, [inEmbed, turnId, cwd]);
 
   // Web 模式：点击「在文件查看器打开」按钮
   const handleOpenInViewer = useCallback((change: FileChange, e: React.MouseEvent) => {
@@ -123,10 +123,10 @@ function FileReviewCardImpl({ turnId, changes, cwd, onOpenFile }: Props) {
               key={`${change.path}-${i}`}
               change={change}
               isOpen={openDiffPath === change.path}
-              inVsCode={inVsCode}
+              inEmbed={inEmbed}
               onClick={() => handleFileClick(change)}
-              onOpenInEditor={inVsCode ? (e) => void handleOpenInEditor(change, e) : undefined}
-              onOpenInViewer={!inVsCode ? (e) => handleOpenInViewer(change, e) : undefined}
+              onOpenInEditor={inEmbed ? (e) => void handleOpenInEditor(change, e) : undefined}
+              onOpenInViewer={!inEmbed ? (e) => handleOpenInViewer(change, e) : undefined}
             />
           ))}
           {hasBashUntracked && (
@@ -149,14 +149,14 @@ function FileReviewCardImpl({ turnId, changes, cwd, onOpenFile }: Props) {
 const FileReviewRow = memo(function FileReviewRow({
   change,
   isOpen,
-  inVsCode,
+  inEmbed,
   onClick,
   onOpenInEditor,
   onOpenInViewer,
 }: {
   change: FileChange;
   isOpen: boolean;
-  inVsCode: boolean;
+  inEmbed: boolean;
   onClick: () => void;
   onOpenInEditor?: (e: React.MouseEvent) => void;
   onOpenInViewer?: (e: React.MouseEvent) => void;

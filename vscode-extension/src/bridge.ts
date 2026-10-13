@@ -35,7 +35,7 @@ export function clearActiveEditorCache(filePath: string): void {
  * Bridges requests that originate from the pi-web page (via the webview)
  * to VSCode APIs, then returns responses back to the page.
  *
- * Request shapes (mirror lib/vscode-bridge.ts in the pi-web app):
+ * Request shapes (mirror lib/embed/bridge.ts in the pi-web app):
  *   openFile    → reveal / open a file in the editor
  *   completeAt  → file-name completion for the chat @-menu
  *   readFile    → read a file's text contents (used sparingly)
@@ -45,7 +45,7 @@ export class Bridge {
   constructor(private readonly logger: (line: string) => void) {}
 
   /**
-   * 处理单个请求并返回其负载（作为同样 id 的 source:"vscode" 消息发回页面）。
+   * 处理单个请求并返回其负载（作为同样 id 的 source:"host" 消息发回页面）。
    */
   async handle(request: BridgeRequest): Promise<unknown> {
     switch (request.kind) {
@@ -550,7 +550,7 @@ async function listFilesInPath(
 }
 
 // ---------------------------------------------------------------------------
-// Request/response types — kept in lockstep with lib/vscode-bridge.ts in the
+// Request/response types — kept in lockstep with lib/embed/bridge.ts in the
 // pi-web app.
 // ---------------------------------------------------------------------------
 

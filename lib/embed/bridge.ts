@@ -1,49 +1,49 @@
-// VSCode webview ↔ extension host bridge.
+// Embed host bridge — pi-web 页面 ↔ 嵌入宿主（IDE wrapper 等）的通用协议。
 //
-// PI Code runs unchanged as a standalone Next.js app. When it is loaded inside
-// a VSCode webview, the extension passes `?vscode=1` in the URL and hosts the
-// page inside an <iframe> whose parent document owns acquireVsCodeApi().
+// pi-web 作为独立 Next.js 应用运行不变。当页面被嵌入宿主容器（如 VSCode
+// webview 的 <iframe>）中时，宿主在 URL 里带上 `?embed=<hostId>`，并在父
+// 文档中转发本文件定义的消息。
 //
 // Communication path:
 //   pi-web page (this file)
-//     ──postMessage({ source: "pi-web", ... })──▶ window.parent (extension webview)
-//     ──forwards to extension host via vscodeApi.postMessage()
-//     ◀──extension host replies──▶ window.parent
-//     ──postMessage({ source: "vscode", ... })──▶ this window (message listener)
+//     ──postMessage({ source: "embed", ... })──▶ window.parent (host wrapper)
+//     ──宿主适配层转发到宿主能力实现（如 vscodeApi.postMessage()）
+//     ◀──host replies──▶ window.parent
+//     ──postMessage({ source: "host", ... })──▶ this window (message listener)
 //
-// The bridge is a no-op when not in VSCode mode (standalone browser visits),
+// The bridge is a no-op when not in embed mode (standalone browser visits),
 // so nothing here can break the normal pi-web experience.
 
-export interface VsCodeOpenFileRequest {
+export interface EmbedOpenFileRequest {
   kind: "openFile";
   filePath: string;
   /** Optional 1-based line / line,col to reveal. */
   line?: number;
   column?: number;
-  /** "source" | "preview" | "diff" — preview/diff map to VSCode's side-by-side. */
+  /** "source" | "preview" | "diff" — diff maps to the host's native diff view. */
   mode?: "source" | "preview" | "diff";
 }
 
-export interface VsCodeCompleteAtRequest {
+export interface EmbedCompleteAtRequest {
   kind: "completeAt";
   cwd: string;
   query: string;
 }
 
-export interface VsCodeReadFileRequest {
+export interface EmbedReadFileRequest {
   kind: "readFile";
   filePath: string;
 }
 
-export interface VsCodeNotifyRequest {
+export interface EmbedNotifyRequest {
   kind: "notify";
   message: string;
   level: "info" | "warning" | "error";
 }
 
-export interface VsCodeMentionRequest {
+export interface EmbedMentionRequest {
   kind: "mention";
-  /** 提及的文件，相对于工作区根目录的相对路径（不含前导 ./）。 */
+  /** 提及的文件，相对于宿主工作区根目录的相对路径（不含前导 ./）。 */
   relativePath: string;
   /** 可选的起止行号（1-based，闭区间）。不填则提及整文件。 */
   startLine?: number;
@@ -52,35 +52,35 @@ export interface VsCodeMentionRequest {
   selectedText?: string;
 }
 
-export interface VsCodeClipboardReadRequest {
+export interface EmbedClipboardReadRequest {
   kind: "clipboardRead";
 }
 
-/** 查询当前 VSCode 活动编辑器文件（webview 刷新后恢复状态用）。 */
-export interface VsCodeGetActiveEditorRequest {
+/** 查询宿主当前活动编辑器文件（页面刷新后恢复状态用）。 */
+export interface EmbedGetActiveEditorRequest {
   kind: "getActiveEditor";
 }
 
-export interface VsCodeClipboardWriteRequest {
+export interface EmbedClipboardWriteRequest {
   kind: "clipboardWrite";
   text: string;
 }
 
 /**
- * 在系统默认浏览器中打开 PI Code。url 为页面当前地址（iframe 内加载的
- * 完整 URL），扩展宿会解析出 origin 再调用 vscode.env.openExternal。
+ * 在系统默认浏览器中打开本应用。url 为页面当前地址（iframe 内加载的
+ * 完整 URL），宿主会解析出 origin 再调用其打开外部链接的能力。
  */
-export interface VsCodeOpenInBrowserRequest {
+export interface EmbedOpenInBrowserRequest {
   kind: "openInBrowser";
   url: string;
 }
 
 /**
- * 在新一轮 prompt 发出前，让扩展宿主为本轮建一个文件快照。
- * 扩展只读 git status（不创建任何 git 对象）+ 读磁盘文件，存内存。
+ * 在新一轮 prompt 发出前，让宿主为本轮建一个文件快照。
+ * 宿主只读 git status（不创建任何 git 对象）+ 读磁盘文件，存内存。
  * 必须在 prompt 到达 AgentSession 之前完成，否则 before 内容不准。
  */
-export interface VsCodeCaptureSnapshotRequest {
+export interface EmbedCaptureSnapshotRequest {
   kind: "captureSnapshot";
   /** 本轮 user message 的 entryId，作为快照标识。 */
   turnId: string;
@@ -89,7 +89,7 @@ export interface VsCodeCaptureSnapshotRequest {
 }
 
 /** 取某个文件在本轮快照里的 before 内容（纯只读）。 */
-export interface VsCodeGetBeforeContentRequest {
+export interface EmbedGetBeforeContentRequest {
   kind: "getBeforeContent";
   turnId: string;
   filePath: string;
@@ -97,10 +97,10 @@ export interface VsCodeGetBeforeContentRequest {
 }
 
 /**
- * 用 VSCode 原生 diff 显示某文件的 before/after 对比。
- * before/after 直接传完整内容，扩展写到临时文件再调 vscode.diff。
+ * 用宿主原生 diff 视图显示某文件的 before/after 对比。
+ * before/after 直接传完整内容，宿主写临时文件后调其 diff 能力。
  */
-export interface VsCodeShowDiffRequest {
+export interface EmbedShowDiffRequest {
   kind: "showDiff";
   filePath: string;
   before: string;
@@ -108,16 +108,16 @@ export interface VsCodeShowDiffRequest {
   title?: string;
 }
 
-/** 回退：把指定文件恢复到本轮快照的内容（直接 fs.writeFile，不碰 git）。 */
-export interface VsCodeRevertFilesRequest {
+/** 回退：把指定文件恢复到本轮快照的内容（宿主侧直接写文件，不碰 git）。 */
+export interface EmbedRevertFilesRequest {
   kind: "revertFiles";
   turnId: string;
   files: string[];
   cwd: string;
 }
 
-/** 回退 edit：读磁盘当前内容，把每个 newText 换回 oldText（反向 apply）。 */
-export interface VsCodeRevertEditRequest {
+/** 回退 edit：宿主读磁盘当前内容，把每个 newText 换回 oldText（反向 apply）。 */
+export interface EmbedRevertEditRequest {
   kind: "revertEdit";
   filePath: string;
   cwd: string;
@@ -125,105 +125,117 @@ export interface VsCodeRevertEditRequest {
   edits: { oldText: string; newText: string }[];
 }
 
-export type VsCodeRequest =
-  | VsCodeOpenFileRequest
-  | VsCodeCompleteAtRequest
-  | VsCodeReadFileRequest
-  | VsCodeNotifyRequest
-  | VsCodeMentionRequest
-  | VsCodeClipboardReadRequest
-  | VsCodeClipboardWriteRequest
-  | VsCodeGetActiveEditorRequest
-  | VsCodeCaptureSnapshotRequest
-  | VsCodeGetBeforeContentRequest
-  | VsCodeShowDiffRequest
-  | VsCodeRevertFilesRequest
-  | VsCodeRevertEditRequest
-  | VsCodeOpenInBrowserRequest;
+export type EmbedRequest =
+  | EmbedOpenFileRequest
+  | EmbedCompleteAtRequest
+  | EmbedReadFileRequest
+  | EmbedNotifyRequest
+  | EmbedMentionRequest
+  | EmbedClipboardReadRequest
+  | EmbedClipboardWriteRequest
+  | EmbedGetActiveEditorRequest
+  | EmbedCaptureSnapshotRequest
+  | EmbedGetBeforeContentRequest
+  | EmbedShowDiffRequest
+  | EmbedRevertFilesRequest
+  | EmbedRevertEditRequest
+  | EmbedOpenInBrowserRequest;
 
-export interface VsCodeCompleteAtResponse {
+export interface EmbedCompleteAtResponse {
   kind: "completeAt";
   matches: Array<{ path: string; isDir: boolean }>;
 }
 
-export interface VsCodeReadFileResponse {
+export interface EmbedReadFileResponse {
   kind: "readFile";
   content?: string;
   error?: string;
 }
 
-export interface VsCodeClipboardReadResponse {
+export interface EmbedClipboardReadResponse {
   kind: "clipboardRead";
   text: string;
 }
 
-/** 当前 VSCode 活动编辑器。relativePath 为空表示无活动文件（非 file scheme）。 */
-export interface VsCodeGetActiveEditorResponse {
+/** 宿主当前活动编辑器。relativePath 为空表示无活动文件（非 file scheme）。 */
+export interface EmbedGetActiveEditorResponse {
   kind: "getActiveEditor";
   relativePath: string | null;
   filePath: string | null;
 }
 
-export interface VsCodeCaptureSnapshotResponse {
+export interface EmbedCaptureSnapshotResponse {
   kind: "captureSnapshot";
   success: boolean;
   message?: string;
 }
 
-export interface VsCodeGetBeforeContentResponse {
+export interface EmbedGetBeforeContentResponse {
   kind: "getBeforeContent";
   content: string | null;
 }
 
-export interface VsCodeRevertFilesResponse {
+export interface EmbedRevertFilesResponse {
   kind: "revertFiles";
   success: boolean;
   message?: string;
 }
 
-export interface VsCodeRevertEditResponse {
+export interface EmbedRevertEditResponse {
   kind: "revertEdit";
   success: boolean;
   message?: string;
 }
 
-export type VsCodeResponse =
-  | VsCodeCompleteAtResponse
-  | VsCodeReadFileResponse
-  | VsCodeClipboardReadResponse
-  | VsCodeGetActiveEditorResponse
-  | VsCodeCaptureSnapshotResponse
-  | VsCodeGetBeforeContentResponse
-  | VsCodeRevertFilesResponse
-  | VsCodeRevertEditResponse;
+export type EmbedResponse =
+  | EmbedCompleteAtResponse
+  | EmbedReadFileResponse
+  | EmbedClipboardReadResponse
+  | EmbedGetActiveEditorResponse
+  | EmbedCaptureSnapshotResponse
+  | EmbedGetBeforeContentResponse
+  | EmbedRevertFilesResponse
+  | EmbedRevertEditResponse;
 
-const VSCODE_QUERY_KEY = "vscode";
-const MESSAGE_SOURCE_PI_WEB = "pi-web";
-const MESSAGE_SOURCE_VSCODE = "vscode";
+const EMBED_QUERY_KEY = "embed";
+const MESSAGE_SOURCE_PAGE = "embed";
+const MESSAGE_SOURCE_HOST = "host";
 
-let cachedVsCodeMode: boolean | null = null;
+let cachedEmbedMode: boolean | null = null;
 
 /**
- * True when pi-web is rendered inside a VSCode webview. Detected from the
- * `?vscode=1` URL parameter (set by the extension when it builds the webview
- * URL) and cached for the lifetime of the page.
+ * True when pi-web is rendered inside an embed host container. Detected from
+ * the `?embed=<hostId>` URL parameter (set by the host wrapper when it builds
+ * the page URL) and cached for the lifetime of the page.
  */
-export function isVsCodeMode(): boolean {
-  if (cachedVsCodeMode !== null) return cachedVsCodeMode;
+export function isEmbedMode(): boolean {
+  if (cachedEmbedMode !== null) return cachedEmbedMode;
   if (typeof window === "undefined") {
-    cachedVsCodeMode = false;
+    cachedEmbedMode = false;
     return false;
   }
   try {
     const params = new URL(window.location.href).searchParams;
-    cachedVsCodeMode = params.get(VSCODE_QUERY_KEY) === "1";
+    cachedEmbedMode = Boolean(params.get(EMBED_QUERY_KEY));
   } catch {
-    cachedVsCodeMode = false;
+    cachedEmbedMode = false;
   }
-  return cachedVsCodeMode;
+  return cachedEmbedMode;
 }
 
-// Resolvers waiting for extension-host responses, keyed by request id.
+/**
+ * 当前宿主标识（`?embed=<hostId>` 的值，如 "vscode"）；非 embed 模式为 null。
+ */
+export function embedHostId(): string | null {
+  if (!isEmbedMode() || typeof window === "undefined") return null;
+  try {
+    return new URL(window.location.href).searchParams.get(EMBED_QUERY_KEY);
+  } catch {
+    return null;
+  }
+}
+
+// Resolvers waiting for host responses, keyed by request id.
 type ResponseResolver = (response: unknown) => void;
 const pendingResponses = new Map<string, ResponseResolver>();
 let nextRequestId = 1;
@@ -242,7 +254,7 @@ function ensureMessageListener(): void {
   window.addEventListener("message", (event: MessageEvent) => {
     const data = event.data;
     if (!data || typeof data !== "object") return;
-    if (data.source !== MESSAGE_SOURCE_VSCODE) return;
+    if (data.source !== MESSAGE_SOURCE_HOST) return;
 
     const id = data.id as string | undefined;
     if (id && pendingResponses.has(id)) {
@@ -253,7 +265,7 @@ function ensureMessageListener(): void {
       return;
     }
 
-    // An unsolicited notification from the extension host.
+    // An unsolicited notification from the host.
     if (data.payload && typeof data.payload === "object" && "kind" in (data.payload as object)) {
       const payload = data.payload as { kind: string };
       for (const listener of notificationListeners) {
@@ -268,13 +280,13 @@ function ensureMessageListener(): void {
 }
 
 /**
- * Send a request to the extension host and resolve with its response.
+ * Send a request to the embed host and resolve with its response.
  * Rejects (with a timeout) if the host never replies — callers should treat
  * a rejection as "feature unavailable" and fall back gracefully.
  */
-export function sendVsCodeRequest<T = unknown>(request: VsCodeRequest, timeoutMs = 5000): Promise<T> {
-  if (!isVsCodeMode() || typeof window === "undefined" || !window.parent) {
-    return Promise.reject(new Error("Not in VSCode mode"));
+export function sendEmbedRequest<T = unknown>(request: EmbedRequest, timeoutMs = 5000): Promise<T> {
+  if (!isEmbedMode() || typeof window === "undefined" || !window.parent) {
+    return Promise.reject(new Error("Not in embed mode"));
   }
   ensureMessageListener();
 
@@ -282,7 +294,7 @@ export function sendVsCodeRequest<T = unknown>(request: VsCodeRequest, timeoutMs
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
       pendingResponses.delete(id);
-      reject(new Error(`VSCode bridge timeout: ${request.kind}`));
+      reject(new Error(`Embed host bridge timeout: ${request.kind}`));
     }, timeoutMs);
 
     pendingResponses.set(id, (payload: unknown) => {
@@ -292,7 +304,7 @@ export function sendVsCodeRequest<T = unknown>(request: VsCodeRequest, timeoutMs
 
     try {
       window.parent.postMessage(
-        { source: MESSAGE_SOURCE_PI_WEB, id, request },
+        { source: MESSAGE_SOURCE_PAGE, id, request },
         "*",
       );
     } catch (error) {
@@ -304,34 +316,34 @@ export function sendVsCodeRequest<T = unknown>(request: VsCodeRequest, timeoutMs
 }
 
 /**
- * Fire-and-forget notification to the extension host. No response expected.
+ * Fire-and-forget notification to the embed host. No response expected.
  */
-export function notifyVsCode(request: VsCodeRequest): void {
-  if (!isVsCodeMode() || typeof window === "undefined" || !window.parent) return;
+export function notifyEmbedHost(request: EmbedRequest): void {
+  if (!isEmbedMode() || typeof window === "undefined" || !window.parent) return;
   try {
-    window.parent.postMessage({ source: MESSAGE_SOURCE_PI_WEB, request }, "*");
+    window.parent.postMessage({ source: MESSAGE_SOURCE_PAGE, request }, "*");
   } catch {
     // Ignore — standalone mode / cross-origin restrictions.
   }
 }
 
 /**
- * Subscribe to unsolicited notifications from the extension host
+ * Subscribe to unsolicited notifications from the embed host
  * (e.g. "open a file in the chat panel"). Returns an unsubscribe function.
  */
-export function onVsCodeNotification(listener: NotificationListener): () => void {
+export function onEmbedHostNotification(listener: NotificationListener): () => void {
   ensureMessageListener();
   notificationListeners.add(listener);
   return () => notificationListeners.delete(listener);
 }
 
 /**
- * 查询当前 VSCode 活动编辑器文件（webview 刷新后恢复状态用）。
- * 返回相对工作区路径（无活动文件时为 null）。
+ * 查询宿主当前活动编辑器文件（页面刷新后恢复状态用）。
+ * 返回相对宿主工作区路径（无活动文件时为 null）。
  */
-export async function getActiveEditorViaVsCode(): Promise<{ relativePath: string | null; filePath: string | null }> {
+export async function getActiveEditorViaHost(): Promise<{ relativePath: string | null; filePath: string | null }> {
   try {
-    const res = await sendVsCodeRequest<VsCodeGetActiveEditorResponse>(
+    const res = await sendEmbedRequest<EmbedGetActiveEditorResponse>(
       { kind: "getActiveEditor" },
       2000,
     );
@@ -342,11 +354,11 @@ export async function getActiveEditorViaVsCode(): Promise<{ relativePath: string
 }
 
 /**
- * VSCode webview iframe 跨源时 navigator.clipboard.readText 会被权限策略拒。
- * 改走桥接让扩展宿调 vscode.env.clipboard.readText()。
+ * 嵌入 iframe 跨源时 navigator.clipboard.readText 会被权限策略拒。
+ * 改走桥接让宿主用其剪贴板能力读取系统剪贴板。
  */
-export async function clipboardReadViaVsCode(): Promise<string> {
-  const res = await sendVsCodeRequest<VsCodeClipboardReadResponse>(
+export async function clipboardReadViaHost(): Promise<string> {
+  const res = await sendEmbedRequest<EmbedClipboardReadResponse>(
     { kind: "clipboardRead" },
     2000,
   );
@@ -354,19 +366,19 @@ export async function clipboardReadViaVsCode(): Promise<string> {
 }
 
 /**
- * 写剪贴板同样走 vscode.env.clipboard.writeText()，比跨源 iframe 的
+ * 写剪贴板同样走宿主剪贴板能力，比跨源 iframe 的
  * navigator.clipboard.writeText 更可靠。
  */
-export async function clipboardWriteViaVsCode(text: string): Promise<void> {
-  await sendVsCodeRequest<unknown>({ kind: "clipboardWrite", text }, 2000);
+export async function clipboardWriteViaHost(text: string): Promise<void> {
+  await sendEmbedRequest<unknown>({ kind: "clipboardWrite", text }, 2000);
 }
 
 /**
- * 通知扩展宿主在系统默认浏览器中打开 PI Code（fire-and-forget，无响应）。
- * 非 VSCode 模式下为 no-op，调用方应自行处理（如 window.open）。
+ * 通知宿主在系统默认浏览器中打开本应用（fire-and-forget，无响应）。
+ * 非 embed 模式下为 no-op，调用方应自行处理（如 window.open）。
  */
-export function openInBrowserViaVsCode(url: string): void {
-  notifyVsCode({ kind: "openInBrowser", url });
+export function openInBrowserViaHost(url: string): void {
+  notifyEmbedHost({ kind: "openInBrowser", url });
 }
 
 /**
@@ -374,9 +386,9 @@ export function openInBrowserViaVsCode(url: string): void {
  * （否则 agent 可能已经改了文件，before 不准）。返回是否成功。
  * 非 git 仓库返回 success=false。
  */
-export async function captureSnapshotViaVsCode(turnId: string, cwd: string): Promise<boolean> {
+export async function captureSnapshotViaHost(turnId: string, cwd: string): Promise<boolean> {
   try {
-    const res = await sendVsCodeRequest<VsCodeCaptureSnapshotResponse>(
+    const res = await sendEmbedRequest<EmbedCaptureSnapshotResponse>(
       { kind: "captureSnapshot", turnId, cwd },
       5000,
     );
@@ -390,9 +402,9 @@ export async function captureSnapshotViaVsCode(turnId: string, cwd: string): Pro
  * 取某文件在本轮快照里的 before 内容。返回 null 表示无快照且非 git 仓库。
  * 用于 write/bash 等无 diff 的工具调用取 before。
  */
-export async function getBeforeContentViaVsCode(turnId: string, filePath: string, cwd: string): Promise<string | null> {
+export async function getBeforeContentViaHost(turnId: string, filePath: string, cwd: string): Promise<string | null> {
   try {
-    const res = await sendVsCodeRequest<VsCodeGetBeforeContentResponse>(
+    const res = await sendEmbedRequest<EmbedGetBeforeContentResponse>(
       { kind: "getBeforeContent", turnId, filePath, cwd },
       5000,
     );
@@ -403,12 +415,12 @@ export async function getBeforeContentViaVsCode(turnId: string, filePath: string
 }
 
 /**
- * 用 VSCode 原生 diff 显示某文件的 before/after 对比。
- * before/after 传完整内容，扩展写临时文件后调 vscode.diff。
+ * 用宿主原生 diff 视图显示某文件的 before/after 对比。
+ * before/after 传完整内容，宿主写临时文件后调其 diff 能力。
  */
-export async function showDiffViaVsCode(filePath: string, before: string, after: string, title?: string): Promise<void> {
+export async function showDiffViaHost(filePath: string, before: string, after: string, title?: string): Promise<void> {
   try {
-    await sendVsCodeRequest<unknown>(
+    await sendEmbedRequest<unknown>(
       { kind: "showDiff", filePath, before, after, title },
       5000,
     );
@@ -420,9 +432,9 @@ export async function showDiffViaVsCode(filePath: string, before: string, after:
 /**
  * 回退：把指定文件恢复到本轮快照内容。返回是否成功。
  */
-export async function revertFilesViaVsCode(turnId: string, files: string[], cwd: string): Promise<{ success: boolean; message?: string }> {
+export async function revertFilesViaHost(turnId: string, files: string[], cwd: string): Promise<{ success: boolean; message?: string }> {
   try {
-    const res = await sendVsCodeRequest<VsCodeRevertFilesResponse>(
+    const res = await sendEmbedRequest<EmbedRevertFilesResponse>(
       { kind: "revertFiles", turnId, files, cwd },
       10000,
     );
@@ -433,16 +445,16 @@ export async function revertFilesViaVsCode(turnId: string, files: string[], cwd:
 }
 
 /**
- * 回退 edit：读磁盘当前内容，把每个 newText 换回 oldText（反序 apply）。
- * 纯 fs，零 git。返回是否成功。
+ * 回退 edit：宿主读磁盘当前内容，把每个 newText 换回 oldText（反序 apply）。
+ * 纯文件写，零 git。返回是否成功。
  */
-export async function revertEditViaVsCode(
+export async function revertEditViaHost(
   filePath: string,
   cwd: string,
   edits: { oldText: string; newText: string }[],
 ): Promise<{ success: boolean; message?: string }> {
   try {
-    const res = await sendVsCodeRequest<VsCodeRevertEditResponse>(
+    const res = await sendEmbedRequest<EmbedRevertEditResponse>(
       { kind: "revertEdit", filePath, cwd, edits },
       10000,
     );
@@ -466,7 +478,7 @@ function isTextInputElement(target: EventTarget | null): boolean {
 }
 
 /**
- * 安装全局 document 级剪贴键拦截器。仅在 VSCode 模式下生效。
+ * 安装全局 document 级剪贴键拦截器。仅在 embed 模式下生效。
  *
  * 焦点在文本输入控件（textarea/input/contenteditable）时**跳过**，
  * 让 ChatInput 等组件自己的 onKeyDown 接管（它们处理选区、光标、粘贴插入
@@ -480,7 +492,7 @@ function isTextInputElement(target: EventTarget | null): boolean {
 let globalInterceptorInstalled = false;
 
 export function installGlobalClipboardInterceptor(): () => void {
-  if (!isVsCodeMode() || typeof document === "undefined") return () => {};
+  if (!isEmbedMode() || typeof document === "undefined") return () => {};
   if (globalInterceptorInstalled) return () => {};
   globalInterceptorInstalled = true;
 
@@ -499,7 +511,7 @@ export function installGlobalClipboardInterceptor(): () => void {
     // 丢失精确的选区复制。
     const target = e.target;
     if (isTextInputElement(target)) {
-      return; // 让 ChatInput 的 handleVsCodeClipboardKeydown 接管
+      return; // 让 ChatInput 的 handleEmbedClipboardKeydown 接管
     }
 
     e.preventDefault();
@@ -519,7 +531,7 @@ export function installGlobalClipboardInterceptor(): () => void {
     const selectedText = selection ? selection.toString() : "";
     if (!selectedText) return;
 
-    void clipboardWriteViaVsCode(selectedText).catch(() => {
+    void clipboardWriteViaHost(selectedText).catch(() => {
       try { void navigator.clipboard?.writeText(selectedText); } catch { /* ignore */ }
     });
 

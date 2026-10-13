@@ -20,7 +20,7 @@ import { copyText } from "@/lib/clipboard";
 import { getFileName } from "@/lib/file-paths";
 import { buildAtMentionText, buildFileAtMentionsText, buildFileLineMentionText } from "@/lib/file-fuzzy";
 import { getInitialNavigation } from "@/lib/initial-navigation";
-import { isVsCodeMode, notifyVsCode, onVsCodeNotification, installGlobalClipboardInterceptor, openInBrowserViaVsCode } from "@/lib/vscode-bridge";
+import { isEmbedMode, notifyEmbedHost, onEmbedHostNotification, installGlobalClipboardInterceptor, openInBrowserViaHost } from "@/lib/embed/bridge";
 import {
   getDefaultRightPanelWidth,
   getRightPanelMaxWidth,
@@ -220,12 +220,12 @@ export function AppShell() {
 
   /**
    * 在系统默认浏览器中打开 PI Code。
-   * VSCode 模式下通知扩展宿主 openExternal；独立浏览器模式下直接开新标签。
+   * embed 模式下通知宿主 openExternal；独立浏览器模式下直接开新标签。
    */
   const handleOpenInBrowser = useCallback(() => {
     if (typeof window === "undefined") return;
-    if (isVsCodeMode()) {
-      openInBrowserViaVsCode(window.location.href);
+    if (isEmbedMode()) {
+      openInBrowserViaHost(window.location.href);
     } else {
       window.open(window.location.href, "_blank");
     }
@@ -273,11 +273,11 @@ export function AppShell() {
     chatInputRef.current?.insertText(buildFileLineMentionText(relativePath, startLine, endLine));
   }, []);
 
-  // VSCode 模式：监听扩展宿推送的「提及」通知（右键菜单触发）。
+  // embed 模式：监听宿主推送的「提及」通知（如宿主的右键菜单触发）。
   // 仅插入 @path 或 @path:start-end 行范围提及，不插入代码块。
   useEffect(() => {
-    if (!isVsCodeMode()) return;
-    const unsubscribe = onVsCodeNotification((msg) => {
+    if (!isEmbedMode()) return;
+    const unsubscribe = onEmbedHostNotification((msg) => {
       if (msg.kind !== "mention") return;
       const p = msg.relativePath as string;
       const start = msg.startLine as number | undefined;
@@ -291,7 +291,7 @@ export function AppShell() {
     return unsubscribe;
   }, []);
 
-  // VSCode 模式：安装全局 document 级剪贴键拦截器，让输入框以外的文字
+  // embed 模式：安装全局 document 级剪贴键拦截器，让输入框以外的文字
   // （消息内容、代码块、会话列表等）也支持 Cmd+C/X/A 复制/剪切/全选。
   // 焦点在 textarea/input 时自动跳过，让 ChatInput 自己的精确处理接管。
   useEffect(() => {
@@ -528,9 +528,9 @@ export function AppShell() {
     fileName: string,
     options?: { sourceSessionId?: string | null; modeHint?: "diff" },
   ) => {
-    // VSCode 模式下，文件打开委托给 VSCode 原生编辑器。
-    if (isVsCodeMode()) {
-      notifyVsCode({ kind: "openFile", filePath, mode: options?.modeHint === "diff" ? "diff" : "source" });
+    // embed 模式下，文件打开委托给宿主的原生编辑器。
+    if (isEmbedMode()) {
+      notifyEmbedHost({ kind: "openFile", filePath, mode: options?.modeHint === "diff" ? "diff" : "source" });
       return;
     }
     const sourceSessionId = options?.sourceSessionId;
