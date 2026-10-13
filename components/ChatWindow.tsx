@@ -214,7 +214,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     agentPhase,
     isNew,
     sessionIdRef, messagesEndRef, scrollContainerRef,
-    lastUserMsgRef, entryIdToTurnIdRef,
+    lastUserMsgRef, turnSnapshots,
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue, loadSession,
@@ -243,7 +243,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     while (endIdx < messages.length && !isGroupAnchor(messages[endIdx])) endIdx += 1;
     const turnMessages = messages.slice(userIdx, endIdx);
     const turnChanges = extractFileChanges(turnMessages, cwd);
-    const turnId = entryIdToTurnIdRef?.current.get(userEntryId) ?? userEntryId;
+    const turnId = turnSnapshots.turnIdForEntry(userEntryId);
     // 该轮所有 entryId（含用户消息本身）→ 删除记录
     const turnEntryIds = entryIds.slice(userIdx, endIdx).filter((e): e is string => !!e);
 
@@ -291,7 +291,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     } finally {
       setRevertingTurnId(null);
     }
-  }, [revertingTurnId, session?.id, session?.cwd, newSessionCwd, sessionIdRef, entryIds, messages, entryIdToTurnIdRef, addNotice, t, loadSession]);
+  }, [revertingTurnId, session?.id, session?.cwd, newSessionCwd, sessionIdRef, entryIds, messages, turnSnapshots, addNotice, t, loadSession]);
 
   // Register the abort handler for the global Esc shortcut
   useEffect(() => {
@@ -766,7 +766,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                   const turnChanges = extractFileChanges(turnMessages, messageCwd);
                   const userEntryId = entryIds[userIdx];
                   const turnId = userEntryId
-                    ? (entryIdToTurnIdRef?.current.get(userEntryId) ?? userEntryId)
+                    ? turnSnapshots.turnIdForEntry(userEntryId)
                     : `turn-${userIdx}`;
                   if (turnChanges.length > 0) {
                     rendered.push(

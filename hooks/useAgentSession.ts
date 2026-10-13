@@ -13,7 +13,8 @@ import { normalizeToolCalls } from "@/lib/normalize";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { getToolNamesForPreset, type ToolEntry } from "@/lib/tool-presets";
 import type { SessionStatsInfo } from "@/lib/pi-types";
-import { isEmbedMode, captureSnapshotViaHost, getActiveEditorViaHost, onEmbedHostNotification } from "@/lib/embed/bridge";
+import { useActiveFile } from "@/components/embed/use-active-file";
+import { TurnSnapshotTracker } from "@/lib/embed/turn-snapshot";
 
 export interface SessionData {
   sessionId: string;
@@ -368,7 +369,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [sessionStatsOverride, setSessionStatsOverride] = useState<SessionStatsInfo | null>(null);
   const [extensionDialog, setExtensionDialog] = useState<ExtensionUiDialogRequest | null>(null);
   // 宿主当前活动编辑器文件（相对路径）。用于隐藏 system prompt 注入 + 输入框提示。
-  const [activeFile, setActiveFile] = useState<{ relativePath: string | null; filePath: string | null } | null>(null);
+  const activeFile = useActiveFile();
   const [extensionCustomUi, setExtensionCustomUi] = useState<ExtensionUiCustomRequest | null>(null);
   const [extensionStatuses, setExtensionStatuses] = useState<ExtensionStatusItem[]>([]);
   const [extensionWidgets, setExtensionWidgets] = useState<ExtensionWidgetItem[]>([]);
@@ -396,11 +397,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const promptRunIdRef = useRef(0);
   const optimisticUserMessageKeyRef = useRef<string | null>(null);
 
-  // embed 模式下文件回退用的 turnId 管理：
-  //   pendingTurnIdRef: 本轮发 prompt 前生成的 turnId，等 pi 返回真实 entryId 后配对
-  //   entryIdToTurnId: user message entryId → 本轮 turnId（FileReviewCard 用）
-  const pendingTurnIdRef = useRef<string | null>(null);
-  const entryIdToTurnIdRef = useRef<Map<string, string>>(new Map());
+  // embed 模式下文件回退用的 turnId 配对登记器（发 prompt 前建快照，
+  // entryId 返回后与 turnId 配对，FileReviewCard/回退据此反查）。
+  const [turnSnapshots] = useState(() => new TurnSnapshotTracker());
 
   const setToolPresetState = opts.setToolPreset ?? setToolPreset;
 
@@ -469,20 +468,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setMessages(d.context.messages);
       setEntryIds(d.context.entryIds ?? []);
       // embed 模式：把本轮 pendingTurnId 配对到 user message 的真实 entryId。
-      // entryIds 和 messages 是平行数组。找最后一条 user message 的 entryId。
-      const pendingTurnId = pendingTurnIdRef.current;
-      if (pendingTurnId && d.context.entryIds) {
-        for (let i = d.context.messages.length - 1; i >= 0; i--) {
-          if (d.context.messages[i].role === "user") {
-            const eid = d.context.entryIds[i];
-            if (eid) {
-              entryIdToTurnIdRef.current.set(eid, pendingTurnId);
-              pendingTurnIdRef.current = null;
-            }
-            break;
-          }
-        }
-      }
+      turnSnapshots.pairWithLastUserEntry(d.context.messages, d.context.entryIds);
       setCurrentModelOverride(null);
       setError(null);
       if (d.context.thinkingLevel && d.context.thinkingLevel !== "off") {
@@ -521,7 +507,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       if (showLoading && !messagesLoaded) setLoading(false);
     }
-  }, []);
+  }, [turnSnapshots]);
 
   const loadContext = useCallback(async (sid: string, leafId: string | null) => {
     try {
@@ -931,27 +917,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     agentRunningRef.current = agentRunning;
   }, [agentRunning]);
 
-  // embed 模式：监听宿主推送的 activeEditorChanged 通知，并主动拉一次初始状态。
-  useEffect(() => {
-    if (!isEmbedMode()) return;
-    let cancelled = false;
-    void getActiveEditorViaHost().then((active) => {
-      if (!cancelled) setActiveFile(active);
-    }).catch(() => {
-      if (!cancelled) setActiveFile({ relativePath: null, filePath: null });
-    });
-    const unsubscribe = onEmbedHostNotification((payload) => {
-      if (payload.kind !== "activeEditorChanged") return;
-      setActiveFile({
-        relativePath: (payload as { relativePath?: string | null }).relativePath ?? null,
-        filePath: (payload as { filePath?: string | null }).filePath ?? null,
-      });
-    });
-    return () => {
-      cancelled = true;
-      unsubscribe();
-    };
-  }, []);
+  // embed 模式的 activeEditorChanged 监听与初始拉取在 useActiveFile 内完成。
 
   const handleAgentEvent = useCallback((event: AgentEvent) => {
     switch (event.type) {
@@ -1125,17 +1091,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
     // embed 模式下，在 prompt 到达 AgentSession 之前建本轮文件快照。
     // 必须同步等快照建完再发 prompt，否则 agent 可能已改文件、before 不准。
-    // turnId 用前端生成的 UUID，等 pi 返回真实 entryId 后在 message_end 配对。
-    const turnId = (crypto.randomUUID?.() ?? `turn-${Date.now()}`);
-    const snapshotCwd = newSessionCwd ?? session?.cwd;
-    if (isEmbedMode() && snapshotCwd) {
-      try {
-        await captureSnapshotViaHost(turnId, snapshotCwd);
-      } catch {
-        // 快照失败不阻断发消息，只是本轮回退按钮会不可用。
-      }
-      pendingTurnIdRef.current = turnId;
-    }
+    await turnSnapshots.capture(newSessionCwd ?? session?.cwd);
 
     const promptRunId = promptRunIdRef.current + 1;
 
@@ -1231,7 +1187,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setAgentPhase(null);
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, closeEvents, opts.chatInputRef, activeFile]);
+  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, closeEvents, opts.chatInputRef, activeFile, turnSnapshots]);
 
   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
     if (agentRunningRef.current || bashRunningRef.current) return;
@@ -1750,7 +1706,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     // Refs
     sessionIdRef, eventSourceRef, messagesEndRef, scrollContainerRef,
     lastUserMsgRef, pendingScrollToUserRef, initialScrollDoneRef,
-    entryIdToTurnIdRef,
+    turnSnapshots,
     // Actions
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
