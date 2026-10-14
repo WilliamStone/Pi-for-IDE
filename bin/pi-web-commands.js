@@ -111,8 +111,15 @@ async function runCommand(options, {
         log,
         error,
       });
-    case "update-sdk":
+    case "update-sdk": {
+      // A running server holds .next/ open; never rewrite its SDK underneath.
+      const running = await list();
+      if (running.length > 0) {
+        error(`pi-web is running:\n${running.map(records.formatRunRecord).join("\n")}\nRun \`pi-web stop\` first, then update the SDK.`);
+        return 1;
+      }
       return runUpdateSdk(options.sdkVersion, { pkgDir, log, error });
+    }
     default:
       error(`Unknown command: ${options.command}`);
       return 1;
