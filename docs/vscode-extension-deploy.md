@@ -108,6 +108,11 @@ code --install-extension .\pi-for-ide-0.1.0.vsix
 - **启动后警告「未包含 embed 桥补丁」**：连到原版 pi-web——检查 `piIde.package` 名是否仍是 `pi-web-for-ide`，或全局装的是旧 tarball（重新 `npm pack` + `npm i -g`）。
 - **端口被占**：`piIde.port` 会自动 +1 探测；也可 `pi-web status` 查看现有服务 / `pi-web stop` 停掉。
 - **更新 SDK**：`pi-web update-sdk <version>`（服务须先停）；`pi-web update` 升级 pi-web-for-ide 本体。
+- **安装时脚本被拦**（npm `allow-scripts` 类限制）：`pi-web-for-ide` 的
+  `postinstall` 负责把 standalone 外部包接成 junction——被拦时服务可能
+  起不来或 MCP 报 `internals-unavailable`。pnpm 默认执行装包脚本；npm 需
+  允许 `pi-web-for-ide` 的 postinstall（`npm config set allow-scripts=pi-web-for-ide --location=user`
+  或装后手动 `node bin/prepare-terminal.js`）。
 - **保存模型设置报 `EPERM rename …\.models.json-*.tmp -> models.json`**（Windows）：
   不是代码 bug，是该文件对象上挂了内核态残留引用（曾有不释放 delete-share
   的进程抓过它，常见于崩溃/被杀的 pi 系进程或安全软件）。判别特征：
