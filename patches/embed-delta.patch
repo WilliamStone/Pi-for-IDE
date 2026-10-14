@@ -1,0 +1,2763 @@
+diff --git a/app/api/embed/route.ts b/app/api/embed/route.ts
+new file mode 100644
+index 0000000..5fb7e04
+--- /dev/null
++++ b/app/api/embed/route.ts
+@@ -0,0 +1,12 @@
++import { NextResponse } from "next/server";
++
++// Embed 模式探测端点。
++//
++// 嵌入宿主（如 VSCode 扩展）在外部启动一个 pi-web 实例后，需要区分所连
++// 服务器是否包含 embed 桥补丁——原版 pi-web 没有此路由（404），打过补丁
++// 的返回 200 + 协议版本。宿主据此决定是否启用桥能力或提示安装正确版本。
++const EMBED_PROTOCOL_VERSION = 1;
++
++export function GET() {
++  return NextResponse.json({ embed: { protocol: EMBED_PROTOCOL_VERSION } });
++}
+diff --git a/app/api/sessions/[id]/export/route.ts b/app/api/sessions/[id]/export/route.ts
+index bda67e9..2fb80a3 100644
+--- a/app/api/sessions/[id]/export/route.ts
++++ b/app/api/sessions/[id]/export/route.ts
+@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync } from "fs";
+ import { tmpdir } from "os";
+ import { basename, dirname, join } from "path";
+ import { promisify } from "util";
+-import { fileURLToPath, pathToFileURL } from "url";
++import { fileURLToPath } from "url";
+ import { NextResponse } from "next/server";
+ import { resolveSessionPath } from "@/lib/session-reader";
+ 
+@@ -233,9 +233,26 @@ async function exportSession(filePath: string, outputPath: string): Promise<void
+   const packageDir = await getPiPackageDir();
+   if (!packageDir) throw new Error("pi CLI not found");
+ 
+-  const exporterUrl = pathToFileURL(join(packageDir, "dist", "core", "export-html", "index.js")).href;
+-  const { exportFromFile } = (await import(exporterUrl)) as ExportHtmlModule;
+-  await exportFromFile(filePath, outputPath);
++  // IMPORTANT: cannot use a plain `await import(exporterPath)` here.
++  //
++  // Next.js (standalone production build) runs API routes through a webpack
++  // runtime that intercepts dynamic `import()` / `require()` expressions.
++  // When the specifier is a runtime-computed value (an absolute path string),
++  // webpack cannot statically analyze it and replaces the call with an empty
++  // context stub that throws `Cannot find module '<path>'` for every value
++  // at runtime — even when the file exists on disk. dev mode bypasses webpack
++  // bundling so the bug is invisible there; it only manifests in the
++  // standalone server (which is exactly what the embed-host packaging ships).
++  //
++  // `/* webpackIgnore: true */` instructs webpack to leave this `import()`
++  // call untouched, so Node's native ESM loader resolves the absolute path
++  // at runtime directly from disk. (createRequire + require() does NOT work
++  // here — webpack also intercepts that and rewrites it to the same stub.)
++  const exporterPath = join(packageDir, "dist", "core", "export-html", "index.js");
++  const exporterModule = (await import(
++    /* webpackIgnore: true */ exporterPath
++  )) as ExportHtmlModule;
++  await exporterModule.exportFromFile(filePath, outputPath);
+ }
+ 
+ export async function GET(
+diff --git a/app/api/sessions/[id]/revert-turn/route.ts b/app/api/sessions/[id]/revert-turn/route.ts
+new file mode 100644
+index 0000000..946b77b
+--- /dev/null
++++ b/app/api/sessions/[id]/revert-turn/route.ts
+@@ -0,0 +1,79 @@
++import { NextResponse } from "next/server";
++import { readFileSync, writeFileSync } from "fs";
++import {
++  resolveSessionPath,
++  invalidateSessionPathCache,
++  invalidateSessionListCache,
++} from "@/lib/session-reader";
++import { getRpcSession } from "@/lib/rpc-manager";
++
++/**
++ * POST /api/sessions/[id]/revert-turn  body: { entryIds: string[] }
++ *
++ * 回退某一轮：删除会话文件中该轮的所有 entry（用户消息及其后的
++ * assistant/toolResult 等）。文件直接重写（pi 自身也会整文件重写）。
++ *
++ * parentId 链处理：被删 entry 的 children 需要重连到「该轮用户消息的
++ * parentId」，否则后面的轮次会断链，buildSessionPath 找不到父节点。
++ */
++export async function POST(
++  req: Request,
++  { params }: { params: Promise<{ id: string }> }
++) {
++  const { id } = await params;
++  try {
++    const { entryIds } = await req.json() as { entryIds?: unknown };
++    if (!Array.isArray(entryIds) || entryIds.length === 0) {
++      return NextResponse.json({ error: "entryIds is required" }, { status: 400 });
++    }
++    const deleted = new Set(entryIds.map((e) => String(e)));
++
++    const filePath = await resolveSessionPath(id);
++    if (!filePath) {
++      return NextResponse.json({ error: "Session not found" }, { status: 404 });
++    }
++
++    const content = readFileSync(filePath, "utf8");
++    const lines = content.split("\n").filter((l) => l.trim().length > 0);
++    type SessionEntry = { id?: string; parentId?: string | null; type?: string };
++    const entries = lines.map((l) => {
++      try { return JSON.parse(l) as SessionEntry; }
++      catch { return null; }
++    }).filter((e): e is SessionEntry => !!e && typeof e.id === "string");
++
++    // 找到该轮用户消息（第一个被删 entry）的 parentId，用于重连 children
++    const firstEntry = entries.find((e) => deleted.has(e.id!));
++    const prevParentId = firstEntry?.parentId ?? null;
++
++    // 判断被删集合里是否有 session header —— 不允许删 header
++    const headerIdx = entries.findIndex((e) => e.type === "session");
++    if (headerIdx >= 0 && entries[headerIdx].id && deleted.has(entries[headerIdx].id)) {
++      return NextResponse.json({ error: "Cannot delete session header" }, { status: 400 });
++    }
++
++    const kept = entries
++      .filter((e) => e.id && !deleted.has(e.id))
++      .map((e) => {
++        // children 重连到被删轮之前的父节点
++        if (e.parentId && deleted.has(e.parentId)) {
++          return { ...e, parentId: prevParentId };
++        }
++        return e;
++      });
++
++    if (kept.length === 0) {
++      return NextResponse.json({ error: "Cannot delete all entries" }, { status: 400 });
++    }
++
++    writeFileSync(filePath, kept.map((e) => JSON.stringify(e)).join("\n") + "\n");
++
++    // 服务端 wrapper 持有旧状态 → destroy，下次请求重新加载
++    getRpcSession(id)?.destroy();
++    invalidateSessionPathCache(id);
++    invalidateSessionListCache();
++
++    return NextResponse.json({ ok: true, kept: kept.length });
++  } catch (error) {
++    return NextResponse.json({ error: String(error) }, { status: 500 });
++  }
++}
+diff --git a/app/layout.tsx b/app/layout.tsx
+index 83ce2f5..aa762a5 100644
+--- a/app/layout.tsx
++++ b/app/layout.tsx
+@@ -11,9 +11,9 @@ const notoSansMono = Noto_Sans_Mono({
+ });
+ 
+ export const metadata: Metadata = {
+-  title: "Pi Web",
+-  description: "Pi Web interface for the pi coding agent",
+-  applicationName: "Pi Web",
++  title: "PI Code",
++  description: "PI Code interface for the pi coding agent",
++  applicationName: "PI Code",
+   manifest: "/manifest.webmanifest",
+   icons: {
+     icon: [
+@@ -34,7 +34,7 @@ export const metadata: Metadata = {
+   appleWebApp: {
+     capable: true,
+     statusBarStyle: "default",
+-    title: "Pi Web",
++    title: "PI Code",
+   },
+   formatDetection: {
+     telephone: false,
+@@ -54,12 +54,12 @@ export default function RootLayout({
+   children: React.ReactNode;
+ }) {
+   return (
+-    <html lang="en" translate="no" className={`${notoSansMono.variable} notranslate`} suppressHydrationWarning>
++    <html lang="zh" translate="no" className={`${notoSansMono.variable} notranslate`} suppressHydrationWarning>
+       <head>
+         <meta name="google" content="notranslate" />
+         <script
+           dangerouslySetInnerHTML={{
+-            __html: `(function(){try{var t=localStorage.getItem("pi-theme");if(t==="dark")document.documentElement.classList.add("dark")}catch(e){}})();`,
++            __html: `(function(){try{var t=localStorage.getItem("pi-theme");var v=new URL(location.href).searchParams.get("embed");if(t==="dark"||(t===null&&v))document.documentElement.classList.add("dark")}catch(e){}})();`,
+           }}
+         />
+       </head>
+diff --git a/components/AppShell.tsx b/components/AppShell.tsx
+index 9b09333..d78fe16 100644
+--- a/components/AppShell.tsx
++++ b/components/AppShell.tsx
+@@ -20,6 +20,9 @@ import { copyText } from "@/lib/clipboard";
+ import { getFileName } from "@/lib/file-paths";
+ import { buildAtMentionText, buildFileAtMentionsText, buildFileLineMentionText } from "@/lib/file-fuzzy";
+ import { getInitialNavigation } from "@/lib/initial-navigation";
++import { isEmbedMode, notifyEmbedHost, installGlobalClipboardInterceptor } from "@/lib/embed/bridge";
++import { OpenInBrowserButton } from "./embed/OpenInBrowserButton";
++import { useMentionNotification } from "./embed/useMentionNotification";
+ import {
+   getDefaultRightPanelWidth,
+   getRightPanelMaxWidth,
+@@ -259,6 +262,16 @@ export function AppShell() {
+     chatInputRef.current?.insertText(buildFileLineMentionText(relativePath, startLine, endLine));
+   }, []);
+ 
++  // embed 模式：监听宿主推送的「提及」通知（如宿主的右键菜单触发）。
++  useMentionNotification(chatInputRef);
++
++  // embed 模式：安装全局 document 级剪贴键拦截器，让输入框以外的文字
++  // （消息内容、代码块、会话列表等）也支持 Cmd+C/X/A 复制/剪切/全选。
++  // 焦点在 textarea/input 时自动跳过，让 ChatInput 自己的精确处理接管。
++  useEffect(() => {
++    return installGlobalClipboardInterceptor();
++  }, []);
++
+   const initialSessionId = initialNavigation.sessionId;
+   const [activeCwd, setActiveCwd] = useState<string | null>(null);
+   const activeProjectRootRef = useRef<string | null>(null);
+@@ -489,6 +502,11 @@ export function AppShell() {
+     fileName: string,
+     options?: { sourceSessionId?: string | null; modeHint?: "diff" },
+   ) => {
++    // embed 模式下，文件打开委托给宿主的原生编辑器。
++    if (isEmbedMode()) {
++      notifyEmbedHost({ kind: "openFile", filePath, mode: options?.modeHint === "diff" ? "diff" : "source" });
++      return;
++    }
+     const sourceSessionId = options?.sourceSessionId;
+     const modeHint = options?.modeHint;
+     const tabId = `file:${filePath}`;
+@@ -600,7 +618,7 @@ export function AppShell() {
+ 
+   const activeFileTab = fileTabs.find((t) => t.id === activeFileTabId) ?? null;
+   const activeCwdName = activeCwd ? getFileName(activeCwd) || activeCwd : null;
+-  const windowTitle = activeCwdName ? `${activeCwdName} - Pi Web` : "Pi Web";
++  const windowTitle = activeCwdName ? `${activeCwdName} - PI Code` : "PI Code";
+ 
+   useEffect(() => {
+     const syncWindowTitle = () => {
+@@ -1121,6 +1139,7 @@ export function AppShell() {
+                 </svg>
+                  {!isMobile && <span>{translate("system.label")}</span>}
+               </button>
++              <OpenInBrowserButton />
+             </div>
+           )}
+           {/* Session stats — right-aligned in top bar */}
+diff --git a/components/ChatInput.tsx b/components/ChatInput.tsx
+index cc0f526..34490d2 100644
+--- a/components/ChatInput.tsx
++++ b/components/ChatInput.tsx
+@@ -15,6 +15,10 @@ import {
+ import { FolderIcon, getFileIcon } from "./FileIcons";
+ import { useIsMobile } from "@/hooks/useIsMobile";
+ import { useI18n } from "@/hooks/useI18n";
++import { isEmbedMode } from "@/lib/embed/bridge";
++import { useEmbedAtCompletion } from "./embed/useEmbedAtCompletion";
++import { useEmbedClipboardKeys } from "./embed/useEmbedClipboardKeys";
++import { ActiveFileHint } from "./embed/ActiveFileHint";
+ 
+ export interface AttachedImage {
+   data: string;   // base64, no prefix
+@@ -68,6 +72,8 @@ interface Props {
+   draftKey?: string;
+   /** Session working directory — enables the @ file autocomplete menu */
+   cwd?: string | null;
++  /** 宿主当前活动编辑器文件（相对路径）。存在时在输入框下方显示提示。 */
++  activeFile?: string | null;
+ }
+ 
+ export interface ChatInputHandle {
+@@ -287,6 +293,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
+   onPromptWithStreamingBehavior,
+   draftKey,
+   cwd,
++  activeFile,
+ }: Props, ref) {
+   const { t } = useI18n();
+   const isMobile = useIsMobile();
+@@ -585,7 +592,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
+   // server-side against the full listing. Local matches render immediately
+   // and are replaced when the (debounced) server result for the current
+   // query arrives; stale responses are ignored via the query/cwd tag.
+-  const needsServerSearch = Boolean(atQueryText && fileIndex?.truncated && fileIndex.cwd === cwd);
++  const EMBED_MODE = isEmbedMode();
++  const needsServerSearch = !EMBED_MODE && Boolean(atQueryText && fileIndex?.truncated && fileIndex.cwd === cwd);
+   useEffect(() => {
+     if (!needsServerSearch || !cwd || !atQueryText) return;
+     const fetchCwd = cwd;
+@@ -604,12 +612,19 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
+     return () => clearTimeout(timer);
+   }, [needsServerSearch, atQueryText, cwd]);
+ 
+-  const serverResultInUse = needsServerSearch
+-    && atServerResult !== null
++  // In embed mode the host is the only source (@-completions come
++  // from `sendEmbedRequest({ kind: "completeAt" })`), so `atServerResult`
++  // must drive the menu directly. In standalone mode the server result only
++  // augments the local index when it is truncated.
++  const serverResultInUse = atServerResult !== null
+     && atServerResult.cwd === cwd
+-    && atServerResult.query === atQueryText;
++    && atServerResult.query === atQueryText
++    && (needsServerSearch || EMBED_MODE);
+   const atMatches: FileIndexEntry[] = serverResultInUse ? atServerResult.matches : atLocalMatches;
+ 
++  // Embed 模式：@ token 激活时向宿主请求文件补全（宿主文件索引总是最新）。
++  useEmbedAtCompletion({ cwd, atQuery, atQueryText, atServerResult, setAtServerResult });
++
+   // Open/reset the menu whenever the @token appears or changes (mirrors the
+   // slash menu: Escape closes it, the next keystroke re-opens it).
+   const atTokenKey = atQuery === null ? null : `${atQuery.start}:${atQuery.quoted ? 1 : 0}:${atQuery.query}`;
+@@ -627,7 +642,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
+   // ~10s, so re-opening refreshes cheaply; while typing nothing refetches.
+   const atTokenActive = atQuery !== null;
+   useEffect(() => {
+-    if (!atTokenActive || !cwd) return;
++    if (!atTokenActive || !cwd || EMBED_MODE) return;
+     const meta = fileIndexMetaRef.current;
+     if (meta && meta.cwd === cwd && Date.now() - meta.fetchedAt < 10_000) return;
+     if (fileIndexFetchingRef.current === cwd) return;
+@@ -651,7 +666,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
+         fileIndexFetchingRef.current = null;
+         setFileIndexLoading(false);
+       });
+-  }, [atTokenActive, cwd]);
++  }, [atTokenActive, cwd, EMBED_MODE]);
+ 
+   const applyAtCompletion = useCallback((entry: FileIndexEntry) => {
+     if (!atQuery) return;
+@@ -805,8 +820,15 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
+       : Math.max(0, slashActiveIndex - 1);
+   }, [filteredSlashCommands.length, slashActiveIndex]);
+ 
++  // embed 模式：宿主命令层会拦截跨源 iframe 的剪贴键，这里在 keydown 阶段
++  // 同步截住并改走宿主剪贴板桥。
++  const handleEmbedClipboardKeydown = useEmbedClipboardKeys({ value, setValue, isComposingRef });
++
+   const handleKeyDown = useCallback(
+     (e: KeyboardEvent<HTMLTextAreaElement>) => {
++      // embed 模式剪贴键拦截必须在最前面，同步 preventDefault 才能拦住宿主命令层。
++      if (handleEmbedClipboardKeydown(e)) return;
++
+       const nativeEvent = e.nativeEvent;
+       const recentlyComposed = Date.now() - lastCompositionEndAtRef.current < COMPOSITION_END_ENTER_GRACE_MS;
+       const isComposing =
+@@ -926,7 +948,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
+         }
+       }
+     },
+-    [isStreaming, onSteer, onFollowUp, onAbort, slashMenuOpen, slashQuery, filteredSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value]
++    [isStreaming, onSteer, onFollowUp, onAbort, slashMenuOpen, slashQuery, filteredSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value, handleEmbedClipboardKeydown]
+   );
+ 
+   const handleInput = useCallback(() => {
+@@ -1687,6 +1709,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
+           </div>
+         )}
+ 
++        {/* 当前打开的文件提示（embed 模式） */}
++        {activeFile && !bashMode && <ActiveFileHint path={activeFile} />}
++
+         {/* Bottom bar: left | center (context) | right */}
+         <div style={{
+           marginTop: 8,
+diff --git a/components/ChatWindow.tsx b/components/ChatWindow.tsx
+index 893d70c..1e2f5e1 100644
+--- a/components/ChatWindow.tsx
++++ b/components/ChatWindow.tsx
+@@ -6,6 +6,8 @@ import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
+ import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
+ import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, splitFinalAssistantBlocks } from "@/lib/message-display";
+ import { MessageView } from "./MessageView";
++import { TurnFileReview } from "./embed/TurnFileReview";
++import { useTurnRevert } from "./embed/useTurnRevert";
+ import { ChatInput, type ChatInputHandle } from "./ChatInput";
+ import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
+ import { ExtensionStatusBar } from "./ExtensionStatusBar";
+@@ -200,16 +202,17 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
+     agentRunning, bashRunning, pendingBash, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
+     retryInfo, contextUsage, forkingEntryId,
+     isCompacting, compactError, compactResult, displayModel: displayModelValue, sessionStats,
++    activeFile,
+     slashCommands, slashCommandsLoading, queuedMessages,
+-    notices, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
++    notices, addNotice, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
+     isAutoModelSelection,
+     agentPhase,
+     isNew,
+     sessionIdRef, messagesEndRef, scrollContainerRef,
+-    lastUserMsgRef,
++    lastUserMsgRef, turnSnapshots,
+     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
+     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
+-    handleRecallQueue,
++    handleRecallQueue, loadSession,
+     handleBuiltinSlashCommand,
+     handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands,
+   } = useAgentSession({
+@@ -218,6 +221,20 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
+   });
+   const sessionBusy = agentRunning || bashRunning;
+ 
++  // 回退某一轮（embed 模式）：恢复该轮改动的代码 + 删除该轮会话记录，然后重新加载会话。
++  // 入口在用户消息左侧的回退按钮（embed/TurnRevertButton，经 MessageView 挂载）。
++  const { buildRevertInfo } = useTurnRevert({
++    sessionId: session?.id ?? sessionIdRef.current ?? undefined,
++    cwd: session?.cwd ?? newSessionCwd ?? undefined,
++    entryIds,
++    messages,
++    turnSnapshots,
++    sessionBusy,
++    isTurnBoundary: isGroupAnchor,
++    addNotice,
++    loadSession,
++  });
++
+   // Register the abort handler for the global Esc shortcut
+   useEffect(() => {
+     registerAbortHandler(sessionBusy ? handleAbort : null);
+@@ -373,6 +390,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
+       onAudioUnlock={unlockAudio}
+       draftKey={session?.id ?? (newSessionCwd ? `new:${newSessionCwd}` : undefined)}
+       cwd={session?.cwd ?? newSessionCwd}
++      activeFile={activeFile?.relativePath ?? null}
+     />
+   );
+ 
+@@ -466,7 +484,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
+             >
+               <div style={{ display: "flex", alignItems: "baseline", gap: 10, minWidth: 0, flex: 1, lineHeight: 1.4, overflow: "hidden" }}>
+                 <span style={{ fontSize: 28, fontWeight: 700, letterSpacing: 0, color: "var(--text)", flexShrink: 0, whiteSpace: "nowrap" }}>π</span>
+-                <span style={{ fontSize: 22, color: "var(--text)", fontWeight: 700, letterSpacing: 0, flexShrink: 0, whiteSpace: "nowrap" }}>Pi Web</span>
++                <span style={{ fontSize: 22, color: "var(--text)", fontWeight: 700, letterSpacing: 0, flexShrink: 0, whiteSpace: "nowrap" }}>PI Code</span>
+               </div>
+               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, flexShrink: 0 }}>
+                 <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+@@ -539,7 +557,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
+                 if (idx === lastUserIdx) { (lastUserMsgRef as { current: HTMLDivElement | null }).current = el; }
+               };
+ 
+-              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean } = {}): ReactNode => {
++              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; revertInfo?: { canRevert: boolean; onRevert: (entryId: string) => void; reverting: boolean } } = {}): ReactNode => {
+                 const msg = options.messageOverride ?? messages[idx];
+                 const prevAssistantEntryId =
+                   msg.role === "user" && idx > 0 && messages[idx - 1].role === "assistant"
+@@ -579,6 +597,9 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
+                     showTimestamp={showTimestamp}
+                     prevTimestamp={idx > 0 ? (messages[idx - 1] as AgentMessage & { timestamp?: number }).timestamp : undefined}
+                     sessionId={session?.id ?? sessionIdRef.current ?? undefined}
++                    canRevertTurn={options.revertInfo?.canRevert && msg.role === "user"}
++                    onRevertTurn={msg.role === "user" ? options.revertInfo?.onRevert : undefined}
++                    revertingTurn={options.revertInfo?.reverting}
+                   />
+                 );
+                 if (!isVisible || options.attachRef === false || currentRefIdx === undefined) return view;
+@@ -621,7 +642,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
+                   continue;
+                 }
+ 
+-                rendered.push(renderMessage(userIdx));
++                rendered.push(renderMessage(userIdx, { revertInfo: buildRevertInfo(userIdx, endIdx) }));
+ 
+                 const processIndices: number[] = [];
+                 for (let processIdx = userIdx + 1; processIdx < finalAssistantIdx; processIdx++) {
+@@ -666,6 +687,20 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
+                 if (finalAnswerMessage) {
+                   rendered.push(renderMessage(finalAssistantIdx, { messageOverride: finalAnswerMessage }));
+                 }
++
++                // 在 final answer 后插入文件审查卡片（embed 模式；无改动时渲染 null）。
++                rendered.push(
++                  <TurnFileReview
++                    key={`file-review-${userIdx}`}
++                    turnMessages={messages.slice(userIdx, endIdx)}
++                    userEntryId={entryIds[userIdx]}
++                    turnIdx={userIdx}
++                    cwd={messageCwd}
++                    turnSnapshots={turnSnapshots}
++                    onOpenFile={onOpenFile}
++                  />,
++                );
++
+                 for (let renderIdx = finalAssistantIdx + 1; renderIdx < endIdx; renderIdx++) {
+                   rendered.push(renderMessage(renderIdx));
+                 }
+diff --git a/components/MessageView.tsx b/components/MessageView.tsx
+index d73bee3..3953e3e 100644
+--- a/components/MessageView.tsx
++++ b/components/MessageView.tsx
+@@ -3,6 +3,7 @@
+ import { memo, useState, useRef, useEffect, useMemo } from "react";
+ import { MarkdownBody } from "./MarkdownBody";
+ import { copyText } from "@/lib/clipboard";
++import { TurnRevertButton } from "./embed/TurnRevertButton";
+ import { useI18n } from "@/hooks/useI18n";
+ import { parseCompactionSummary } from "@/lib/compaction-summary";
+ import { getAssistantErrorMessage, isEmptyThinkingBlock } from "@/lib/message-display";
+@@ -69,6 +70,12 @@ interface Props {
+   showTimestamp?: boolean;
+   prevTimestamp?: number;
+   sessionId?: string;
++  /** 该轮是否有文件改动可回退（决定回退按钮是否显示）。 */
++  canRevertTurn?: boolean;
++  /** 回退该轮：恢复代码 + 删除该轮会话记录。 */
++  onRevertTurn?: (entryId: string) => void;
++  /** 回退进行中（禁用按钮）。 */
++  revertingTurn?: boolean;
+ }
+ 
+ function formatTime(ts?: number): string | null {
+@@ -98,9 +105,9 @@ function haveSameRelevantToolResults(
+   return true;
+ }
+ 
+-export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp, sessionId }: Props) {
++export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp, sessionId, canRevertTurn, onRevertTurn, revertingTurn }: Props) {
+   if (message.role === "user") {
+-    return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} />;
++    return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} canRevertTurn={canRevertTurn} onRevertTurn={onRevertTurn} revertingTurn={revertingTurn} />;
+   }
+   if (message.role === "assistant") {
+     return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} />;
+@@ -134,10 +141,13 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
+     && prev.onEditContent === next.onEditContent
+     && prev.showTimestamp === next.showTimestamp
+     && prev.prevTimestamp === next.prevTimestamp
+-    && prev.sessionId === next.sessionId;
++    && prev.sessionId === next.sessionId
++    && prev.canRevertTurn === next.canRevertTurn
++    && prev.onRevertTurn === next.onRevertTurn
++    && prev.revertingTurn === next.revertingTurn;
+ });
+ 
+-function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent }: {
++function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, canRevertTurn, onRevertTurn, revertingTurn }: {
+   message: UserMessage;
+   cwd?: string;
+   onOpenFile?: (filePath: string) => void;
+@@ -147,6 +157,9 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
+   onNavigate?: (entryId: string) => void;
+   prevAssistantEntryId?: string;
+   onEditContent?: (content: string) => void;
++  canRevertTurn?: boolean;
++  onRevertTurn?: (entryId: string) => void;
++  revertingTurn?: boolean;
+ }) {
+   const { t } = useI18n();
+   const [hovered, setHovered] = useState(false);
+@@ -183,6 +196,10 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
+       onMouseLeave={() => setHovered(false)}
+     >
+       <div style={{ display: "flex", alignItems: "flex-end", gap: 6, maxWidth: "85%" }}>
++        {/* 左侧：回退按钮（embed 模式；hover 显示，固定宽度占位避免布局跳动） */}
++        {canRevertTurn && onRevertTurn && entryId && (
++          <TurnRevertButton entryId={entryId} reverting={revertingTurn} onRevert={onRevertTurn} hovered={hovered} />
++        )}
+         <div
+           style={{
+             flex: 1,
+@@ -818,7 +835,7 @@ function PairedDiffResult({ diff }: {
+   );
+ }
+ 
+-function SplitPatchView({ text }: { text: string }) {
++export function SplitPatchView({ text }: { text: string }) {
+   const { t } = useI18n();
+   const files = useMemo(() => parseUnifiedPatch(text), [text]);
+   if (!files) return <PatchTextView text={text} />;
+@@ -874,7 +891,7 @@ function SplitPatchView({ text }: { text: string }) {
+   );
+ }
+ 
+-function SplitDiffHeader({ title, side }: { title: string; side: "left" | "right" }) {
++export function SplitDiffHeader({ title, side }: { title: string; side: "left" | "right" }) {
+   return (
+     <div
+       title={title}
+@@ -892,7 +909,7 @@ function SplitDiffHeader({ title, side }: { title: string; side: "left" | "right
+   );
+ }
+ 
+-function SplitDiffCellView({ cell, side }: { cell: SplitDiffCell; side: "left" | "right" }) {
++export function SplitDiffCellView({ cell, side }: { cell: SplitDiffCell; side: "left" | "right" }) {
+   const bg =
+     cell.type === "added"
+       ? "rgba(34,197,94,0.12)"
+@@ -957,7 +974,7 @@ function SplitDiffCellView({ cell, side }: { cell: SplitDiffCell; side: "left" |
+   );
+ }
+ 
+-function PatchTextView({ text }: { text: string }) {
++export function PatchTextView({ text }: { text: string }) {
+   const lines = text.split(/\r?\n/);
+ 
+   return (
+diff --git a/components/embed/ActiveFileHint.tsx b/components/embed/ActiveFileHint.tsx
+new file mode 100644
+index 0000000..4425fa5
+--- /dev/null
++++ b/components/embed/ActiveFileHint.tsx
+@@ -0,0 +1,33 @@
++"use client";
++
++import { useI18n } from "@/hooks/useI18n";
++
++/**
++ * embed 模式下输入框下方的「宿主当前打开文件」提示条。
++ * 由 ChatInput 在 `activeFile && !bashMode` 时挂载。
++ */
++export function ActiveFileHint({ path }: { path: string }) {
++  const { t } = useI18n();
++  return (
++    <div
++      title={t("chat.activeFileTitle")}
++      style={{
++        display: "flex", alignItems: "center", gap: 6,
++        marginTop: 6, padding: "3px 10px",
++        background: "var(--bg-subtle)",
++        border: "1px solid var(--border)",
++        borderRadius: 6,
++        fontSize: 11,
++        color: "var(--text-dim)",
++        whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
++      }}
++    >
++      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
++        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
++        <polyline points="14 2 14 8 20 8" />
++      </svg>
++      <span style={{ flexShrink: 0, opacity: 0.8 }}>{t("chat.activeFileLabel")}</span>
++      <span style={{ fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis" }}>{path}</span>
++    </div>
++  );
++}
+diff --git a/components/embed/FileReviewCard.tsx b/components/embed/FileReviewCard.tsx
+new file mode 100644
+index 0000000..28b0ada
+--- /dev/null
++++ b/components/embed/FileReviewCard.tsx
+@@ -0,0 +1,276 @@
++"use client";
++
++import { memo, useState, useCallback, useMemo } from "react";
++import { useI18n } from "@/hooks/useI18n";
++import { getFileIcon } from "../FileIcons";
++import { SplitPatchView, PatchTextView } from "../MessageView";
++import { isEmbedMode, showDiffViaHost, getBeforeContentViaHost } from "@/lib/embed/bridge";
++import { encodeFilePathForApi } from "@/lib/file-paths";
++import type { FileChange } from "@/lib/file-changes";
++
++interface Props {
++  /** 本轮 turn 的标识（user message 的 entryId）。 */
++  turnId: string;
++  /** 本轮改动的文件列表。 */
++  changes: FileChange[];
++  /** session 工作目录（绝对路径）。 */
++  cwd?: string;
++  /** 打开文件查看器（Web 模式点击文件时调用）。 */
++  onOpenFile?: (filePath: string) => void;
++}
++
++/**
++ * 文件审查卡片：在一轮对话的 final answer 下方展示本轮改动的文件列表。
++ *
++ * diff 策略（纯前端，零 git / 零快照依赖）：
++ *   - edit：result.details.diff 已是完整 unified diff（含 before/after 行），
++ *           直接用 SplitPatchView inline 渲染。这是最常见情况，100% 准确。
++ *   - write：input.content 是完整新内容（after），before 为空（新建文件），
++ *            渲染为「全增」行。
++ *   - bash：无具体文件，显示提示行。
++ *
++ * 回退入口不在本卡片——在用户消息左侧（MessageView.UserMessageView），
++ * 回退 = 恢复代码 + 删除该轮会话记录。
++ */
++function FileReviewCardImpl({ turnId, changes, cwd, onOpenFile }: Props) {
++  const { t } = useI18n();
++  const [expanded, setExpanded] = useState(true);
++  const [openDiffPath, setOpenDiffPath] = useState<string | null>(null);
++
++  const hasFiles = changes.some((c) => c.path);
++  const hasBashUntracked = changes.some((c) => c.kind === "bash" && !c.path);
++
++  const fileChanges = changes.filter((c) => c.path);
++  const fileCount = fileChanges.length;
++  const inEmbed = isEmbedMode();
++
++  // 点击文件行：inline 展开/收起 diff 视图（纯前端）
++  const handleFileClick = useCallback((change: FileChange) => {
++    if (!change.path) return;
++    setOpenDiffPath((cur) => (cur === change.path ? null : change.path));
++  }, []);
++
++  // embed 模式：在宿主编辑器里用原生 diff 打开（需 before 快照）
++  const handleOpenInEditor = useCallback(async (change: FileChange, e: React.MouseEvent) => {
++    e.stopPropagation();
++    if (!inEmbed || !cwd) return;
++    let before = "";
++    let after = "";
++    if (change.kind === "edit") {
++      try {
++        const resp = await fetch(`/api/files/${encodeFilePathForApi(change.path)}?type=read`);
++        if (resp.ok) {
++          const data = await resp.json() as { content?: string };
++          after = data.content ?? "";
++        }
++      } catch {}
++      before = (await getBeforeContentViaHost(turnId, change.path, cwd)) ?? "";
++    } else if (change.kind === "write") {
++      after = change.newContent ?? "";
++      before = (await getBeforeContentViaHost(turnId, change.path, cwd)) ?? "";
++    } else {
++      return;
++    }
++    await showDiffViaHost(change.path, before, after, `${change.relativePath} (本轮改动)`);
++  }, [inEmbed, turnId, cwd]);
++
++  // Web 模式：点击「在文件查看器打开」按钮
++  const handleOpenInViewer = useCallback((change: FileChange, e: React.MouseEvent) => {
++    e.stopPropagation();
++    onOpenFile?.(change.path);
++  }, [onOpenFile]);
++
++  if (!hasFiles && !hasBashUntracked) return null;
++
++  return (
++    <div style={{
++      marginTop: 10,
++      marginBottom: 14,
++      borderRadius: 7,
++      border: "1px solid var(--border)",
++      background: "var(--bg-panel)",
++      overflow: "hidden",
++      fontSize: 12,
++    }}>
++      {/* 头部 */}
++      <div style={{
++        display: "flex",
++        alignItems: "center",
++        gap: 8,
++        padding: "7px 10px",
++        cursor: "pointer",
++        userSelect: "none",
++      }} onClick={() => setExpanded((v) => !v)}>
++        <svg width="11" height="11" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"
++          style={{ transform: expanded ? "rotate(90deg)" : "none", transition: "transform 0.15s", flexShrink: 0 }}>
++          <polyline points="3 2.5 6.5 5 3 7.5" />
++        </svg>
++        <span style={{ color: "var(--text-muted)", fontWeight: 600, flexShrink: 0 }}>
++          📋 {t("chat.fileReview")}
++        </span>
++        {fileCount > 0 ? (
++          <span style={{ color: "var(--text-dim)" }}>{t("chat.fileReviewCount", { count: fileCount })}</span>
++        ) : (
++          <span style={{ color: "var(--text-dim)" }}>{t("chat.fileReviewEmpty")}</span>
++        )}
++        <div style={{ flex: 1 }} />
++      </div>
++
++      {/* 文件列表 */}
++      {expanded && (
++        <div style={{ borderTop: "1px solid var(--border)" }}>
++          {fileChanges.map((change, i) => (
++            <FileReviewRow
++              key={`${change.path}-${i}`}
++              change={change}
++              isOpen={openDiffPath === change.path}
++              onClick={() => handleFileClick(change)}
++              onOpenInEditor={inEmbed ? (e) => void handleOpenInEditor(change, e) : undefined}
++              onOpenInViewer={!inEmbed ? (e) => handleOpenInViewer(change, e) : undefined}
++            />
++          ))}
++          {hasBashUntracked && (
++            <div style={{
++              display: "flex", alignItems: "center", gap: 8,
++              padding: "6px 12px",
++              color: "var(--text-dim)", fontSize: 11, fontStyle: "italic",
++              borderTop: fileChanges.length > 0 ? "1px solid var(--border)" : "none",
++            }}>
++              <span>⚠</span>
++              <span>{t("chat.fileReviewBashUntracked")}</span>
++            </div>
++          )}
++        </div>
++      )}
++    </div>
++  );
++}
++
++const FileReviewRow = memo(function FileReviewRow({
++  change,
++  isOpen,
++  onClick,
++  onOpenInEditor,
++  onOpenInViewer,
++}: {
++  change: FileChange;
++  isOpen: boolean;
++  onClick: () => void;
++  onOpenInEditor?: (e: React.MouseEvent) => void;
++  onOpenInViewer?: (e: React.MouseEvent) => void;
++}) {
++  const iconName = getFileIcon(change.relativePath || change.path, 13);
++  const kindLabel = change.kind === "edit" ? "edit"
++    : change.kind === "write" ? "write"
++    : change.kind;
++  const kindColor = change.kind === "write" ? "#3b82f6" : "#16a34a";
++
++  return (
++    <div style={{ borderTop: "1px solid var(--border)" }}>
++      <button
++        onClick={onClick}
++        title={change.path}
++        style={{
++          display: "flex", alignItems: "center", gap: 8,
++          width: "100%", padding: "6px 12px",
++          background: "none", border: "none", cursor: "pointer",
++          color: "var(--text-muted)", fontSize: 12,
++          textAlign: "left", minWidth: 0,
++          transition: "background 0.1s",
++        }}
++        onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; }}
++        onMouseLeave={(e) => { e.currentTarget.style.background = "none"; }}
++      >
++        <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"
++          style={{ transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.15s", flexShrink: 0 }}>
++          <polyline points="3 2.5 6.5 5 3 7.5" />
++        </svg>
++        <span style={{ fontSize: 13, flexShrink: 0, display: "flex", alignItems: "center" }}>{iconName}</span>
++        <span style={{
++          fontFamily: "var(--font-mono)", fontSize: 11,
++          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
++          flex: 1, minWidth: 0,
++        }}>
++          {change.relativePath || change.path}
++        </span>
++        <span style={{
++          fontFamily: "var(--font-mono)", fontSize: 10, color: kindColor,
++          flexShrink: 0, padding: "1px 5px", borderRadius: 3,
++          background: `${kindColor}1a`,
++        }}>
++          {kindLabel}
++        </span>
++        {onOpenInEditor && (
++          <span
++            role="button"
++            onClick={onOpenInEditor}
++            title="在编辑器 diff 中打开"
++            style={{
++              flexShrink: 0, fontSize: 10, color: "var(--accent)",
++              padding: "1px 5px", borderRadius: 3,
++              border: "1px solid var(--border)", cursor: "pointer",
++            }}
++          >↗</span>
++        )}
++        {onOpenInViewer && (
++          <span
++            role="button"
++            onClick={onOpenInViewer}
++            title="在文件查看器打开"
++            style={{
++              flexShrink: 0, fontSize: 10, color: "var(--accent)",
++              padding: "1px 5px", borderRadius: 3,
++              border: "1px solid var(--border)", cursor: "pointer",
++            }}
++          >↗</span>
++        )}
++      </button>
++      {isOpen && (
++        <div style={{
++          borderTop: "1px solid var(--border)",
++          maxHeight: 400, overflowY: "auto",
++          background: "var(--bg)",
++        }}>
++          <DiffContentView change={change} />
++        </div>
++      )}
++    </div>
++  );
++});
++
++/**
++ * inline diff 内容视图。
++ * - edit 有 diffText → SplitPatchView 渲染统一 diff（最准确，自带 before/after）
++ * - write 有 newContent → 渲染为「全增」伪 diff（before 空，after = content）
++ * - 都没有 → PatchTextView 兜底显示原始文本
++ */
++function DiffContentView({ change }: { change: FileChange }) {
++  const { t } = useI18n();
++
++  const writeDiffText = useMemo(() => {
++    if (change.kind !== "write") return null;
++    const content = change.newContent ?? "";
++    if (!content) return null;
++    // 构造一个「全增」的伪 unified diff，让 SplitPatchView 渲染成右侧全绿
++    const lines = content.split("\n");
++    const body = lines.map((l, i) => `+${i + 1} ${l}`).join("\n");
++    return `--- /dev/null\n+++ ${change.relativePath || change.path}\n@@ -0,0 +1,${lines.length} @@\n${body}`;
++  }, [change]);
++
++  if (change.kind === "edit" && change.diffText) {
++    return <SplitPatchView text={change.diffText} />;
++  }
++  if (change.kind === "write" && writeDiffText) {
++    return <SplitPatchView text={writeDiffText} />;
++  }
++  if (change.kind === "edit") {
++    return (
++      <div style={{ padding: "8px 12px", color: "var(--text-dim)", fontSize: 11 }}>
++        {t("chat.fileReviewNoDiff")}
++      </div>
++    );
++  }
++  return <PatchTextView text={change.newContent ?? ""} />;
++}
++
++export const FileReviewCard = memo(FileReviewCardImpl);
+diff --git a/components/embed/OpenInBrowserButton.tsx b/components/embed/OpenInBrowserButton.tsx
+new file mode 100644
+index 0000000..8b50d65
+--- /dev/null
++++ b/components/embed/OpenInBrowserButton.tsx
+@@ -0,0 +1,52 @@
++"use client";
++
++import { isEmbedMode, openInBrowserViaHost } from "@/lib/embed/bridge";
++import { useI18n } from "@/hooks/useI18n";
++import { useIsMobile } from "@/hooks/useIsMobile";
++
++/**
++ * 「在系统浏览器中打开」顶栏按钮。
++ * embed 模式下通知宿主 openExternal；独立浏览器模式下直接开新标签。
++ */
++export function OpenInBrowserButton() {
++  const { t } = useI18n();
++  const isMobile = useIsMobile();
++
++  const onClick = () => {
++    if (typeof window === "undefined") return;
++    if (isEmbedMode()) {
++      openInBrowserViaHost(window.location.href);
++    } else {
++      window.open(window.location.href, "_blank");
++    }
++  };
++
++  return (
++    <button
++      type="button"
++      onClick={onClick}
++      title={t("system.openInBrowser")}
++      aria-label={t("system.openInBrowser")}
++      style={{
++        display: "flex", alignItems: "center", gap: 6,
++        height: "100%", padding: "0 12px",
++        background: "none",
++        border: "none",
++        borderTop: "2px solid transparent",
++        borderRight: "1px solid var(--border)",
++        cursor: "pointer",
++        color: "var(--text-muted)",
++        fontSize: 11, whiteSpace: "nowrap", transition: "color 0.1s, background 0.1s",
++      }}
++      onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
++      onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
++    >
++      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
++        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
++        <polyline points="15 3 21 3 21 9" />
++        <line x1="10" y1="14" x2="21" y2="3" />
++      </svg>
++      {!isMobile && <span>{t("system.openInBrowser")}</span>}
++    </button>
++  );
++}
+diff --git a/components/embed/TurnFileReview.tsx b/components/embed/TurnFileReview.tsx
+new file mode 100644
+index 0000000..638f912
+--- /dev/null
++++ b/components/embed/TurnFileReview.tsx
+@@ -0,0 +1,42 @@
++"use client";
++
++import { extractFileChanges } from "@/lib/file-changes";
++import type { TurnSnapshotTracker } from "@/lib/embed/turn-snapshot";
++import type { AgentMessage } from "@/lib/types";
++import { FileReviewCard } from "./FileReviewCard";
++
++/**
++ * 一轮对话后的文件审查卡片区（embed 模式）。
++ * 对一轮 messages 提取文件改动；无改动时渲染 null。
++ */
++export function TurnFileReview({
++  turnMessages,
++  userEntryId,
++  turnIdx,
++  cwd,
++  turnSnapshots,
++  onOpenFile,
++}: {
++  turnMessages: AgentMessage[];
++  /** 该轮 user message 的 entryId；用于反查快照 turnId。 */
++  userEntryId: string | undefined;
++  /** 无 entryId 时的兜底 turnId 后缀。 */
++  turnIdx: number;
++  cwd: string | undefined;
++  turnSnapshots: TurnSnapshotTracker;
++  onOpenFile?: (filePath: string) => void;
++}) {
++  const turnChanges = extractFileChanges(turnMessages, cwd);
++  const turnId = userEntryId
++    ? turnSnapshots.turnIdForEntry(userEntryId)
++    : `turn-${turnIdx}`;
++  if (turnChanges.length === 0) return null;
++  return (
++    <FileReviewCard
++      turnId={turnId}
++      changes={turnChanges}
++      cwd={cwd}
++      onOpenFile={onOpenFile}
++    />
++  );
++}
+diff --git a/components/embed/TurnRevertButton.tsx b/components/embed/TurnRevertButton.tsx
+new file mode 100644
+index 0000000..31d6cee
+--- /dev/null
++++ b/components/embed/TurnRevertButton.tsx
+@@ -0,0 +1,91 @@
++"use client";
++
++import { useState } from "react";
++import { useI18n } from "@/hooks/useI18n";
++
++/**
++ * 用户消息左侧的「回退此轮」按钮（hover 显示，固定宽度占位避免布局跳动）。
++ * 点击后先二次确认，确认后调 onRevert 执行回退。
++ */
++export function TurnRevertButton({
++  entryId,
++  reverting,
++  onRevert,
++  hovered,
++}: {
++  entryId: string;
++  reverting?: boolean;
++  onRevert: (entryId: string) => void;
++  hovered: boolean;
++}) {
++  const { t } = useI18n();
++  const [confirming, setConfirming] = useState(false);
++
++  return (
++    <div style={{
++      width: 72, flexShrink: 0,
++      display: "flex", flexDirection: "column", alignItems: "flex-start",
++      gap: 4, paddingBottom: 2,
++    }}>
++      {confirming ? (
++        <>
++          <span style={{ fontSize: 10, color: "var(--text-dim)", whiteSpace: "nowrap" }}>
++            {t("chat.revertConfirm")}
++          </span>
++          <span style={{ display: "flex", gap: 4 }}>
++            <button
++              onClick={() => {
++                setConfirming(false);
++                onRevert(entryId);
++              }}
++              disabled={reverting}
++              title={t("chat.revertConfirmYes")}
++              style={{
++                padding: "2px 7px", height: 20,
++                background: "var(--accent)", border: "none",
++                borderRadius: 4, color: "#fff",
++                cursor: reverting ? "not-allowed" : "pointer",
++                fontSize: 10, fontWeight: 500, whiteSpace: "nowrap",
++              }}
++            >{t("chat.revertConfirmYes")}</button>
++            <button
++              onClick={() => setConfirming(false)}
++              disabled={reverting}
++              title={t("chat.revertConfirmNo")}
++              style={{
++                padding: "2px 7px", height: 20,
++                background: "none", border: "1px solid var(--border)",
++                borderRadius: 4, color: "var(--text-muted)",
++                cursor: "pointer", fontSize: 10, whiteSpace: "nowrap",
++              }}
++            >{t("chat.revertConfirmNo")}</button>
++          </span>
++        </>
++      ) : (
++        <button
++          onClick={() => setConfirming(true)}
++          title={t("chat.revertTurnTitle")}
++          style={{
++            display: "flex", alignItems: "center", gap: 4,
++            padding: "3px 8px", height: 22,
++            background: "none", border: "none",
++            borderRadius: 5,
++            color: "var(--text-dim)",
++            cursor: "pointer", fontSize: 11, fontWeight: 400,
++            whiteSpace: "nowrap",
++            opacity: hovered ? 1 : 0,
++            transition: "opacity 0.12s",
++          }}
++          onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent)"; }}
++          onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; }}
++        >
++          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
++            <polyline points="9 14 4 9 9 4" />
++            <path d="M20 20v-7a4 4 0 0 0-4-4H4" />
++          </svg>
++          {t("chat.revertTurn")}
++        </button>
++      )}
++    </div>
++  );
++}
+diff --git a/components/embed/useActiveFile.ts b/components/embed/useActiveFile.ts
+new file mode 100644
+index 0000000..5386dc2
+--- /dev/null
++++ b/components/embed/useActiveFile.ts
+@@ -0,0 +1,42 @@
++"use client";
++
++import { useEffect, useState } from "react";
++import { isEmbedMode, getActiveEditorViaHost, onEmbedHostNotification } from "@/lib/embed/bridge";
++
++export interface ActiveFile {
++  /** 相对宿主工作区根目录的路径；无活动文件时为 null。 */
++  relativePath: string | null;
++  /** 绝对路径。 */
++  filePath: string | null;
++}
++
++/**
++ * 宿主当前活动编辑器文件。embed 模式下主动拉取一次初始状态，并监听宿主
++ * 推送的 activeEditorChanged 通知；非 embed 模式恒为 null。
++ */
++export function useActiveFile(): ActiveFile | null {
++  const [activeFile, setActiveFile] = useState<ActiveFile | null>(null);
++
++  useEffect(() => {
++    if (!isEmbedMode()) return;
++    let cancelled = false;
++    void getActiveEditorViaHost().then((active) => {
++      if (!cancelled) setActiveFile(active);
++    }).catch(() => {
++      if (!cancelled) setActiveFile({ relativePath: null, filePath: null });
++    });
++    const unsubscribe = onEmbedHostNotification((payload) => {
++      if (payload.kind !== "activeEditorChanged") return;
++      setActiveFile({
++        relativePath: (payload as { relativePath?: string | null }).relativePath ?? null,
++        filePath: (payload as { filePath?: string | null }).filePath ?? null,
++      });
++    });
++    return () => {
++      cancelled = true;
++      unsubscribe();
++    };
++  }, []);
++
++  return activeFile;
++}
+diff --git a/components/embed/useEmbedAtCompletion.ts b/components/embed/useEmbedAtCompletion.ts
+new file mode 100644
+index 0000000..143976e
+--- /dev/null
++++ b/components/embed/useEmbedAtCompletion.ts
+@@ -0,0 +1,69 @@
++"use client";
++
++import { useEffect } from "react";
++import { isEmbedMode, sendEmbedRequest } from "@/lib/embed/bridge";
++import type { AtQueryMatch, FileIndexEntry } from "@/lib/file-fuzzy";
++
++export interface AtServerResult {
++  cwd: string;
++  query: string;
++  matches: FileIndexEntry[];
++}
++
++/**
++ * Embed mode: when the @ token is active, ask the embed host for file
++ * completions. The host ranks against its own file index (workspace
++ * + open editors) which is always current. Results replace local matches
++ * while the token is open; closing the token clears them.
++ *
++ * 非 embed 模式为空操作；宿主补全结果写入调用方的 atServerResult 状态，
++ * 由调用方决定如何与本地索引结果合并。
++ */
++export function useEmbedAtCompletion(opts: {
++  cwd: string | null | undefined;
++  atQuery: AtQueryMatch | null;
++  atQueryText: string | null;
++  atServerResult: AtServerResult | null;
++  setAtServerResult: (r: AtServerResult | null) => void;
++}): void {
++  const { cwd, atQuery, atQueryText, atServerResult, setAtServerResult } = opts;
++  const embedMode = isEmbedMode();
++
++  useEffect(() => {
++    const tokenActive = atQuery !== null;
++    if (!embedMode || !tokenActive || !cwd || atQueryText === null) {
++      if (embedMode && atServerResult !== null) setAtServerResult(null);
++      return;
++    }
++    const fetchCwd = cwd;
++    const query = atQueryText;
++    let cancelled = false;
++    const timer = setTimeout(() => {
++      sendEmbedRequest<{ matches?: Array<{ path: string; isDir: boolean }> }>(
++        { kind: "completeAt", cwd: fetchCwd, query },
++        4000,
++      )
++        .then((res) => {
++          if (cancelled) return;
++          const matches: FileIndexEntry[] = (res?.matches ?? []).map((m) => ({
++            path: m.path,
++            name: m.path.split("/").pop() ?? m.path,
++            isDir: m.isDir,
++          }));
++          setAtServerResult({ cwd: fetchCwd, query, matches });
++        })
++        .catch((err) => {
++          if (cancelled) return;
++          // Bridge failed (timeout / no workspace) — surface an empty result so
++          // the menu doesn't keep showing stale local matches.
++          console.warn("[pi-web] @-complete bridge failed:", err);
++          setAtServerResult({ cwd: fetchCwd, query, matches: [] });
++        });
++    }, 120);
++    return () => { cancelled = true; clearTimeout(timer); };
++    // NOTE: atServerResult is intentionally excluded from deps — including it
++    // would cause an infinite loop: response → setAtServerResult → effect
++    // re-runs → sends another request → response → …
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [embedMode, atQuery, atQueryText, cwd]);
++}
+diff --git a/components/embed/useEmbedClipboardKeys.ts b/components/embed/useEmbedClipboardKeys.ts
+new file mode 100644
+index 0000000..1cb6712
+--- /dev/null
++++ b/components/embed/useEmbedClipboardKeys.ts
+@@ -0,0 +1,86 @@
++"use client";
++
++import { useCallback, type KeyboardEvent } from "react";
++import { isEmbedMode, clipboardReadViaHost, clipboardWriteViaHost } from "@/lib/embed/bridge";
++
++/**
++ * embed 模式下跨源 iframe 的 Cmd/Ctrl+C/V/X/A 默认行为可能被宿主的
++ * 命令层拦截，到不了 textarea。返回的 keydown 处理器在输入框的
++ * onKeyDown 最前面同步截住这些键：preventDefault 后用宿主剪贴板桥读写
++ * 系统剪贴板 + 手动操作 textarea 选区，绕过拦截。
++ *
++ * 返回 false 表示未处理该键，交给后续处理器。
++ */
++export function useEmbedClipboardKeys(opts: {
++  value: string;
++  setValue: (v: string) => void;
++  isComposingRef: { current: boolean };
++}): (e: KeyboardEvent<HTMLTextAreaElement>) => boolean {
++  const { value, setValue, isComposingRef } = opts;
++  const embedMode = isEmbedMode();
++  return useCallback(
++    (e: KeyboardEvent<HTMLTextAreaElement>): boolean => {
++      if (!embedMode) return false;
++      const meta = e.metaKey || e.ctrlKey;
++      if (!meta) return false;
++      const k = e.key.toLowerCase();
++      if (k !== "c" && k !== "v" && k !== "x" && k !== "a") return false;
++      const ta = e.currentTarget;
++      // 输入法组合中不拦截，避免打断中文输入。
++      if (isComposingRef.current || e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return false;
++
++      // 同步截住：不让宿主命令层拿走这个键。
++      e.preventDefault();
++      e.stopPropagation();
++
++      const start = ta.selectionStart;
++      const end = ta.selectionEnd;
++      const selected = start !== null && end !== null ? value.slice(start, end) : "";
++
++      if (k === "a") {
++        ta.select();
++        return true;
++      }
++
++      // 复制 / 剪切：写选中文本到系统剪贴板，剪切还要删选中。
++      if (k === "c" || k === "x") {
++        if (selected) {
++          void clipboardWriteViaHost(selected).catch(() => {
++            try { void navigator.clipboard?.writeText(selected); } catch { /* ignore */ }
++          });
++          if (k === "x") {
++            const next = value.slice(0, start!) + value.slice(end!);
++            setValue(next);
++            requestAnimationFrame(() => {
++              ta.selectionStart = ta.selectionEnd = start!;
++            });
++          }
++        }
++        return true;
++      }
++
++      // 粘贴：从系统剪贴板读文本插入。fire-and-forget，preventDefault 已同步拦住默认行为。
++      void (async () => {
++        let text = "";
++        try {
++          text = await clipboardReadViaHost();
++        } catch {
++          try { text = await navigator.clipboard?.readText() ?? ""; } catch { /* ignore */ }
++        }
++        if (!text) return;
++        const s = start ?? value.length;
++        const en = end ?? value.length;
++        const next = value.slice(0, s) + text + value.slice(en);
++        setValue(next);
++        const caret = s + text.length;
++        requestAnimationFrame(() => {
++          ta.selectionStart = ta.selectionEnd = caret;
++          ta.style.height = "auto";
++          ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
++        });
++      })();
++      return true;
++    },
++    [embedMode, value, setValue, isComposingRef],
++  );
++}
+diff --git a/components/embed/useMentionNotification.ts b/components/embed/useMentionNotification.ts
+new file mode 100644
+index 0000000..f121444
+--- /dev/null
++++ b/components/embed/useMentionNotification.ts
+@@ -0,0 +1,30 @@
++"use client";
++
++import { useEffect } from "react";
++import { isEmbedMode, onEmbedHostNotification } from "@/lib/embed/bridge";
++import { buildAtMentionText, buildFileLineMentionText } from "@/lib/file-fuzzy";
++import type { ChatInputHandle } from "../ChatInput";
++
++/**
++ * embed 模式：监听宿主推送的「提及」通知（如宿主右键菜单触发）。
++ * 仅向聊天输入框插入 @path 或 @path:start-end 行范围提及，不插入代码块。
++ */
++export function useMentionNotification(
++  chatInputRef: { current: ChatInputHandle | null } | undefined,
++): void {
++  useEffect(() => {
++    if (!isEmbedMode() || !chatInputRef) return;
++    const unsubscribe = onEmbedHostNotification((msg) => {
++      if (msg.kind !== "mention") return;
++      const p = msg.relativePath as string;
++      const start = msg.startLine as number | undefined;
++      const end = msg.endLine as number | undefined;
++      if (start != null && end != null) {
++        chatInputRef.current?.insertText(buildFileLineMentionText(p, start, end));
++      } else {
++        chatInputRef.current?.insertText(buildAtMentionText(p, false));
++      }
++    });
++    return unsubscribe;
++  }, [chatInputRef]);
++}
+diff --git a/components/embed/useTurnRevert.ts b/components/embed/useTurnRevert.ts
+new file mode 100644
+index 0000000..23bc032
+--- /dev/null
++++ b/components/embed/useTurnRevert.ts
+@@ -0,0 +1,124 @@
++"use client";
++
++import { useCallback, useState } from "react";
++import { isEmbedMode, revertEditViaHost, revertFilesViaHost } from "@/lib/embed/bridge";
++import { extractFileChanges } from "@/lib/file-changes";
++import type { TurnSnapshotTracker } from "@/lib/embed/turn-snapshot";
++import { useI18n } from "@/hooks/useI18n";
++import type { AgentMessage } from "@/lib/types";
++import type { NoticeType } from "@/hooks/useAgentSession";
++
++export interface TurnRevertInfo {
++  canRevert: boolean;
++  onRevert: (entryId: string) => void;
++  reverting: boolean;
++}
++
++/**
++ * 回退某一轮：恢复该轮改动的代码 + 删除该轮会话记录，然后重新加载会话。
++ * 入口在用户消息左侧的回退按钮（embed/TurnRevertButton）。
++ * 仅 embed 模式可用（回退依赖宿主的快照/文件写能力）。
++ */
++export function useTurnRevert(opts: {
++  /** 当前会话 id 与 cwd（渲染期解析好的最新值）。 */
++  sessionId: string | undefined;
++  cwd: string | undefined;
++  entryIds: string[];
++  messages: AgentMessage[];
++  turnSnapshots: TurnSnapshotTracker;
++  sessionBusy: boolean;
++  /** 判定"轮边界"的消息类型锚点（上游 ChatWindow 的 isGroupAnchor）。 */
++  isTurnBoundary: (message: AgentMessage) => boolean;
++  addNotice?: (notice: { id?: string; message: string; type?: NoticeType }) => void;
++  loadSession: (sid: string) => Promise<unknown>;
++}): {
++  revertingTurnId: string | null;
++  handleRevertTurn: (userEntryId: string) => Promise<void>;
++  buildRevertInfo: (userIdx: number, endIdx: number) => TurnRevertInfo;
++} {
++  const { sessionId, cwd, entryIds, messages, turnSnapshots, sessionBusy, isTurnBoundary, addNotice, loadSession } = opts;
++  const { t } = useI18n();
++  const [revertingTurnId, setRevertingTurnId] = useState<string | null>(null);
++
++  const handleRevertTurn = useCallback(async (userEntryId: string) => {
++    if (revertingTurnId) return;
++    const sid = sessionId;
++    if (!sid || !cwd) {
++      addNotice?.({ type: "error", message: t("chat.revertFailed", { message: "缺少 session 或 cwd" }) });
++      return;
++    }
++    // 找该轮：entryIds 与 messages 平行，定位用户消息索引
++    const userIdx = entryIds.indexOf(userEntryId);
++    if (userIdx < 0) return;
++    let endIdx = userIdx + 1;
++    while (endIdx < messages.length && !isTurnBoundary(messages[endIdx])) endIdx += 1;
++    const turnMessages = messages.slice(userIdx, endIdx);
++    const turnChanges = extractFileChanges(turnMessages, cwd);
++    const turnId = turnSnapshots.turnIdForEntry(userEntryId);
++    // 该轮所有 entryId（含用户消息本身）→ 删除记录
++    const turnEntryIds = entryIds.slice(userIdx, endIdx).filter((e): e is string => !!e);
++
++    setRevertingTurnId(userEntryId);
++    try {
++      // 1) 恢复代码（纯前端，edit 反向 apply / write 走快照）
++      let okCount = 0;
++      const errs: string[] = [];
++      if (!isEmbedMode()) {
++        throw new Error(t("chat.revertWebModeUnsupported"));
++      }
++      for (const change of turnChanges) {
++        if (change.kind === "edit" && change.edits && change.edits.length > 0) {
++          const r = await revertEditViaHost(change.path, cwd, change.edits);
++          if (r.success) okCount++;
++          else errs.push(`${change.relativePath}: ${r.message ?? "失败"}`);
++        } else if (change.kind === "write") {
++          const r = await revertFilesViaHost(turnId, [change.path], cwd);
++          if (r.success) okCount++;
++          else errs.push(`${change.relativePath}: ${r.message ?? "失败"}`);
++        } else {
++          errs.push(`${change.relativePath}: 该类型不支持回退`);
++        }
++      }
++      // 2) 删除该轮会话记录
++      const delRes = await fetch(`/api/sessions/${encodeURIComponent(sid)}/revert-turn`, {
++        method: "POST",
++        headers: { "Content-Type": "application/json" },
++        body: JSON.stringify({ entryIds: turnEntryIds }),
++      });
++      const delData = await delRes.json().catch(() => ({ error: "无法解析响应" })) as { error?: string };
++      if (!delRes.ok || delData.error) {
++        errs.push(`删除会话记录失败：${delData.error ?? `HTTP ${delRes.status}`}`);
++      }
++
++      if (errs.length === 0) {
++        addNotice?.({ type: "success", message: t("chat.revertSuccess", { count: okCount }) });
++        // 3) 重新加载会话（删除记录后文件变了）
++        await loadSession(sid);
++      } else {
++        addNotice?.({ type: "error", message: t("chat.revertFailed", { message: errs.join("; ") }) });
++      }
++    } catch (e) {
++      addNotice?.({ type: "error", message: t("chat.revertFailed", { message: String(e) }) });
++    } finally {
++      setRevertingTurnId(null);
++    }
++  }, [revertingTurnId, sessionId, cwd, entryIds, messages, isTurnBoundary, turnSnapshots, addNotice, t, loadSession]);
++
++  // 组装某轮的「回退」能力，用于用户消息左侧的回退按钮
++  const buildRevertInfo = useCallback(
++    (userIdx: number, endIdx: number): TurnRevertInfo => {
++      const userEntryId = entryIds[userIdx];
++      const turnChanges = extractFileChanges(messages.slice(userIdx, endIdx), cwd);
++      const hasChanges = turnChanges.some((c) => c.kind === "edit" || c.kind === "write");
++      const canRevert = !!userEntryId && hasChanges && !sessionBusy;
++      return {
++        canRevert,
++        onRevert: canRevert ? (entryId: string) => void handleRevertTurn(entryId) : () => {},
++        reverting: userEntryId === revertingTurnId,
++      };
++    },
++    [entryIds, messages, cwd, sessionBusy, handleRevertTurn, revertingTurnId],
++  );
++
++  return { revertingTurnId, handleRevertTurn, buildRevertInfo };
++}
+diff --git a/hooks/useAgentSession.ts b/hooks/useAgentSession.ts
+index 3b0dd7e..d989f19 100644
+--- a/hooks/useAgentSession.ts
++++ b/hooks/useAgentSession.ts
+@@ -13,6 +13,8 @@ import { normalizeToolCalls } from "@/lib/normalize";
+ import { sendAgentCommand } from "@/lib/agent-client";
+ import { getToolNamesForPreset, type ToolEntry } from "@/lib/tool-presets";
+ import type { SessionStatsInfo } from "@/lib/pi-types";
++import { useActiveFile } from "@/components/embed/useActiveFile";
++import { TurnSnapshotTracker } from "@/lib/embed/turn-snapshot";
+ 
+ export interface SessionData {
+   sessionId: string;
+@@ -366,6 +368,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
+   const [noticeState, dispatchNotice] = useReducer(noticeReducer, { visible: [], pending: [] });
+   const [sessionStatsOverride, setSessionStatsOverride] = useState<SessionStatsInfo | null>(null);
+   const [extensionDialog, setExtensionDialog] = useState<ExtensionUiDialogRequest | null>(null);
++  // 宿主当前活动编辑器文件（相对路径）。用于隐藏 system prompt 注入 + 输入框提示。
++  const activeFile = useActiveFile();
+   const [extensionCustomUi, setExtensionCustomUi] = useState<ExtensionUiCustomRequest | null>(null);
+   const [extensionStatuses, setExtensionStatuses] = useState<ExtensionStatusItem[]>([]);
+   const [extensionWidgets, setExtensionWidgets] = useState<ExtensionWidgetItem[]>([]);
+@@ -393,6 +397,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
+   const promptRunIdRef = useRef(0);
+   const optimisticUserMessageKeyRef = useRef<string | null>(null);
+ 
++  // embed 模式下文件回退用的 turnId 配对登记器（发 prompt 前建快照，
++  // entryId 返回后与 turnId 配对，FileReviewCard/回退据此反查）。
++  const [turnSnapshots] = useState(() => new TurnSnapshotTracker());
++
+   const setToolPresetState = opts.setToolPreset ?? setToolPreset;
+ 
+   const currentModel = currentModelOverride ?? data?.context.model ?? pendingModel ?? null;
+@@ -459,6 +467,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
+       setActiveLeafId(d.leafId);
+       setMessages(d.context.messages);
+       setEntryIds(d.context.entryIds ?? []);
++      // embed 模式：把本轮 pendingTurnId 配对到 user message 的真实 entryId。
++      turnSnapshots.pairWithLastUserEntry(d.context.messages, d.context.entryIds);
+       setCurrentModelOverride(null);
+       setError(null);
+       if (d.context.thinkingLevel && d.context.thinkingLevel !== "off") {
+@@ -497,7 +507,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
+     } finally {
+       if (showLoading && !messagesLoaded) setLoading(false);
+     }
+-  }, []);
++  }, [turnSnapshots]);
+ 
+   const loadContext = useCallback(async (sid: string, leafId: string | null) => {
+     try {
+@@ -907,6 +917,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
+     agentRunningRef.current = agentRunning;
+   }, [agentRunning]);
+ 
++  // embed 模式的 activeEditorChanged 监听与初始拉取在 useActiveFile 内完成。
++
+   const handleAgentEvent = useCallback((event: AgentEvent) => {
+     switch (event.type) {
+       case "agent_start":
+@@ -1077,6 +1089,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
+       return;
+     }
+ 
++    // embed 模式下，在 prompt 到达 AgentSession 之前建本轮文件快照。
++    // 必须同步等快照建完再发 prompt，否则 agent 可能已改文件、before 不准。
++    await turnSnapshots.capture(newSessionCwd ?? session?.cwd);
++
+     const promptRunId = promptRunIdRef.current + 1;
+ 
+     const imageBlocks = images?.map((img) => ({ type: "image" as const, source: { type: "base64" as const, media_type: img.mimeType, data: img.data } }));
+@@ -1121,6 +1137,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
+             type: "prompt",
+             message,
+             ...(piImages?.length ? { images: piImages } : {}),
++            ...(activeFile?.relativePath ? { activeFiles: [activeFile.relativePath] } : {}),
+           });
+           promoteNewSession(1, message);
+         }
+@@ -1132,6 +1149,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
+           type: "prompt",
+           message,
+           ...(piImages?.length ? { images: piImages } : {}),
++          ...(activeFile?.relativePath ? { activeFiles: [activeFile.relativePath] } : {}),
+         });
+       }
+       if (isSlashCommandPrompt && sentSessionId) {
+@@ -1169,7 +1187,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
+       setAgentPhase(null);
+       dispatch({ type: "end" });
+     }
+-  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, closeEvents, opts.chatInputRef]);
++  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, closeEvents, opts.chatInputRef, activeFile, turnSnapshots]);
+ 
+   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
+     if (agentRunningRef.current || bashRunningRef.current) return;
+@@ -1679,18 +1697,20 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
+     agentRunning, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
+     retryInfo, contextUsage, systemPrompt, forkingEntryId,
+     isCompacting, compactError, compactResult, currentModel, displayModel, sessionStats,
++    activeFile,
+     slashCommands, slashCommandsLoading, queuedMessages,
+-    notices: noticeState.visible, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
++    notices: noticeState.visible, addNotice, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
+     isAutoModelSelection: isNew && newSessionModel === null,
+     agentPhase,
+     isNew,
+     // Refs
+     sessionIdRef, eventSourceRef, messagesEndRef, scrollContainerRef,
+     lastUserMsgRef, pendingScrollToUserRef, initialScrollDoneRef,
++    turnSnapshots,
+     // Actions
+     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
+     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
+-    handleRecallQueue,
++    handleRecallQueue, loadSession,
+     handleBuiltinSlashCommand,
+     handleToolPresetChange, handleThinkingLevelChange, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages,
+     dispatch, setAgentRunning, setForkingEntryId,
+diff --git a/lib/embed/active-files.ts b/lib/embed/active-files.ts
+new file mode 100644
+index 0000000..1f669a4
+--- /dev/null
++++ b/lib/embed/active-files.ts
+@@ -0,0 +1,52 @@
++// embed 模式：把宿主当前活动编辑器文件注入 system prompt 的隐藏段。
++// LLM 可见、UI 不显示、不落盘到 session 文件。用 marker 包裹，下次 prompt
++// 前先把旧注入剥掉再拼新的，避免 setActiveTools/reload 重建 base 后残留。
++//
++// 注意：本模块触碰 pi SDK AgentSession 的内部字段（_baseSystemPrompt /
++// agent.state.systemPrompt）——pi-web 经进程内 SDK 接入 pi，暂无公开扩展点，
++// 是本 delta 中对上游最脆弱的一处依赖，升级 pi SDK 时需优先回归验证。
++
++const MARK_START = "\n\n<!-- pi-web:active-files -->\n";
++const MARK_END = "\n<!-- /pi-web:active-files -->";
++
++interface AgentSessionInternals {
++  _baseSystemPrompt?: string;
++  agent: { state: { systemPrompt: string } };
++}
++
++/**
++ * 在 prompt 发出前，把 activeFiles 注入 AgentSession 内部的 system prompt。
++ * 旧注入段（若存在）先剥掉再拼新段；activeFiles 为空时仅做剥除。
++ */
++export function applyActiveFilesHint(inner: unknown, activeFiles: string[] | undefined): void {
++  const innerAny = inner as AgentSessionInternals;
++  let base = innerAny._baseSystemPrompt ?? "";
++  const startIdx = base.indexOf(MARK_START);
++  if (startIdx !== -1) {
++    const endIdx = base.indexOf(MARK_END, startIdx);
++    if (endIdx !== -1) {
++      base = base.slice(0, startIdx) + base.slice(endIdx + MARK_END.length);
++    }
++  }
++  if (activeFiles && activeFiles.length > 0) {
++    base +=
++      MARK_START +
++      "[宿主当前打开的编辑器文件]\n" +
++      activeFiles.join("\n") +
++      "\n[说明：若你的修改目标涉及上述文件，优先直接修改这些正在打开的文件。]" +
++      MARK_END;
++  }
++  if (innerAny._baseSystemPrompt !== undefined) {
++    innerAny._baseSystemPrompt = base;
++    innerAny.agent.state.systemPrompt = base;
++  }
++}
++
++/** 从 systemPrompt 里剥掉 active-files 注入段，返回纯用户可见版本。 */
++export function stripActiveFilesHint(systemPrompt: string): string {
++  const startIdx = systemPrompt.indexOf(MARK_START);
++  if (startIdx === -1) return systemPrompt;
++  const endIdx = systemPrompt.indexOf(MARK_END, startIdx);
++  if (endIdx === -1) return systemPrompt;
++  return systemPrompt.slice(0, startIdx) + systemPrompt.slice(endIdx + MARK_END.length);
++}
+diff --git a/lib/embed/bridge.ts b/lib/embed/bridge.ts
+new file mode 100644
+index 0000000..044036b
+--- /dev/null
++++ b/lib/embed/bridge.ts
+@@ -0,0 +1,624 @@
++// Embed host bridge — pi-web 页面 ↔ 嵌入宿主（IDE wrapper 等）的通用协议。
++//
++// pi-web 作为独立 Next.js 应用运行不变。当页面被嵌入宿主容器（如 VSCode
++// webview 的 <iframe>）中时，宿主在 URL 里带上 `?embed=<hostId>`，并在父
++// 文档中转发本文件定义的消息。
++//
++// Communication path:
++//   pi-web page (this file)
++//     ──postMessage({ source: "embed", ... })──▶ window.parent (host wrapper)
++//     ──宿主适配层转发到宿主能力实现（如 vscodeApi.postMessage()）
++//     ◀──host replies──▶ window.parent
++//     ──postMessage({ source: "host", ... })──▶ this window (message listener)
++//
++// The bridge is a no-op when not in embed mode (standalone browser visits),
++// so nothing here can break the normal pi-web experience.
++
++export interface EmbedOpenFileRequest {
++  kind: "openFile";
++  filePath: string;
++  /** Optional 1-based line / line,col to reveal. */
++  line?: number;
++  column?: number;
++  /** "source" | "preview" | "diff" — diff maps to the host's native diff view. */
++  mode?: "source" | "preview" | "diff";
++}
++
++export interface EmbedCompleteAtRequest {
++  kind: "completeAt";
++  cwd: string;
++  query: string;
++}
++
++export interface EmbedReadFileRequest {
++  kind: "readFile";
++  filePath: string;
++}
++
++export interface EmbedNotifyRequest {
++  kind: "notify";
++  message: string;
++  level: "info" | "warning" | "error";
++}
++
++export interface EmbedMentionRequest {
++  kind: "mention";
++  /** 提及的文件，相对于宿主工作区根目录的相对路径（不含前导 ./）。 */
++  relativePath: string;
++  /** 可选的起止行号（1-based，闭区间）。不填则提及整文件。 */
++  startLine?: number;
++  endLine?: number;
++  /** 选中的文本内容，会一并插入到聊天输入框作为上下文。 */
++  selectedText?: string;
++}
++
++export interface EmbedClipboardReadRequest {
++  kind: "clipboardRead";
++}
++
++/** 查询宿主当前活动编辑器文件（页面刷新后恢复状态用）。 */
++export interface EmbedGetActiveEditorRequest {
++  kind: "getActiveEditor";
++}
++
++export interface EmbedClipboardWriteRequest {
++  kind: "clipboardWrite";
++  text: string;
++}
++
++/**
++ * 在系统默认浏览器中打开本应用。url 为页面当前地址（iframe 内加载的
++ * 完整 URL），宿主会解析出 origin 再调用其打开外部链接的能力。
++ */
++export interface EmbedOpenInBrowserRequest {
++  kind: "openInBrowser";
++  url: string;
++}
++
++/** 能力握手：页面询问宿主支持哪些请求/通知 kind，按能力优雅降级。 */
++export interface EmbedGetCapabilitiesRequest {
++  kind: "getCapabilities";
++}
++
++/**
++ * 在新一轮 prompt 发出前，让宿主为本轮建一个文件快照。
++ * 宿主只读 git status（不创建任何 git 对象）+ 读磁盘文件，存内存。
++ * 必须在 prompt 到达 AgentSession 之前完成，否则 before 内容不准。
++ */
++export interface EmbedCaptureSnapshotRequest {
++  kind: "captureSnapshot";
++  /** 本轮 user message 的 entryId，作为快照标识。 */
++  turnId: string;
++  /** session 工作目录（绝对路径）。 */
++  cwd: string;
++}
++
++/** 取某个文件在本轮快照里的 before 内容（纯只读）。 */
++export interface EmbedGetBeforeContentRequest {
++  kind: "getBeforeContent";
++  turnId: string;
++  filePath: string;
++  cwd: string;
++}
++
++/**
++ * 用宿主原生 diff 视图显示某文件的 before/after 对比。
++ * before/after 直接传完整内容，宿主写临时文件后调其 diff 能力。
++ */
++export interface EmbedShowDiffRequest {
++  kind: "showDiff";
++  filePath: string;
++  before: string;
++  after: string;
++  title?: string;
++}
++
++/** 回退：把指定文件恢复到本轮快照的内容（宿主侧直接写文件，不碰 git）。 */
++export interface EmbedRevertFilesRequest {
++  kind: "revertFiles";
++  turnId: string;
++  files: string[];
++  cwd: string;
++}
++
++/** 回退 edit：宿主读磁盘当前内容，把每个 newText 换回 oldText（反向 apply）。 */
++export interface EmbedRevertEditRequest {
++  kind: "revertEdit";
++  filePath: string;
++  cwd: string;
++  /** 原始 edits，反序 apply（后改的先换回）。 */
++  edits: { oldText: string; newText: string }[];
++}
++
++export type EmbedRequest =
++  | EmbedOpenFileRequest
++  | EmbedCompleteAtRequest
++  | EmbedReadFileRequest
++  | EmbedNotifyRequest
++  | EmbedMentionRequest
++  | EmbedClipboardReadRequest
++  | EmbedClipboardWriteRequest
++  | EmbedGetActiveEditorRequest
++  | EmbedCaptureSnapshotRequest
++  | EmbedGetBeforeContentRequest
++  | EmbedShowDiffRequest
++  | EmbedRevertFilesRequest
++  | EmbedRevertEditRequest
++  | EmbedOpenInBrowserRequest
++  | EmbedGetCapabilitiesRequest;
++
++export interface EmbedCompleteAtResponse {
++  kind: "completeAt";
++  matches: Array<{ path: string; isDir: boolean }>;
++}
++
++export interface EmbedReadFileResponse {
++  kind: "readFile";
++  content?: string;
++  error?: string;
++}
++
++export interface EmbedClipboardReadResponse {
++  kind: "clipboardRead";
++  text: string;
++}
++
++/** 宿主当前活动编辑器。relativePath 为空表示无活动文件（非 file scheme）。 */
++export interface EmbedGetActiveEditorResponse {
++  kind: "getActiveEditor";
++  relativePath: string | null;
++  filePath: string | null;
++}
++
++export interface EmbedCaptureSnapshotResponse {
++  kind: "captureSnapshot";
++  success: boolean;
++  message?: string;
++}
++
++export interface EmbedGetBeforeContentResponse {
++  kind: "getBeforeContent";
++  content: string | null;
++}
++
++export interface EmbedRevertFilesResponse {
++  kind: "revertFiles";
++  success: boolean;
++  message?: string;
++}
++
++export interface EmbedRevertEditResponse {
++  kind: "revertEdit";
++  success: boolean;
++  message?: string;
++}
++
++export interface EmbedGetCapabilitiesResponse {
++  kind: "getCapabilities";
++  /**
++   * 宿主声明支持的能力 kind 列表（请求 kind + 宿主可推送的通知 kind）。
++   * 缺省/缺失字段表示旧版宿主（未实现本接口），按全部支持处理以向后兼容。
++   */
++  capabilities?: string[];
++}
++
++export type EmbedResponse =
++  | EmbedCompleteAtResponse
++  | EmbedReadFileResponse
++  | EmbedClipboardReadResponse
++  | EmbedGetActiveEditorResponse
++  | EmbedCaptureSnapshotResponse
++  | EmbedGetBeforeContentResponse
++  | EmbedRevertFilesResponse
++  | EmbedRevertEditResponse
++  | EmbedGetCapabilitiesResponse;
++
++const EMBED_QUERY_KEY = "embed";
++const MESSAGE_SOURCE_PAGE = "embed";
++const MESSAGE_SOURCE_HOST = "host";
++
++let cachedEmbedMode: boolean | null = null;
++
++/**
++ * True when pi-web is rendered inside an embed host container. Detected from
++ * the `?embed=<hostId>` URL parameter (set by the host wrapper when it builds
++ * the page URL) and cached for the lifetime of the page.
++ */
++export function isEmbedMode(): boolean {
++  if (cachedEmbedMode !== null) return cachedEmbedMode;
++  if (typeof window === "undefined") {
++    cachedEmbedMode = false;
++    return false;
++  }
++  try {
++    const params = new URL(window.location.href).searchParams;
++    cachedEmbedMode = Boolean(params.get(EMBED_QUERY_KEY));
++  } catch {
++    cachedEmbedMode = false;
++  }
++  return cachedEmbedMode;
++}
++
++/**
++ * 当前宿主标识（`?embed=<hostId>` 的值，如 "vscode"）；非 embed 模式为 null。
++ */
++export function embedHostId(): string | null {
++  if (!isEmbedMode() || typeof window === "undefined") return null;
++  try {
++    return new URL(window.location.href).searchParams.get(EMBED_QUERY_KEY);
++  } catch {
++    return null;
++  }
++}
++
++// Resolvers waiting for host responses, keyed by request id.
++type ResponseResolver = (response: unknown) => void;
++const pendingResponses = new Map<string, ResponseResolver>();
++let nextRequestId = 1;
++
++// Listeners for unsolicited notifications (e.g. "session opened a file").
++type NotificationListener = (message: { kind: string; [key: string]: unknown }) => void;
++const notificationListeners = new Set<NotificationListener>();
++
++let messageListenerInstalled = false;
++
++function ensureMessageListener(): void {
++  if (typeof window === "undefined") return;
++  if (messageListenerInstalled) return;
++  messageListenerInstalled = true;
++
++  window.addEventListener("message", (event: MessageEvent) => {
++    const data = event.data;
++    if (!data || typeof data !== "object") return;
++    if (data.source !== MESSAGE_SOURCE_HOST) return;
++
++    const id = data.id as string | undefined;
++    if (id && pendingResponses.has(id)) {
++      // A response to a request we sent.
++      const resolver = pendingResponses.get(id)!;
++      pendingResponses.delete(id);
++      resolver(data.payload);
++      return;
++    }
++
++    // An unsolicited notification from the host.
++    if (data.payload && typeof data.payload === "object" && "kind" in (data.payload as object)) {
++      const payload = data.payload as { kind: string };
++      for (const listener of notificationListeners) {
++        try {
++          listener(payload);
++        } catch {
++          // Ignore listener errors so one bad subscriber cannot break others.
++        }
++      }
++    }
++  });
++}
++
++/**
++ * Send a request to the embed host and resolve with its response.
++ * Rejects (with a timeout) if the host never replies — callers should treat
++ * a rejection as "feature unavailable" and fall back gracefully.
++ */
++export function sendEmbedRequest<T = unknown>(request: EmbedRequest, timeoutMs = 5000): Promise<T> {
++  if (!isEmbedMode() || typeof window === "undefined" || !window.parent) {
++    return Promise.reject(new Error("Not in embed mode"));
++  }
++  ensureMessageListener();
++
++  const id = `r${nextRequestId++}`;
++  return new Promise<T>((resolve, reject) => {
++    const timer = setTimeout(() => {
++      pendingResponses.delete(id);
++      reject(new Error(`Embed host bridge timeout: ${request.kind}`));
++    }, timeoutMs);
++
++    pendingResponses.set(id, (payload: unknown) => {
++      clearTimeout(timer);
++      resolve(payload as T);
++    });
++
++    try {
++      window.parent.postMessage(
++        { source: MESSAGE_SOURCE_PAGE, id, request },
++        "*",
++      );
++    } catch (error) {
++      clearTimeout(timer);
++      pendingResponses.delete(id);
++      reject(error instanceof Error ? error : new Error(String(error)));
++    }
++  });
++}
++
++/**
++ * Fire-and-forget notification to the embed host. No response expected.
++ */
++export function notifyEmbedHost(request: EmbedRequest): void {
++  if (!isEmbedMode() || typeof window === "undefined" || !window.parent) return;
++  try {
++    window.parent.postMessage({ source: MESSAGE_SOURCE_PAGE, request }, "*");
++  } catch {
++    // Ignore — standalone mode / cross-origin restrictions.
++  }
++}
++
++/**
++ * Subscribe to unsolicited notifications from the embed host
++ * (e.g. "open a file in the chat panel"). Returns an unsubscribe function.
++ */
++export function onEmbedHostNotification(listener: NotificationListener): () => void {
++  ensureMessageListener();
++  notificationListeners.add(listener);
++  return () => notificationListeners.delete(listener);
++}
++
++// ---------------------------------------------------------------------------
++// 能力握手
++//
++// 宿主在第一次请求时若不认识 "getCapabilities" 会按未知 kind 返回空对象或
++// 超时——此时 capabilitiesCache 置为 null，含义是"旧版宿主，按全量支持处理"
++// （等价引入握手前的行为，避免新页面配旧宿主时功能回归）。显式返回
++// capabilities: [] 才表示无任何能力。
++// ---------------------------------------------------------------------------
++
++/** undefined = 尚未握手；null = 旧版宿主（全支持）；Set = 显式能力集。 */
++let capabilitiesCache: Set<string> | null | undefined;
++let capabilitiesPromise: Promise<Set<string> | null> | null = null;
++
++/** 向宿主握手查询能力集；返回 null 表示旧版宿主（视为全量支持）。 */
++export function getHostCapabilities(): Promise<Set<string> | null> {
++  if (!isEmbedMode()) return Promise.resolve(new Set());
++  if (capabilitiesCache !== undefined) return Promise.resolve(capabilitiesCache);
++  capabilitiesPromise ??= sendEmbedRequest<EmbedGetCapabilitiesResponse>(
++    { kind: "getCapabilities" },
++    2000,
++  )
++    .then((res) => {
++      capabilitiesCache = Array.isArray(res?.capabilities) ? new Set(res.capabilities) : null;
++      return capabilitiesCache;
++    })
++    .catch(() => {
++      capabilitiesCache = null;
++      return capabilitiesCache;
++    });
++  return capabilitiesPromise;
++}
++
++/**
++ * 宿主是否支持某能力（请求 kind 或通知 kind）。握手未返回时按"支持"处理
++ * （等价旧版全量行为），避免页面加载瞬间功能闪烁。
++ */
++export function hasCapability(kind: string): boolean {
++  if (!isEmbedMode()) return false;
++  if (capabilitiesCache === undefined) {
++    void getHostCapabilities();
++    return true;
++  }
++  if (capabilitiesCache === null) return true;
++  return capabilitiesCache.has(kind);
++}
++
++/**
++ * 查询宿主当前活动编辑器文件（页面刷新后恢复状态用）。
++ * 返回相对宿主工作区路径（无活动文件时为 null）。
++ */
++export async function getActiveEditorViaHost(): Promise<{ relativePath: string | null; filePath: string | null }> {
++  try {
++    const res = await sendEmbedRequest<EmbedGetActiveEditorResponse>(
++      { kind: "getActiveEditor" },
++      2000,
++    );
++    return { relativePath: res?.relativePath ?? null, filePath: res?.filePath ?? null };
++  } catch {
++    return { relativePath: null, filePath: null };
++  }
++}
++
++/**
++ * 嵌入 iframe 跨源时 navigator.clipboard.readText 会被权限策略拒。
++ * 改走桥接让宿主用其剪贴板能力读取系统剪贴板。
++ */
++export async function clipboardReadViaHost(): Promise<string> {
++  const res = await sendEmbedRequest<EmbedClipboardReadResponse>(
++    { kind: "clipboardRead" },
++    2000,
++  );
++  return res?.text ?? "";
++}
++
++/**
++ * 写剪贴板同样走宿主剪贴板能力，比跨源 iframe 的
++ * navigator.clipboard.writeText 更可靠。
++ */
++export async function clipboardWriteViaHost(text: string): Promise<void> {
++  await sendEmbedRequest<unknown>({ kind: "clipboardWrite", text }, 2000);
++}
++
++/**
++ * 通知宿主在系统默认浏览器中打开本应用（fire-and-forget，无响应）。
++ * 非 embed 模式下为 no-op，调用方应自行处理（如 window.open）。
++ */
++export function openInBrowserViaHost(url: string): void {
++  notifyEmbedHost({ kind: "openInBrowser", url });
++}
++
++/**
++ * 在新一轮 prompt 发出前建快照。必须在 AgentSession 收到 prompt 之前调用
++ * （否则 agent 可能已经改了文件，before 不准）。返回是否成功。
++ * 非 git 仓库返回 success=false。
++ */
++export async function captureSnapshotViaHost(turnId: string, cwd: string): Promise<boolean> {
++  try {
++    const res = await sendEmbedRequest<EmbedCaptureSnapshotResponse>(
++      { kind: "captureSnapshot", turnId, cwd },
++      5000,
++    );
++    return res?.success ?? false;
++  } catch {
++    return false;
++  }
++}
++
++/**
++ * 取某文件在本轮快照里的 before 内容。返回 null 表示无快照且非 git 仓库。
++ * 用于 write/bash 等无 diff 的工具调用取 before。
++ */
++export async function getBeforeContentViaHost(turnId: string, filePath: string, cwd: string): Promise<string | null> {
++  try {
++    const res = await sendEmbedRequest<EmbedGetBeforeContentResponse>(
++      { kind: "getBeforeContent", turnId, filePath, cwd },
++      5000,
++    );
++    return res?.content ?? null;
++  } catch {
++    return null;
++  }
++}
++
++/**
++ * 用宿主原生 diff 视图显示某文件的 before/after 对比。
++ * before/after 传完整内容，宿主写临时文件后调其 diff 能力。
++ */
++export async function showDiffViaHost(filePath: string, before: string, after: string, title?: string): Promise<void> {
++  try {
++    await sendEmbedRequest<unknown>(
++      { kind: "showDiff", filePath, before, after, title },
++      5000,
++    );
++  } catch {
++    // 跱底：失败时静默
++  }
++}
++
++/**
++ * 回退：把指定文件恢复到本轮快照内容。返回是否成功。
++ */
++export async function revertFilesViaHost(turnId: string, files: string[], cwd: string): Promise<{ success: boolean; message?: string }> {
++  try {
++    const res = await sendEmbedRequest<EmbedRevertFilesResponse>(
++      { kind: "revertFiles", turnId, files, cwd },
++      10000,
++    );
++    return { success: res?.success ?? false, message: res?.message };
++  } catch (e) {
++    return { success: false, message: String(e) };
++  }
++}
++
++/**
++ * 回退 edit：宿主读磁盘当前内容，把每个 newText 换回 oldText（反序 apply）。
++ * 纯文件写，零 git。返回是否成功。
++ */
++export async function revertEditViaHost(
++  filePath: string,
++  cwd: string,
++  edits: { oldText: string; newText: string }[],
++): Promise<{ success: boolean; message?: string }> {
++  try {
++    const res = await sendEmbedRequest<EmbedRevertEditResponse>(
++      { kind: "revertEdit", filePath, cwd, edits },
++      10000,
++    );
++    return { success: res?.success ?? false, message: res?.message };
++  } catch (e) {
++    return { success: false, message: String(e) };
++  }
++}
++
++/**
++ * 判断当前焦点元素是否是文本输入控件（textarea/input/contenteditable）。
++ * 用于全局剪贴键拦截器决定是否跳过——是输入控件则让 ChatInput 等组件
++ * 自己的 onKeyDown 接管精确的复制/粘贴/剪切/全选逻辑。
++ */
++function isTextInputElement(target: EventTarget | null): boolean {
++  if (!(target instanceof HTMLElement)) return false;
++  const tag = target.tagName;
++  if (tag === "TEXTAREA" || tag === "INPUT") return true;
++  if (target.isContentEditable) return true;
++  return false;
++}
++
++/**
++ * 安装全局 document 级剪贴键拦截器。仅在 embed 模式下生效。
++ *
++ * 焦点在文本输入控件（textarea/input/contenteditable）时**跳过**，
++ * 让 ChatInput 等组件自己的 onKeyDown 接管（它们处理选区、光标、粘贴插入
++ * 更精确）。焦点在普通文本上时，这里截住 Cmd/Ctrl+C/X/A：
++ *   - C/X：读 window.getSelection() 选中文本 → 写系统剪贴板（剪切再删选中）
++ *   - A：selectAll
++ *   - V：非输入焦点时无意义，不拦截
++ *
++ * 用 capture 阶段，确保在子组件的 onKeyDown 之前拿到事件。
++ */
++let globalInterceptorInstalled = false;
++
++export function installGlobalClipboardInterceptor(): () => void {
++  if (!isEmbedMode() || typeof document === "undefined") return () => {};
++  if (globalInterceptorInstalled) return () => {};
++  globalInterceptorInstalled = true;
++
++  const CLIP_COPY_KEYS = new Set(["c", "x", "a"]);
++
++  const onKeyDown = (e: KeyboardEvent) => {
++    const meta = e.metaKey || e.ctrlKey;
++    if (!meta) return;
++    const k = e.key.toLowerCase();
++    if (!CLIP_COPY_KEYS.has(k)) return;
++    // 输入法组合中不拦截。
++    if (e.isComposing || e.keyCode === 229) return;
++
++    // 焦点在文本输入控件时跳过——交给组件自己的 onKeyDown 处理。
++    // 但要先判断是否真的在输入控件内，避免 textarea 的 Cmd+C 走这里而
++    // 丢失精确的选区复制。
++    const target = e.target;
++    if (isTextInputElement(target)) {
++      return; // 让 ChatInput 的 handleEmbedClipboardKeydown 接管
++    }
++
++    e.preventDefault();
++    e.stopPropagation();
++
++    if (k === "a") {
++      // 全选当前焦点元素；无可选时全选整个文档。
++      const sel = window.getSelection();
++      if (sel) {
++        sel.selectAllChildren(document.body);
++      }
++      return;
++    }
++
++    // k === "c" || k === "x"
++    const selection = window.getSelection();
++    const selectedText = selection ? selection.toString() : "";
++    if (!selectedText) return;
++
++    void clipboardWriteViaHost(selectedText).catch(() => {
++      try { void navigator.clipboard?.writeText(selectedText); } catch { /* ignore */ }
++    });
++
++    if (k === "x") {
++      // 删除选中的 DOM 节点。document.execCommand('delete') 是最可靠的
++      // contenteditable 删除方式；对非可编辑选区无副作用。
++      try {
++        if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
++          const range = selection.getRangeAt(0);
++          // 只删除可编辑区域内的选区，避免误删页面结构。
++          const container = range.commonAncestorContainer;
++          if (container.parentElement?.isContentEditable ||
++              (container instanceof HTMLElement && container.isContentEditable)) {
++            document.execCommand("delete");
++          }
++        }
++      } catch {
++        // 非可编辑区域剪切无意义，忽略。
++      }
++    }
++  };
++
++  document.addEventListener("keydown", onKeyDown, true);
++  return () => {
++    document.removeEventListener("keydown", onKeyDown, true);
++    globalInterceptorInstalled = false;
++  };
++}
+diff --git a/lib/embed/messages.ts b/lib/embed/messages.ts
+new file mode 100644
+index 0000000..95bb864
+--- /dev/null
++++ b/lib/embed/messages.ts
+@@ -0,0 +1,58 @@
++// embed 模式的界面文案——独立于上游 messages/{en,zh-CN}.ts 维护，
++// 在 lib/i18n/registry.ts 注册时合并，避免在上游翻译文件里制造冲突面。
++
++/** embed 功能的英文字符串。 */
++export const embedEnMessages: Record<string, string> = {
++  "system.openInBrowser": "Open in Browser",
++  "chat.fileReview": "File review",
++  "chat.fileReviewCount": "{count} file(s)",
++  "chat.fileReviewEmpty": "No file changes this turn",
++  "chat.fileReviewExpand": "Expand",
++  "chat.fileReviewCollapse": "Collapse",
++  "chat.fileReviewClickDiff": "Click to view diff",
++  "chat.fileReviewBashUntracked": "Bash commands may have changed files (untracked)",
++  "chat.fileReviewNoDiff": "No diff text available for this turn (edit tool returned no details)",
++  "chat.fileReviewNoSnapshot": "No snapshot (non-git or not backed up)",
++  "chat.fileReviewDiffFailed": "Could not retrieve diff",
++  "chat.revertTurn": "Revert this turn",
++  "chat.revertTurnTitle": "Revert this turn: restore changed files and delete this turn's conversation records",
++  "chat.revertConfirm": "Confirm revert?",
++  "chat.revertConfirmYes": "Confirm",
++  "chat.revertConfirmNo": "Cancel",
++  "chat.revertOk": "Revert",
++  "chat.revertCancel": "Cancel",
++  "chat.revertSuccess": "Reverted {count} file(s)",
++  "chat.revertFailed": "Revert failed: {message}",
++  "chat.revertWebModeUnsupported": "Revert not supported in Web mode (requires host snapshot)",
++  "chat.revertUnavailable": "No snapshot available (older than 3 turns or non-git)",
++  "chat.activeFileLabel": "Open now: ",
++  "chat.activeFileTitle": "This file is open in the host editor — the AI will prioritize modifying it directly",
++};
++
++/** embed 功能的简体中文字符串。 */
++export const embedZhCNMessages: Record<string, string> = {
++  "system.openInBrowser": "浏览器中打开",
++  "chat.fileReview": "文件审查",
++  "chat.fileReviewCount": "{count} 个文件",
++  "chat.fileReviewEmpty": "本轮无文件改动",
++  "chat.fileReviewExpand": "展开",
++  "chat.fileReviewCollapse": "收起",
++  "chat.fileReviewClickDiff": "点击查看 diff",
++  "chat.fileReviewBashUntracked": "本轮可能有 bash 命令改动未追踪",
++  "chat.fileReviewNoDiff": "本轮无 diff 文本可显示（edit 工具未返回详情）",
++  "chat.fileReviewNoSnapshot": "无快照（非 git 或本轮前未备份）",
++  "chat.fileReviewDiffFailed": "无法获取 diff",
++  "chat.revertTurn": "回退此轮",
++  "chat.revertTurnTitle": "回退此轮：恢复改动的文件并删除该轮对话记录",
++  "chat.revertConfirm": "确认回退？",
++  "chat.revertConfirmYes": "确认",
++  "chat.revertConfirmNo": "取消",
++  "chat.revertOk": "回退",
++  "chat.revertCancel": "取消",
++  "chat.revertSuccess": "已回退 {count} 个文件",
++  "chat.revertFailed": "回退失败：{message}",
++  "chat.revertWebModeUnsupported": "Web 模式不支持回退（需要宿主快照能力）",
++  "chat.revertUnavailable": "无可用快照（可能已超过 3 轮或非 git 仓库）",
++  "chat.activeFileLabel": "当前打开：",
++  "chat.activeFileTitle": "宿主编辑器正在打开此文件——AI 会优先考虑直接修改它",
++};
+diff --git a/lib/embed/turn-snapshot.ts b/lib/embed/turn-snapshot.ts
+new file mode 100644
+index 0000000..de59976
+--- /dev/null
++++ b/lib/embed/turn-snapshot.ts
+@@ -0,0 +1,58 @@
++// embed 模式的「轮次快照」登记器。
++//
++// 宿主在每轮 prompt 发出前为该轮文件改动建快照（用于文件审查/回退）。
++// 快照标识 turnId 由前端生成；pi 返回真实 user message entryId 后，两者
++// 在本类中配对，FileReviewCard/回退逻辑凭 entryId 反查 turnId。
++
++import { isEmbedMode, captureSnapshotViaHost } from "./bridge";
++
++export class TurnSnapshotTracker {
++  /** 本轮发 prompt 前生成的 turnId，等 pi 返回真实 entryId 后配对。 */
++  private pendingTurnId: string | null = null;
++  /** user message entryId → 本轮 turnId。 */
++  private entryIdToTurnId = new Map<string, string>();
++
++  /**
++   * 发 prompt 前调用：向宿主建本轮文件快照并登记 pendingTurnId。
++   * 必须同步等快照建完再发 prompt，否则 agent 可能已改文件、before 不准。
++   * 快照失败不阻断发消息（只是本轮回退不可用）。非 embed 模式或无 cwd
++   * 时为空操作。
++   */
++  async capture(cwd: string | null | undefined): Promise<void> {
++    if (!isEmbedMode() || !cwd) return;
++    const turnId = crypto.randomUUID?.() ?? `turn-${Date.now()}`;
++    try {
++      await captureSnapshotViaHost(turnId, cwd);
++    } catch {
++      // 快照失败不阻断发消息，只是本轮回退按钮会不可用。
++    }
++    this.pendingTurnId = turnId;
++  }
++
++  /**
++   * session context 加载后调用：entryIds 和 messages 是平行数组，把
++   * pendingTurnId 配对到最后一条 user message 的真实 entryId。
++   */
++  pairWithLastUserEntry(
++    messages: readonly { role: string }[],
++    entryIds: string[] | undefined,
++  ): void {
++    const pendingTurnId = this.pendingTurnId;
++    if (!pendingTurnId || !entryIds) return;
++    for (let i = messages.length - 1; i >= 0; i--) {
++      if (messages[i].role === "user") {
++        const eid = entryIds[i];
++        if (eid) {
++          this.entryIdToTurnId.set(eid, pendingTurnId);
++          this.pendingTurnId = null;
++        }
++        break;
++      }
++    }
++  }
++
++  /** 查某 user message entryId 对应的本轮 turnId；无配对时回退为入参本身。 */
++  turnIdForEntry(entryId: string): string {
++    return this.entryIdToTurnId.get(entryId) ?? entryId;
++  }
++}
+diff --git a/lib/file-changes.ts b/lib/file-changes.ts
+new file mode 100644
+index 0000000..4d3774c
+--- /dev/null
++++ b/lib/file-changes.ts
+@@ -0,0 +1,222 @@
++/**
++ * 从一轮对话（turn）的 messages 里提取「文件改动」清单。
++ *
++ * 一轮 turn = 一个 user message（或 compaction 锚点）→ 中间的 assistant
++ * process（工具调用）→ 最终的 final assistant answer。
++ *
++ * 数据源是 pi-web 已持有的 messages state，零额外 API 调用：
++ *   - assistant 消息的 toolCall block：toolName + input（含 path/content/edits）
++ *   - toolResult 消息：details.diff（edit 工具的统一 diff）、isError
++ *
++ * 工具类型与可提取信息：
++ *   edit  → input.path + result.details.diff（统一 diff，含 before/after 行）
++ *   write → input.path + input.content（完整新内容，无 diff）
++ *   bash  → 无法静态提取改了哪些文件，列为 untracked
++ */
++
++import type { AgentMessage, AssistantMessage, ToolCallContent, ToolResultMessage } from "./types";
++
++export type FileChangeKind = "edit" | "write" | "bash" | "other";
++
++export interface FileChange {
++  /** 文件绝对路径。bash/other 类型可能为空（无法确定）。 */
++  path: string;
++  /** 相对 cwd 的路径，用于显示。无法确定时等于 path。 */
++  relativePath: string;
++  /** 触发改动的工具名。 */
++  toolName: string;
++  /** toolCallId，关联 session 里的 entry。 */
++  toolCallId: string;
++  /** 变更类型分类。 */
++  kind: FileChangeKind;
++  /** edit 工具的统一 diff 文本（来自 result.details.diff）。 */
++  diffText?: string;
++  /** edit 工具的原始替换对（来自 input.edits），用于回退时反向 apply。 */
++  edits?: { oldText: string; newText: string }[];
++  /** write 工具的完整新内容（来自 input.content）。 */
++  newContent?: string;
++  /** 是否为创建新文件（write 且磁盘上原本不存在）。前端无法确定，留给扩展判断。 */
++  changeType: "modified" | "created" | "unknown";
++  /** 该工具调用是否报错。 */
++  isError: boolean;
++}
++
++/**
++ * 是否是会修改文件内容的工具名。
++ * 与 components/MessageView.tsx 的 isEditToolName 保持一致。
++ */
++export function isEditToolName(toolName: string): boolean {
++  const name = toolName.toLowerCase();
++  return name === "edit" ||
++    name.startsWith("edit_") ||
++    name.endsWith(".edit") ||
++    name.endsWith("_edit") ||
++    name.includes("str_replace") ||
++    name.includes("replace_editor");
++}
++
++function isWriteToolName(toolName: string): boolean {
++  const name = toolName.toLowerCase();
++  return name === "write" ||
++    name.startsWith("write_") ||
++    name.endsWith(".write") ||
++    name.endsWith("_write");
++}
++
++function isBashToolName(toolName: string): boolean {
++  const name = toolName.toLowerCase();
++  return name === "bash" || name === "shell" || name.endsWith(".bash");
++}
++
++function isRecord(value: unknown): value is Record<string, unknown> {
++  return typeof value === "object" && value !== null && !Array.isArray(value);
++}
++
++/** 从 toolResult.details 提取统一 diff 文本（edit 工具）。 */
++function getDiffFromResult(result: ToolResultMessage): string | undefined {
++  const details = (result as ToolResultMessage & { details?: unknown }).details;
++  if (!isRecord(details)) return undefined;
++  const patch = typeof details.patch === "string" ? details.patch : null;
++  if (patch) return patch;
++  const diff = typeof details.diff === "string" ? details.diff : null;
++  if (diff) return diff;
++  return undefined;
++}
++
++/** 把绝对路径转成相对 cwd 的路径（用于显示）。 */
++function toRelativePath(absPath: string, cwd: string | undefined): string {
++  if (!cwd) return absPath;
++  // 规范化 cwd 末尾斜杠，避免 /a/b vs /a/b/ 比较失败
++  const normCwd = cwd.endsWith("/") ? cwd.slice(0, -1) : cwd;
++  if (absPath.startsWith(normCwd + "/")) {
++    return absPath.slice(normCwd.length + 1);
++  }
++  return absPath;
++}
++
++/**
++ * 从一条 assistant 消息里抽出所有 toolCall blocks。
++ */
++function getToolCallBlocks(msg: AssistantMessage): ToolCallContent[] {
++  const content = msg.content;
++  if (!Array.isArray(content)) return [];
++  const blocks: ToolCallContent[] = [];
++  for (const block of content) {
++    if (block.type === "toolCall") {
++      // 兼容两种字段命名（pi 文件格式用 id/name/arguments，前端类型用 toolCallId/toolName/input）
++      const tc = block as unknown as Partial<ToolCallContent> & {
++        id?: string; name?: string; arguments?: Record<string, unknown>;
++      };
++      blocks.push({
++        type: "toolCall",
++        toolCallId: tc.toolCallId ?? tc.id ?? "",
++        toolName: tc.toolName ?? tc.name ?? "",
++        input: tc.input ?? tc.arguments ?? {},
++      });
++    }
++  }
++  return blocks;
++}
++
++/**
++ * 从一轮 turn 的 messages 里提取 FileChange[]。
++ *
++ * @param messages  本轮 turn 范围内的所有消息（含 user、assistant、toolResult）
++ * @param cwd       session 的工作目录，用于把绝对路径转相对路径
++ * @returns         去重后的 FileChange 列表（同一文件被多次改取最后一次的有效信息）
++ *
++ * 注：bash 工具无法静态确定改了哪些文件，会产出一个 path 为空的「untracked」
++ * 条目，前端据此渲染提示而非具体文件。
++ */
++export function extractFileChanges(
++  messages: AgentMessage[],
++  cwd?: string,
++): FileChange[] {
++  // 先建 toolCallId → toolResult 的索引
++  const resultsByCallId = new Map<string, ToolResultMessage>();
++  for (const msg of messages) {
++    if (msg.role !== "toolResult") continue;
++    const tr = msg as ToolResultMessage;
++    if (tr.toolCallId) resultsByCallId.set(tr.toolCallId, tr);
++  }
++
++  // 按 path 去重：同一文件多次改动，合并为一条，取最后出现的信息
++  const byPath = new Map<string, FileChange>();
++  const orderedPaths: string[] = [];
++  let bashUntrackedAdded = false;
++
++  for (const msg of messages) {
++    if (msg.role !== "assistant") continue;
++    const blocks = getToolCallBlocks(msg as AssistantMessage);
++    for (const tc of blocks) {
++      const result = resultsByCallId.get(tc.toolCallId);
++      const isError = result?.isError ?? false;
++
++      // 跳过报错的工具调用（没真正改文件）
++      if (isError) continue;
++
++      const toolName = tc.toolName;
++      const input = tc.input;
++
++      if (isEditToolName(toolName)) {
++        const path = typeof input.path === "string" ? input.path : "";
++        if (!path) continue;
++        const diffText = result ? getDiffFromResult(result) : undefined;
++        // 提取原始 edits（oldText/newText 对），用于回退时反向 apply
++        const rawEdits = Array.isArray(input.edits) ? input.edits : [];
++        const edits = rawEdits
++          .filter((e: unknown): e is Record<string, string> =>
++            !!e && typeof e === "object" && typeof (e as { oldText?: unknown }).oldText === "string" && typeof (e as { newText?: unknown }).newText === "string")
++          .map((e) => ({ oldText: e.oldText, newText: e.newText }));
++        const change: FileChange = {
++          path,
++          relativePath: toRelativePath(path, cwd),
++          toolName,
++          toolCallId: tc.toolCallId,
++          kind: "edit",
++          diffText,
++          edits,
++          changeType: "modified",
++          isError,
++        };
++        if (!byPath.has(path)) orderedPaths.push(path);
++        byPath.set(path, change);
++      } else if (isWriteToolName(toolName)) {
++        const path = typeof input.path === "string" ? input.path : "";
++        if (!path) continue;
++        const content = typeof input.content === "string" ? input.content : "";
++        const change: FileChange = {
++          path,
++          relativePath: toRelativePath(path, cwd),
++          toolName,
++          toolCallId: tc.toolCallId,
++          kind: "write",
++          newContent: content,
++          changeType: "created",
++          isError,
++        };
++        if (!byPath.has(path)) orderedPaths.push(path);
++        byPath.set(path, change);
++      } else if (isBashToolName(toolName)) {
++        // bash 可能改文件但无法静态提取，只产一个 untracked 标记
++        if (!bashUntrackedAdded) {
++          bashUntrackedAdded = true;
++          // 用特殊 key 标记，不进 byPath（无具体文件）
++          orderedPaths.push("__bash_untracked__");
++          byPath.set("__bash_untracked__", {
++            path: "",
++            relativePath: "",
++            toolName,
++            toolCallId: tc.toolCallId,
++            kind: "bash",
++            changeType: "unknown",
++            isError,
++          });
++        }
++      }
++      // 其他工具不产出文件改动条目
++    }
++  }
++
++  return orderedPaths.map((p) => byPath.get(p)!).filter(Boolean);
++}
+diff --git a/lib/i18n/registry.ts b/lib/i18n/registry.ts
+index 5f5d730..63bb015 100644
+--- a/lib/i18n/registry.ts
++++ b/lib/i18n/registry.ts
+@@ -1,5 +1,6 @@
+ import { enLocale } from "./messages/en";
+ import { zhCNLocale } from "./messages/zh-CN";
++import { embedEnMessages, embedZhCNMessages } from "../embed/messages";
+ import type { Locale, LocalePlugin } from "./types";
+ 
+ const localePlugins = new Map<string, LocalePlugin>();
+@@ -26,7 +27,7 @@ export function getSupportedLocales(): string[] {
+ }
+ 
+ /**
+- * 将浏览器语言列表解析为 Pi Web 内置语言。
++ * 将浏览器语言列表解析为 PI Code 内置语言。
+  * @param languages 浏览器按优先级排列的语言列表
+  * @returns 匹配的内置语言，无法匹配时返回英语
+  */
+@@ -39,5 +40,6 @@ export function resolveBrowserLocale(languages: readonly string[]): Locale {
+   return "en";
+ }
+ 
+-registerLocale(enLocale);
+-registerLocale(zhCNLocale);
++// 内置语言包注册。embed 功能文案独立维护在 lib/embed/messages.ts，注册时合并。
++registerLocale({ ...enLocale, messages: { ...enLocale.messages, ...embedEnMessages } });
++registerLocale({ ...zhCNLocale, messages: { ...zhCNLocale.messages, ...embedZhCNMessages } });
+diff --git a/lib/rpc-manager.ts b/lib/rpc-manager.ts
+index d9adaf9..89d3f13 100644
+--- a/lib/rpc-manager.ts
++++ b/lib/rpc-manager.ts
+@@ -5,6 +5,7 @@ import { randomUUID } from "crypto";
+ import { existsSync, realpathSync, writeFileSync } from "fs";
+ import { resolve } from "path";
+ import { validateAgentImages } from "./image-attachments";
++import { applyActiveFilesHint, stripActiveFilesHint } from "./embed/active-files";
+ import { invalidateModelsCache } from "./models-cache";
+ import { resolveVisibleModels, selectInitialModelScope } from "./model-scope";
+ import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
+@@ -214,7 +215,7 @@ export class AgentSessionWrapper {
+             id: randomUUID(),
+             method: "notify",
+             notifyType: "warning",
+-            message: "Extension requested shutdown, but shutdown is not supported in Pi Web.",
++            message: "Extension requested shutdown, but shutdown is not supported in PI Code.",
+           } as ExtensionUiRequest as AgentEvent),
+           onError: (error) => this.emit({
+             type: "extension_error",
+@@ -336,6 +337,11 @@ export class AgentSessionWrapper {
+         const streamingBehavior = command.streamingBehavior as "steer" | "followUp" | undefined;
+         this.promptRunning = true;
+         notifyRunningChange();
++
++        // embed 模式：把宿主当前活动编辑器文件注入 system prompt（隐藏提示词，
++        // 经 lib/embed/active-files.ts 触碰 pi SDK 内部字段）。
++        applyActiveFilesHint(this.inner, command.activeFiles as string[] | undefined);
++
+         this.inner.prompt(command.message as string, {
+           ...(promptImages?.length ? { images: promptImages } : {}),
+           ...(streamingBehavior ? { streamingBehavior } : {}),
+@@ -383,7 +389,8 @@ export class AgentSessionWrapper {
+           contextUsage: contextUsage
+             ? { percent: contextUsage.percent, contextWindow: contextUsage.contextWindow, tokens: contextUsage.tokens }
+             : null,
+-          systemPrompt: this.inner.agent.state?.systemPrompt ?? "",
++          // 剥掉隐藏的 active-files 注入段（marker 包裹），避免 UI 的系统提示词面板泄露
++          systemPrompt: stripActiveFilesHint(this.inner.agent.state?.systemPrompt ?? ""),
+           thinkingLevel: this.inner.agent.state?.thinkingLevel ?? "off",
+           extensionStatuses: this.getExtensionStatuses(),
+           extensionWidgets: this.getExtensionWidgets(),
+@@ -939,7 +946,7 @@ export class AgentSessionWrapper {
+       get theme() { return PLAIN_TEXT_THEME; },
+       getAllThemes: () => [],
+       getTheme: () => undefined,
+-      setTheme: () => ({ success: false, error: "Theme switching is not supported in Pi Web extension UI yet" }),
++      setTheme: () => ({ success: false, error: "Theme switching is not supported in PI Code extension UI yet" }),
+       getToolsExpanded: () => false,
+       setToolsExpanded: () => {},
+     };
+@@ -1137,7 +1144,7 @@ export async function startRpcSession(
+       // Otherwise DO NOT pass a builtin-only allow-list: passing CODING_TOOL_NAMES
+       // set allowedToolNames to coding builtins only, which filtered every
+       // extension/package-provided tool (e.g. subagents, web access) out of the
+-      // tool registry — so they were unavailable in Pi Web sessions even though the
++      // tool registry — so they were unavailable in PI Code sessions even though the
+       // `pi` CLI keeps them. Leaving the allow-list unset lets the SDK register all
+       // tools (and activate extension tools); we narrow the ACTIVE set below.
+       toolsOption = toolNames.length === 0 ? [] : undefined;
+@@ -1179,7 +1186,7 @@ export async function startRpcSession(
+ 
+     // If specific tool names were requested (non-empty), set the active tools to the
+     // requested builtin coding tools PLUS all extension/package tools, so installed
+-    // extensions stay usable in Pi Web just like in the `pi` CLI.
++    // extensions stay usable in PI Code just like in the `pi` CLI.
+     if (toolNames && toolNames.length > 0) {
+       inner.setActiveToolsByName(withExtensionTools(inner, toolNames));
+     }

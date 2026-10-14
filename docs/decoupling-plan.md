@@ -69,15 +69,17 @@ delta 即 `git diff <base-tag>..main` 的净差异；`scripts/export-patches.sh`
 
 ### 5. 升级工作流
 
-目标命令（机械部分全自动，语义冲突才人工）：
+已实现为三个脚本（机械部分全自动，语义冲突才人工）：
 
 ```
 scripts/sync-upstream.sh <vX.Y.Z>
-  = git fetch agegr-pi-web
-  + git merge <new-tag>          # 合并进 main，冲突一次解决
-  + npm install + tsc --noEmit + lint
-scripts/export-patches.sh   → patches/*.patch   （git diff <base>..main 过滤产品路径）
-scripts/apply-to.sh <dir>   → 把 patch 应用到指定 checkout（omp-web 等）
+  = git fetch agegr-pi-web --tags
+  + git merge --no-edit <tag>    # 合并进 main，冲突一次解决
+  + npm install + tsc --noEmit + npm run lint
+scripts/export-patches.sh [base] [out]  → patches/embed-delta.patch
+  （git diff <base>..HEAD，过滤 vscode-extension/ docs/ scripts/ patches/
+    README* package*.json tsconfig/eslint/next 配置等仓库侧路径）
+scripts/apply-to.sh <dir> [patch]  → git apply --3way，失败回退 --reject + .rej
 ```
 
 降低冲突概率的真正手段是原则 2（最小面），不是工具。
