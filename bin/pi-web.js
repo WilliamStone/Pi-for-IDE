@@ -10,7 +10,7 @@ if (!isNodeVersionSupported(process.versions.node)) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { spawn } = require("child_process");
+const { spawn, spawnSync } = require("child_process");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const path = require("path");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -20,6 +20,37 @@ const { parseLaunchOptions } = require("./pi-web-options");
 
 const pkgDir = path.join(__dirname, "..");
 const nextDir = path.join(pkgDir, ".next");
+
+// 子命令：pi-web update-sdk <version>
+// 就地升级 pi SDK（@earendil-works/pi-*，四个包同版本 pin）。机制本身只是
+// 在包装目录里跑 npm install --save-exact；真正的成本是跨版本 API 适配——
+// pi-web 代码按特定 SDK 版本编写，升级后请重启服务并回归验证。
+if (process.argv[2] === "update-sdk") {
+  const version = process.argv[3];
+  if (!version) {
+    console.error("用法: pi-web update-sdk <version>，如 pi-web update-sdk 0.90.0");
+    process.exit(1);
+  }
+  const sdkPackages = [
+    "@earendil-works/pi-coding-agent",
+    "@earendil-works/pi-agent-core",
+    "@earendil-works/pi-ai",
+    "@earendil-works/pi-tui",
+  ].map((name) => `${name}@${version}`);
+  console.log(`在 ${pkgDir} 内升级 pi SDK → ${version}`);
+  const result = spawnSync("npm", ["install", "--save-exact", "--no-audit", "--no-fund", ...sdkPackages], {
+    cwd: pkgDir,
+    stdio: "inherit",
+    shell: process.platform === "win32",
+  });
+  if (result.error) {
+    console.error(`npm 启动失败: ${result.error.message}`);
+    process.exit(1);
+  }
+  if (result.status !== 0) process.exit(result.status ?? 1);
+  console.log("pi SDK 已更新。跨版本升级可能需要 pi-web 侧适配——请重启服务并回归验证。");
+  process.exit(0);
+}
 
 // Resolve next's CLI entry directly to avoid relying on .bin symlinks (which
 // may not exist when installed via npx).

@@ -104,7 +104,7 @@ scripts/apply-to.sh <dir> [patch]  → git apply --3way，失败回退 --reject 
 
 ## 决策记录
 
-- **pi 不外置**：pi 是 pi-web 进程内依赖，跟随 pi-web 版本；pi-web 高速更新期不做 SDK 外挂。若上游停更，再评估 `update-sdk`（npm 树内换版本）或 RPC 子进程方案。
+- **pi 不外置**：pi 是 pi-web 进程内依赖，跟随 pi-web 版本；pi-web 高速更新期不做 SDK 外挂。已实现低档逃生口 `pi-web update-sdk <version>`（bin 子命令，在包装目录内 `npm install --save-exact` 四个 `@earendil-works/pi-*` 包）——机制可用，但跨版本升级仍可能需要 pi-web 侧 API 适配；RPC 子进程方案仍待上游架构变化再评估。
 - **不新增 GitHub fork**：单仓多 remote/branch 已覆盖全部需求，且保留 PR 通道。
 - **omp-web**：patch 可移植性保留该选项，仅提供 apply 机制，不主动维护兼容。
 - **上游化**：不作为当前目标；delta 按可上游化的标准设计（通用 embed 语义、无 vscode 硬编码），保留可能性。
