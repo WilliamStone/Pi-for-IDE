@@ -10,7 +10,10 @@ try {
 } catch { /* package not found, use default */ }
 
 const nextConfig: NextConfig = {
-  output: "standalone",
+  // standalone 产物仅用于打包进 VSCode 扩展（scripts/package-pi-web.js 置
+  // PI_WEB_STANDALONE=1）。npm 发布的普通构建不产出 standalone，避免
+  // `pi-web` bin（next start）触发 Next 的 standalone 警告。
+  output: process.env.PI_WEB_STANDALONE ? "standalone" : undefined,
   serverExternalPackages: [
     "undici",
     "@earendil-works/pi-coding-agent",

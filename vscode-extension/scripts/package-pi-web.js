@@ -49,8 +49,9 @@ function main() {
   try {
     // 1. build
     console.log("=== 1/3 构建 pi-web（standalone）===");
-    // 显式清掉 TURBOPACK，避免与 next.config 的 webpack 模式冲突。
-    run("npm", ["run", "build"], { env: { ...process.env, TURBOPACK: "" } });
+    // 显式清掉 TURBOPACK，避免与 next.config 的 webpack 模式冲突；
+    // PI_WEB_STANDALONE=1 让 next.config.ts 产出 standalone（见注释）。
+    run("npm", ["run", "build"], { env: { ...process.env, TURBOPACK: "", PI_WEB_STANDALONE: "1" } });
 
     // 2. 定位 standalone 产物
     const standaloneRoot = path.join(repoRoot, ".next", "standalone");
