@@ -108,4 +108,11 @@ code --install-extension .\pi-for-ide-0.1.0.vsix
 - **启动后警告「未包含 embed 桥补丁」**：连到原版 pi-web——检查 `piIde.package` 名是否仍是 `pi-web-for-ide`，或全局装的是旧 tarball（重新 `npm pack` + `npm i -g`）。
 - **端口被占**：`piIde.port` 会自动 +1 探测；也可 `pi-web status` 查看现有服务 / `pi-web stop` 停掉。
 - **更新 SDK**：`pi-web update-sdk <version>`（服务须先停）；`pi-web update` 升级 pi-web-for-ide 本体。
+- **保存模型设置报 `EPERM rename …\.models.json-*.tmp -> models.json`**（Windows）：
+  不是代码 bug，是该文件对象上挂了内核态残留引用（曾有不释放 delete-share
+  的进程抓过它，常见于崩溃/被杀的 pi 系进程或安全软件）。判别特征：
+  能直接写、能改名、能 `del`，唯独 `rename(tmp→models.json)` 拒绝。
+  解法：备份后删了重建——
+  `copy models.json %TEMP%\models.json && del models.json && copy %TEMP%\models.json models.json`，
+  文件对象换新后原子写恢复。
 - **看日志**：输出面板 → 扩展的 pi for IDE 通道记录了 spawn 命令、端口与探测结果。
