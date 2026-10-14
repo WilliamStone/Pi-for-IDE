@@ -134,6 +134,13 @@ function materializeExternalLinks(serverDir) {
 }
 
 /**
+ * 把物化出的 `<pkg>-<hash>` 实目录换成指向 `node_modules/<pkg>` trace
+ * 副本的 junction——实现见 bin/pi-web-standalone.js，postinstall 共用
+ * （npm pack 会把 junction 展开回实目录，装包时必须重连）。
+ */
+const { linkExternalsToTraced, writeExternalsManifest } = require("../bin/pi-web-standalone");
+
+/**
  * 只组装（不构建）：把静态资源与运行时资源补进已存在的 standalone 产物。
  * 返回 standalone 应用目录绝对路径。
  */
@@ -153,6 +160,17 @@ function assembleStandalone() {
   }
   copyRuntimeAssets(repoRoot, serverDir);
   materializeExternalLinks(serverDir);
+  // for-pack：files 白名单内的目录无法用 .npmignore 排除，物理删掉
+  // 哈希目录（trace 副本重复 ~350MB），只留 standalone-externals.json
+  // 清单；装包后 postinstall 按清单重建 junction。
+  // 非打包路径（本机/扩展打包）直接接链。
+  if (process.argv.includes("--for-pack")) {
+    writeExternalsManifest(serverDir);
+    fs.rmSync(path.join(serverDir, ".next", "node_modules"), { recursive: true, force: true });
+    console.log("  removed .next/node_modules（由 postinstall 重建 junction）");
+  } else {
+    linkExternalsToTraced(serverDir);
+  }
   return serverDir;
 }
 
@@ -160,6 +178,14 @@ function main() {
   const noBuild = process.argv.includes("--no-build") || process.env.PI_WEB_SKIP_BUILD === "1";
 
   if (!noBuild) {
+    // 0. 清掉仓库根的旧打包产物——否则 nft trace 会把上一轮 .tgz 整个
+    //    吸进 standalone（曾出现 435MB 包中包）
+    for (const f of fs.readdirSync(repoRoot)) {
+      if (f.endsWith(".tgz")) {
+        fs.rmSync(path.join(repoRoot, f), { force: true });
+        console.log(`清理旧产物 ${f}`);
+      }
+    }
     // 1. build（standalone 由 next.config.ts 依 PI_WEB_STANDALONE 条件产出）
     console.log("=== 1/2 构建 pi-web（standalone）===");
     run("npm", ["run", "build"], {

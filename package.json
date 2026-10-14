@@ -37,7 +37,7 @@
     "build": "env -u TURBOPACK next build",
     "start": "next start -H 127.0.0.1 -p 30141",
     "start:lan": "next start -H 0.0.0.0 -p 30141",
-    "prepack": "node scripts/prepare-standalone.js",
+    "prepack": "node scripts/prepare-standalone.js --for-pack",
     "lint": "eslint .",
     "test:terminal": "node e2e/terminal.mjs",
     "test:e2e": "node e2e/run.mjs",
