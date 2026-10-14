@@ -1,5 +1,5 @@
 import * as cp from "child_process";
-import { existsSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import * as net from "net";
 import * as path from "path";
 import * as vscode from "vscode";
@@ -81,6 +81,54 @@ function resolveGlobalPackageBin(pkg: string): Promise<string | undefined> {
       }
       const binPath = path.join(stdout.trim(), pkg, "bin", "pi-web.js");
       resolve(existsSync(binPath) ? binPath : undefined);
+    });
+  });
+}
+
+/**
+ * 在 PATH 上找 `pi-web` shim（`where`/`which`），从 shim 内容里提取它实际
+ * 调用的 bin/pi-web.js 路径。npm/pnpm/yarn/bun 的全局 shim 都会内嵌真实
+ * 入口（`%~dp0\..\...\bin\pi-web.js` 或 `$basedir/...`），各包管理器通用。
+ * 找不到或解析失败时安静返回 undefined。
+ */
+function resolvePathShimBin(): Promise<string | undefined> {
+  const cmd = process.platform === "win32" ? "where pi-web" : "which pi-web";
+  return new Promise((resolve) => {
+    cp.exec(cmd, { timeout: 10_000 }, (err, stdout) => {
+      if (err) {
+        resolve(undefined);
+        return;
+      }
+      const shimDirOf = (line: string) => path.dirname(line);
+      for (const line of stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)) {
+        // 只要脚本 shim（.cmd 或无扩展名）；.ps1/.exe 不经此通道。
+        if (/\.(ps1|exe|bat)$/i.test(line)) continue;
+        let content: string;
+        try {
+          content = readFileSync(line, "utf8");
+        } catch {
+          continue;
+        }
+        // pnpm 等 shim 尾部带 `# cmd-shim-target=<绝对路径>` 注解，最可靠。
+        let target: string | undefined;
+        const tagged = content.match(/^#?\s*cmd-shim-target=(\S+)/m);
+        if (tagged) target = tagged[1];
+        // 兜底：取第一个引号包裹的 …/bin/pi-web.js，把开头的 %~dp0 /
+        // $basedir / $basedir_win 等"shim 目录变量"归一化成相对路径。
+        if (!target || !existsSync(target)) {
+          const m = content.match(/["']([^"']*bin[/\\]pi-web\.js)["']/);
+          if (!m) continue;
+          target = path.resolve(
+            shimDirOf(line),
+            m[1].replace(/^(%~dp0[\\/]?|\$[A-Za-z_][A-Za-z0-9_]*[\\/]?)/, "./"),
+          );
+        }
+        if (existsSync(target)) {
+          resolve(target);
+          return;
+        }
+      }
+      resolve(undefined);
     });
   });
 }
@@ -192,7 +240,16 @@ export class PiIdeServer {
       return { mode: "bin", path: globalBin };
     }
 
-    // 4) npx 兜底：首次运行会联网下载，之后走 npx 缓存。
+    // 4) PATH 上的 pi-web shim（pnpm/yarn/bun 全局安装都会落这里；
+    //    shim 脚本内含真实 bin/pi-web.js 路径，解析后仍走 node 直启，
+    //    避免经 .cmd 外壳导致 stop 杀不死内层服务进程）。
+    const shimBin = await resolvePathShimBin();
+    if (shimBin) {
+      this.channel.appendLine(`pi-web 入口（PATH shim）: ${shimBin}`);
+      return { mode: "bin", path: shimBin };
+    }
+
+    // 5) npx 兜底：首次运行会联网下载，之后走 npx 缓存。
     this.channel.appendLine(`pi-web 入口（npx）: ${pkg}`);
     return { mode: "npx", pkg };
   }
