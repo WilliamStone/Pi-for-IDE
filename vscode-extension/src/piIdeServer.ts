@@ -365,19 +365,27 @@ export class PiIdeServer {
    * 非阻断：页面仍可浏览会话。
    */
   private async verifyEmbedSupport(origin: string): Promise<void> {
-    try {
-      const res = await fetch(`${origin}/api/embed`, { signal: AbortSignal.timeout(3000) });
-      const data = (await res.json().catch(() => null)) as { embed?: { protocol?: number } } | null;
-      if (res.ok && data?.embed?.protocol) {
-        this.channel.appendLine(`embed 协议握手成功：protocol v${data.embed.protocol}`);
-        return;
+    // 服务器刚起时 /api/embed 可能要几秒（冷启动、杀软扫描、懒加载路由），
+    // 单次 3s 探测会误报"缺补丁"。重试约 20s，全部失败才警告。
+    const deadline = Date.now() + 20_000;
+    let lastError = "no response";
+    while (Date.now() < deadline) {
+      try {
+        const res = await fetch(`${origin}/api/embed`, { signal: AbortSignal.timeout(4000) });
+        const data = (await res.json().catch(() => null)) as { embed?: { protocol?: number } } | null;
+        if (res.ok && data?.embed?.protocol) {
+          this.channel.appendLine(`embed 协议握手成功：protocol v${data.embed.protocol}`);
+          return;
+        }
+        lastError = `HTTP ${res.status}`;
+      } catch (e) {
+        lastError = String(e);
       }
-      throw new Error(`unexpected response: HTTP ${res.status}`);
-    } catch (e) {
-      this.channel.appendLine(`警告：/api/embed 探测失败（${String(e)}）——所连 pi-web 可能未包含 embed 桥补丁。`);
-      void vscode.window.showWarningMessage(
-        `pi for IDE：所连接的 pi-web 缺少 IDE 集成功能（疑似原版 pi-web）。请安装含补丁的发行包：npm i -g ${this.packageName()}。`,
-      );
+      await new Promise((r) => setTimeout(r, 2000));
     }
+    this.channel.appendLine(`警告：/api/embed 探测失败（${lastError}）——所连 pi-web 可能未包含 embed 桥补丁。`);
+    void vscode.window.showWarningMessage(
+      `pi for IDE：所连接的 pi-web 缺少 IDE 集成功能（疑似原版 pi-web）。请安装含补丁的发行包：npm i -g ${this.packageName()}。`,
+    );
   }
 }

@@ -223,6 +223,30 @@ export class PiWebWebviewPanel extends vscode.Disposable {
       const vscode = acquireVsCodeApi();
       const frame = document.getElementById('pi-web-frame');
 
+      // 服务器刚启动（冷启动/杀软扫描下首次响应可能数秒）时 iframe 请求
+      // 会失败留下空白页，且 iframe 的 load/error 事件对 HTTP 层失败不可靠。
+      // 看门狗：load 未触发期间轮询探测根地址，可达后重新指 iframe。
+      let loaded = false;
+      let lastAssign = 0;
+      let attempts = 0;
+      frame.addEventListener('load', function () { loaded = true; });
+      const probeUrl = ${JSON.stringify(new URL(piWebUrl).origin)};
+      const watchdog = setInterval(function () {
+        if (loaded) { clearInterval(watchdog); return; }
+        fetch(probeUrl, { method: 'HEAD', mode: 'no-cors' })
+          .then(function () {
+            // 服务器可达但 iframe 未加载——重指 src，但限频限量防重载循环
+            // （HTTP 错误页也会触发 load，到达这里说明是网络层失败）。
+            if (!loaded && attempts < 10 && Date.now() - lastAssign > 4000) {
+              attempts++;
+              lastAssign = Date.now();
+              frame.src = ${JSON.stringify(piWebUrl)};
+            }
+          })
+          .catch(function () { /* 服务器还没起来，下轮再试 */ });
+      }, 2000);
+      setTimeout(function () { clearInterval(watchdog); }, 90000);
+
       window.addEventListener('message', function (event) {
         const data = event.data;
         if (!data || typeof data !== 'object') return;
