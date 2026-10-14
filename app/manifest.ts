@@ -1,17 +1,19 @@
 import type { MetadataRoute } from "next";
 
+export const dynamic = "force-dynamic";
+
 export default function manifest(): MetadataRoute.Manifest {
+  const appName = process.env.PI_WEB_APP_NAME?.trim() || "PI Code";
   return {
     id: "/",
-    name: "PI Code",
-    short_name: "PI Code",
+    name: appName,
+    short_name: appName,
     description: "Local web interface for the pi coding agent",
     start_url: "/",
     scope: "/",
     display: "standalone",
-    background_color: "#1a1a1a",
+    background_color: "#ffffff",
     theme_color: "#1a1a1a",
-    orientation: "any",
     categories: ["developer", "productivity"],
     lang: "en",
     icons: [

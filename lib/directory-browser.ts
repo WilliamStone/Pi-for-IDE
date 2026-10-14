@@ -1,4 +1,4 @@
-import { readdir, realpath, stat } from "fs/promises";
+import { mkdir, readdir, realpath, stat } from "fs/promises";
 import { homedir } from "os";
 import path from "path";
 
@@ -7,8 +7,35 @@ export interface BrowsableDirectory {
   path: string;
 }
 
+export function shouldShowWindowsDrivePicker(
+  directory?: string,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  return platform === "win32" && !directory;
+}
+
 export function getBrowseStartDirectory(directory?: string): string {
   return directory || homedir();
+}
+
+export function getWindowsDriveCandidates(): BrowsableDirectory[] {
+  return "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map((letter) => ({
+    name: `${letter}:`,
+    path: `${letter}:\\`,
+  }));
+}
+
+export async function listWindowsDrives(): Promise<BrowsableDirectory[]> {
+  const candidates = await Promise.all(getWindowsDriveCandidates().map(async (drive) => {
+    try {
+      const driveStat = await stat(drive.path);
+      return driveStat.isDirectory() ? drive : null;
+    } catch {
+      return null;
+    }
+  }));
+
+  return candidates.filter((drive): drive is BrowsableDirectory => drive !== null);
 }
 
 export function normalizeDirectory(directory: string): string {
@@ -20,7 +47,7 @@ export function normalizeDirectory(directory: string): string {
 export function getParentDirectory(directory: string): string | null {
   const pathApi = /^[a-zA-Z]:[\\/]/.test(directory) || directory.startsWith("\\\\")
     ? path.win32
-    : path;
+    : path.posix;
   const normalized = pathApi.normalize(directory);
   const parent = pathApi.dirname(normalized);
   return parent === normalized ? null : parent;
@@ -28,6 +55,25 @@ export function getParentDirectory(directory: string): string | null {
 
 export async function resolveDirectory(directory: string): Promise<string> {
   return realpath(normalizeDirectory(directory));
+}
+
+export function isValidDirectoryName(name: string): boolean {
+  return Boolean(name) && name !== "." && name !== ".." && !/[\\/\0]/.test(name);
+}
+
+export async function createDirectory(parentDirectory: string, name: string): Promise<string> {
+  const directoryName = name.trim();
+  if (!isValidDirectoryName(directoryName)) {
+    throw new Error("Directory name must be a single folder name");
+  }
+
+  const resolvedParent = await resolveDirectory(parentDirectory);
+  const parentStat = await stat(resolvedParent);
+  if (!parentStat.isDirectory()) throw new Error("Parent path is not a directory");
+
+  const createdPath = path.join(resolvedParent, directoryName);
+  await mkdir(createdPath);
+  return realpath(createdPath);
 }
 
 export async function listDirectories(directory: string): Promise<BrowsableDirectory[]> {

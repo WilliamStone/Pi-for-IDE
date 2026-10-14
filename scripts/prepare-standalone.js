@@ -14,8 +14,11 @@
  * npm 发布包（`prepack`）与 vscode-extension 打包共用本脚本；产物目录
  * 自带全部 node_modules（trace 实文件，无符号链接），不依赖 npm 安装依赖。
  */
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const cp = require("child_process");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const fs = require("fs");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const path = require("path");
 
 const repoRoot = path.resolve(__dirname, "..");

@@ -1,8 +1,12 @@
 import type { Metadata, Viewport } from "next";
 import { Noto_Sans_Mono } from "next/font/google";
 import { PwaRegistration } from "@/components/PwaRegistration";
+import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import "katex/dist/katex.min.css";
 import "./globals.css";
+import "./settings.css";
+import "./sidebar.css";
+import "./sidebar-menu.css";
 
 const notoSansMono = Noto_Sans_Mono({
   subsets: ["latin", "cyrillic"],
@@ -33,7 +37,7 @@ export const metadata: Metadata = {
   },
   appleWebApp: {
     capable: true,
-    statusBarStyle: "default",
+    statusBarStyle: "black-translucent",
     title: "PI Code",
   },
   formatDetection: {
@@ -42,6 +46,10 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  interactiveWidget: "resizes-content",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#ffffff" },
     { media: "(prefers-color-scheme: dark)", color: "#1a1a1a" },
@@ -59,11 +67,11 @@ export default function RootLayout({
         <meta name="google" content="notranslate" />
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem("pi-theme");var v=new URL(location.href).searchParams.get("embed");if(t==="dark"||(t===null&&v))document.documentElement.classList.add("dark")}catch(e){}})();`,
+            __html: THEME_INIT_SCRIPT,
           }}
         />
       </head>
-      <body translate="no" className="notranslate" style={{ height: "100dvh", display: "flex", flexDirection: "column" }}>
+      <body translate="no" className="notranslate" suppressHydrationWarning>
         {children}
         <PwaRegistration />
       </body>

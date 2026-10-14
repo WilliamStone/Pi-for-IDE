@@ -1,3 +1,21 @@
+interface LocalFileClickEvent {
+  defaultPrevented: boolean;
+  button: number;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  shiftKey: boolean;
+  altKey: boolean;
+}
+
+export function shouldOpenLocalFileInApp(event: LocalFileClickEvent): boolean {
+  // Browsers block file:// navigation from Pi Web's HTTP origin, so the
+  // platform primary modifier must use the same in-app preview as a plain click.
+  return !event.defaultPrevented
+    && event.button === 0
+    && !event.shiftKey
+    && !event.altKey;
+}
+
 function safeDecode(value: string): string {
   try {
     return decodeURIComponent(value);
@@ -98,7 +116,8 @@ export function resolveLocalFileHref(
   }
 
   if (lowerHref.startsWith("file:")) {
-    candidate = fileUrlToPath(normalizedHref);
+    // Decode only the parsed pathname so encoded delimiters stay in the filename.
+    candidate = fileUrlToPath(cleanHref);
     candidateKind = candidate ? "absolute" : null;
   } else if (/^[a-zA-Z]:\//.test(normalizedHref)) {
     candidate = normalizedHref;
@@ -116,4 +135,52 @@ export function resolveLocalFileHref(
   const filePath = stripLineSuffix(normalizeLocalPath(candidate));
   if (candidateKind === "relative" && relativeRoot && !isPathInside(filePath, relativeRoot)) return null;
   return filePath;
+}
+
+const PDF_PAGE_FRAGMENT = /^page=(\d+)$/i;
+
+/**
+ * Read the PDF Open Parameters page selector (`#page=12`) from a markdown href.
+ *
+ * Only the `page` fragment is understood; every other fragment is ignored so
+ * that unknown anchors keep their previous behaviour. Returns null when the href
+ * has no usable page fragment.
+ */
+export function parsePdfPageFragment(href: string | undefined): number | null {
+  if (!href) return null;
+  const hashIndex = href.indexOf("#");
+  if (hashIndex === -1) return null;
+  const match = href.slice(hashIndex + 1).trim().match(PDF_PAGE_FRAGMENT);
+  if (!match) return null;
+  const page = Number.parseInt(match[1], 10);
+  return Number.isInteger(page) && page > 0 ? page : null;
+}
+
+/** Resolve a filesystem path without applying URL or source-location syntax. */
+export function resolveLocalFilePath(filePath: string | undefined, baseDir?: string): string | null {
+  if (!filePath) return null;
+
+  const windowsStyle = /^[a-zA-Z]:[\\/]/.test(filePath) ||
+    filePath.startsWith("\\\\") ||
+    (baseDir !== undefined && (/^[a-zA-Z]:[\\/]/.test(baseDir) || baseDir.startsWith("\\\\")));
+  const normalizeSlashes = (value: string) => windowsStyle ? value.replace(/\\/g, "/") : value;
+  const normalizedPath = normalizeSlashes(filePath);
+  const normalizedBase = baseDir ? normalizeSlashes(baseDir).replace(/\/+$/, "") : undefined;
+
+  const isDriveAbsolute = /^[a-zA-Z]:\//.test(normalizedPath);
+  const isUncAbsolute = normalizedPath.startsWith("//");
+  let candidate: string;
+
+  if (isDriveAbsolute || isUncAbsolute) {
+    candidate = normalizedPath;
+  } else if (normalizedPath.startsWith("/")) {
+    const windowsRoot = normalizedBase?.match(/^([a-zA-Z]:)(?:\/|$)/)?.[1]
+      ?? normalizedBase?.match(/^(\/\/[^/]+\/[^/]+)(?:\/|$)/)?.[1];
+    candidate = windowsRoot ? `${windowsRoot}${normalizedPath}` : normalizedPath;
+  } else {
+    if (!normalizedBase) return null;
+    candidate = `${normalizedBase}/${normalizedPath}`;
+  }
+
+  return normalizeLocalPath(candidate);
 }

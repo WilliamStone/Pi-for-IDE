@@ -29,6 +29,34 @@ export const embedEnMessages: Record<string, string> = {
   "chat.activeFileTitle": "This file is open in the host editor — the AI will prioritize modifying it directly",
 };
 
+/** embed 功能的繁体中文字符串。 */
+export const embedZhTWMessages: Record<string, string> = {
+  "system.openInBrowser": "在瀏覽器中開啟",
+  "chat.fileReview": "檔案審查",
+  "chat.fileReviewCount": "{count} 個檔案",
+  "chat.fileReviewEmpty": "本輪無檔案變更",
+  "chat.fileReviewExpand": "展開",
+  "chat.fileReviewCollapse": "收合",
+  "chat.fileReviewClickDiff": "點擊檢視 diff",
+  "chat.fileReviewBashUntracked": "本輪可能有 bash 指令變更未追蹤",
+  "chat.fileReviewNoDiff": "本輪無 diff 文字可顯示（edit 工具未回傳詳情）",
+  "chat.fileReviewNoSnapshot": "無快照（非 git 或本輪前未備份）",
+  "chat.fileReviewDiffFailed": "無法取得 diff",
+  "chat.revertTurn": "回退此輪",
+  "chat.revertTurnTitle": "回退此輪：還原變更的檔案並刪除該輪對話記錄",
+  "chat.revertConfirm": "確認回退？",
+  "chat.revertConfirmYes": "確認",
+  "chat.revertConfirmNo": "取消",
+  "chat.revertOk": "回退",
+  "chat.revertCancel": "取消",
+  "chat.revertSuccess": "已回退 {count} 個檔案",
+  "chat.revertFailed": "回退失敗：{message}",
+  "chat.revertWebModeUnsupported": "Web 模式不支援回退（需要宿主快照能力）",
+  "chat.revertUnavailable": "無可用快照（可能已超過 3 輪或非 git 倉庫）",
+  "chat.activeFileLabel": "目前開啟：",
+  "chat.activeFileTitle": "宿主編輯器正在開啟此檔案——AI 會優先考慮直接修改它",
+};
+
 /** embed 功能的简体中文字符串。 */
 export const embedZhCNMessages: Record<string, string> = {
   "system.openInBrowser": "浏览器中打开",
