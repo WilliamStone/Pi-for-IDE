@@ -8,8 +8,9 @@ pi-web 本身仍是独立可运行的 Web 应用，本扩展只是把它"搬进"
 
 ## 核心功能
 
-### 1. 自包含的 Web 面板
-- pi-web 的 standalone 产物随扩展一同打包，**无需全局安装** `pi-web`，扩展自动拉起本地服务器并以 iframe 渲染。
+### 1. Web 面板（pi-web 外置）
+- pi-web 服务器**不内置**：扩展按 `executablePath` → 内置 `resources/` → 全局 npm 包（`piWeb.package`，默认 `pi-code-web`）→ `npx` 顺序解析并拉起本地服务器，以 iframe 渲染。pi-web 因此可独立于扩展升级。
+- 启动后扩展探测 `GET /api/embed` 校验所连的是打过 IDE 集成补丁的版本，连到原版上游包会给出警告而非静默失败。
 - 服务器默认监听 **3030** 端口（被占用时自动 +1 找空闲端口），面板顶部有「**在浏览器中打开**」按钮，一键在系统默认浏览器中打开 PI Code；面板标题栏和命令面板（`PI Code: 在浏览器中打开 PI Code`）也提供同一入口。
 - 会话浏览、Markdown 渲染、工具调用展示、分支导航、SSE 流式输出、i18n、主题——pi-web 的能力全部保留。
 
@@ -72,17 +73,19 @@ npm run compile      # tsc -p .   → out/
 npm run watch       # 监听模式
 ```
 
-打包 `.vsix`（会先把 pi-web standalone 产物复制到 `resources/pi-web/`）：
+打包 `.vsix`（纯扩展代码，不含 pi-web 服务器）：
 
 ```bash
 npm run package
 ```
 
+部署与初始化步骤见 [docs/vscode-extension-deploy.md](../docs/vscode-extension-deploy.md)。
+
 ## 运行（调试）
 
-1. 先在仓库根目录 `npm run build` 产出 pi-web 的 `.next/` 产物。
+1. 确保有可解析的 pi-web 入口（全局 `pi-code-web`，或 `piWeb.executablePath` 指向仓库 standalone 产物）。
 2. 在 `vscode-extension/` 目录 F5 启动调试，命令面板运行 **PI Code: 打开 PI Code**，或点击编辑器标题栏的 PI Code 图标。
-3. 扩展按需启动打包进扩展的 pi-web 服务器，无需全局安装。
+3. 扩展按解析顺序拉起外部 pi-web 服务器。
 
 ## 设置项
 
