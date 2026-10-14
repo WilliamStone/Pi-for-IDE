@@ -85,7 +85,12 @@
         "piWeb.executablePath": {
           "type": "string",
           "default": "",
-          "description": "PI Code 底层运行 pi-web（@agegr/pi-web）作为 Web 服务器。此处可指定 pi-web 可执行文件（bin/pi-web.js）的绝对路径；留空则自动从 PATH 或工作区中查找。"
+          "description": "pi-web 服务器入口的绝对路径：standalone 产物的 server.js，或发行包的 bin/pi-web.js。留空则按顺序自动解析：扩展内置 → 全局 npm 安装 → npx 兜底。"
+        },
+        "piWeb.package": {
+          "type": "string",
+          "default": "pi-code-web",
+          "description": "全局安装查询与 npx 兜底使用的 pi-web 发行包名（须为含 IDE 集成补丁的版本，而非原版 pi-web）。"
         },
         "piWeb.workspaceRoot": {
           "type": "string",

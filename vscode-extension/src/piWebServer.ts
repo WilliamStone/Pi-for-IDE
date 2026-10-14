@@ -5,22 +5,39 @@ import * as path from "path";
 import * as vscode from "vscode";
 
 /**
- * 管理 pi-web Next.js 服务器的生命周期（独立进程）。
+ * 管理 pi-web 服务器的生命周期（独立进程）。
  *
- * 为了让用户「安装扩展即用、无需全局安装 pi-web」，我们把 pi-web 的
- * `next build` 产出的 standalone 服务器（`.next/standalone`）连同精简后的
- * `node_modules` 和 `.next/static` 一起打包进扩展的
- * `resources/pi-web/`。启动时直接 `node resources/pi-web/server.js`，
- * 不再依赖 PATH 上的 `pi-web`。
+ * pi-web 不打包进扩展，按以下顺序解析一个外部服务器入口：
+ *   1. `piWeb.executablePath` 配置（standalone 的 server.js 或包的 bin/pi-web.js）
+ *   2. 扩展内置的 `resources/pi-web/server.js`（过渡期兼容；打包停止内置后自然消失）
+ *   3. `npm root -g` 下已全局安装的 `piWeb.package`（默认 pi-code-web）
+ *   4. `npx -y <piWeb.package>` 兜底（首次联网下载，之后走缓存）
  *
- * 服务器默认监听 `piWeb.port` 指定的端口（默认 3030）。启动前先从该端口
- * 开始探测一个空闲端口（被占用则 +1 继续），再以固定端口启动，方便用户在
- * 浏览器中直接访问。我们从 stdout 抓取 Next 打印的
- * `http://127.0.0.1:<port>` 作为解析后的 origin（兜底确认实际端口）。
+ * 两种 spawn 模式：standalone server.js 只认 PORT/HOSTNAME 环境变量；
+ * bin 脚本接受 --port/--hostname/--no-open 参数。两者都把监听地址打印到
+ * stdout，统一用正则解析得到 origin。
+ *
+ * 服务器就绪后探测 `GET /api/embed`：返回 embed 协议标记说明是打过补丁的
+ * pi-code web；404/异常说明接入了原版 pi-web（VSCode 集成功能不可用，提示
+ * 用户更换安装源）。
  */
 
 /** 默认起始端口：3030，被占用时自动 +1。 */
 export const DEFAULT_PORT = 3030;
+
+/**
+ * 默认查询/安装的 npm 包名（含 embed 桥补丁的 pi-web 发行包）。
+ * 可用 `piWeb.package` 配置覆盖；置空则跳过全局安装与 npx 兜底。
+ */
+const DEFAULT_PACKAGE = "pi-code-web";
+
+type SpawnTarget =
+  /** node <server.js>——standalone 产物，只认 PORT/HOSTNAME 环境变量。 */
+  | { mode: "script"; path: string }
+  /** node <bin/pi-web.js>——npm 包入口，接受 --port/--hostname/--no-open。 */
+  | { mode: "bin"; path: string }
+  /** npx -y <pkg>——兜底，首次运行联网下载。 */
+  | { mode: "npx"; pkg: string };
 
 /**
  * 探测从 startPort 开始的第一个空闲 TCP 端口（每次 +1，最多尝试 200 个）。
@@ -50,6 +67,24 @@ function findFreePort(startPort: number): Promise<number> {
     tryPort(startPort);
   });
 }
+
+/**
+ * 用 `npm root -g` 找全局 node_modules，返回其中 `<pkg>/bin/pi-web.js`
+ * 的绝对路径（不存在则 undefined）。npm 不在 PATH（如 nvm 未生效）时安静返回 undefined。
+ */
+function resolveGlobalPackageBin(pkg: string): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    cp.exec("npm root -g", { timeout: 10_000 }, (err, stdout) => {
+      if (err) {
+        resolve(undefined);
+        return;
+      }
+      const binPath = path.join(stdout.trim(), pkg, "bin", "pi-web.js");
+      resolve(existsSync(binPath) ? binPath : undefined);
+    });
+  });
+}
+
 export class PiWebServer {
   context: vscode.ExtensionContext;
   child?: cp.ChildProcess;
@@ -101,29 +136,69 @@ export class PiWebServer {
   // ------------------------------------------------------------------
   // 启动
   // ------------------------------------------------------------------
-  /** 定位并启动 pi-web standalone 服务器，返回解析后的 origin。 */
-  private startProcess(): Promise<string | undefined> {
-    const serverPath = this.resolveServerPath();
-    if (!serverPath) {
-      this.channel.appendLine("未找到 PI Code 服务器。扩展包可能损坏。");
-      void vscode.window.showErrorMessage("PI Code 找不到内置服务器（resources/pi-web/server.js），扩展包可能损坏，请重新安装。");
-      return Promise.resolve(undefined);
+  /** 解析并启动 pi-web 服务器，返回解析后的 origin。 */
+  private async startProcess(): Promise<string | undefined> {
+    const target = await this.resolveServerTarget();
+    if (!target) {
+      const pkg = this.packageName();
+      this.channel.appendLine("未找到可用的 pi-web 服务器。");
+      void vscode.window.showErrorMessage(
+        `PI Code 找不到 pi-web 服务器。请全局安装含 IDE 集成的发行包（npm i -g ${pkg}），或设置 piWeb.executablePath 指向其入口文件。`,
+      );
+      return undefined;
     }
-    this.channel.appendLine(`PI Code 服务器入口: ${serverPath}`);
-    return this.spawn(serverPath);
+    const origin = await this.spawn(target);
+    if (origin) await this.verifyEmbedSupport(origin);
+    return origin;
+  }
+
+  private packageName(): string {
+    const config = vscode.workspace.getConfiguration("piWeb");
+    return (config.get<string>("package") ?? DEFAULT_PACKAGE).trim() || DEFAULT_PACKAGE;
   }
 
   /**
-   * 解析 standalone 服务器入口路径。优先扩展内置的 `resources/pi-web/server.js`。
+   * 按优先级解析服务器入口：
+   *   executablePath → 内置 resources/pi-web/server.js → 全局 npm 包 → npx 兜底。
    */
-  private resolveServerPath(): string | undefined {
+  private async resolveServerTarget(): Promise<SpawnTarget | undefined> {
+    const config = vscode.workspace.getConfiguration("piWeb");
+
+    // 1) 显式配置：接受 standalone server.js 或包内 bin/pi-web.js。
+    const configured = config.get<string>("executablePath")?.trim();
+    if (configured) {
+      if (existsSync(configured)) {
+        const target: SpawnTarget = path.basename(configured) === "server.js"
+          ? { mode: "script", path: configured }
+          : { mode: "bin", path: configured };
+        this.channel.appendLine(`pi-web 入口（配置）: ${configured} [${target.mode}]`);
+        return target;
+      }
+      this.channel.appendLine(`piWeb.executablePath 不存在，忽略: ${configured}`);
+    }
+
+    // 2) 过渡期兼容：扩展内置的 standalone 产物（停止打包后该文件自然不存在）。
     const bundled = path.join(this.context.extensionPath, "resources", "pi-web", "server.js");
-    if (existsSync(bundled)) return bundled;
-    return undefined;
+    if (existsSync(bundled)) {
+      this.channel.appendLine(`pi-web 入口（内置）: ${bundled}`);
+      return { mode: "script", path: bundled };
+    }
+
+    // 3) 全局 npm 安装的发行包。
+    const pkg = this.packageName();
+    const globalBin = await resolveGlobalPackageBin(pkg);
+    if (globalBin) {
+      this.channel.appendLine(`pi-web 入口（全局安装）: ${globalBin}`);
+      return { mode: "bin", path: globalBin };
+    }
+
+    // 4) npx 兜底：首次运行会联网下载，之后走 npx 缓存。
+    this.channel.appendLine(`pi-web 入口（npx）: ${pkg}`);
+    return { mode: "npx", pkg };
   }
 
-  /** 探测空闲端口后启动 standalone 服务器，并等待 Next 打印的 URL。 */
-  private async spawn(serverPath: string): Promise<string | undefined> {
+  /** 探测空闲端口后按目标模式启动服务器，等待 stdout 打印的 URL。 */
+  private async spawn(target: SpawnTarget): Promise<string | undefined> {
     // 读取用户配置的起始端口（默认 3030），探测第一个空闲端口。
     const config = vscode.workspace.getConfiguration("piWeb");
     const preferred =
@@ -135,18 +210,46 @@ export class PiWebServer {
       `PI Code 端口探测：起始 ${preferred}，使用 ${port}${port === 0 ? "（OS 分配）" : ""}`,
     );
 
+    // 双轨参数：env 供 standalone server.js；args 供 bin/npx 模式。
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      PORT: String(port),
+      HOSTNAME: "127.0.0.1",
+      NODE_ENV: "production",
+      // bin 模式通过 PI_WEB_NO_OPEN 阻止 pi-web 自开浏览器（页面在扩展面板内）。
+      PI_WEB_NO_OPEN: "1",
+    };
+    const launchArgs = ["--port", String(port), "--hostname", "127.0.0.1", "--no-open"];
+
+    let command: string;
+    let args: string[];
+    let useShell = false;
+    switch (target.mode) {
+      case "script":
+        command = process.execPath;
+        args = [target.path];
+        break;
+      case "bin":
+        command = process.execPath;
+        args = [target.path, ...launchArgs];
+        break;
+      case "npx":
+        command = "npx";
+        args = ["-y", target.pkg, ...launchArgs];
+        // Windows 上 npx 是 .cmd shim，必须经 shell 启动。
+        useShell = process.platform === "win32";
+        this.channel.appendLine(`首次经 npx 启动需联网下载 ${target.pkg}，可能较慢。`);
+        break;
+    }
+
+    // npx 首次下载可能远超 30s，给更长超时。
+    const readyTimeoutMs = target.mode === "npx" ? 180_000 : 30_000;
+
     return new Promise((resolve) => {
-      // 固定端口启动；若启动瞬间被抢占，Next 会打印实际地址或直接退出，
-      // 由下方的 stdout 解析 / exit 处理兜底。
-      const env: NodeJS.ProcessEnv = {
-        ...process.env,
-        PORT: String(port),
-        HOSTNAME: "127.0.0.1",
-        NODE_ENV: "production",
-      };
-      const child = cp.spawn(process.execPath, [serverPath], {
+      const child = cp.spawn(command, args, {
         env,
         stdio: ["ignore", "pipe", "pipe"],
+        shell: useShell,
       });
       this.child = child;
       const onLine = (line: string) => {
@@ -172,17 +275,42 @@ export class PiWebServer {
       child.stderr?.on("data", (chunk: Buffer) => {
         this.channel.appendLine(chunk.toString());
       });
+      child.on("error", (err) => {
+        this.channel.appendLine(`PI Code 进程启动失败：${err.message}`);
+        if (this.resolvedOrigin === undefined) resolve(undefined);
+      });
       child.on("exit", (code) => {
         this.channel.appendLine(`PI Code 进程退出，退出码 ${code}`);
         if (this.resolvedOrigin === undefined) resolve(undefined);
       });
-      // 硬超时：30 秒还没打印 URL 就放弃。
       setTimeout(() => {
         if (this.resolvedOrigin === undefined) {
-          this.channel.appendLine("PI Code 启动超时。");
+          this.channel.appendLine(`PI Code 启动超时（${readyTimeoutMs / 1000}s）。`);
           resolve(undefined);
         }
-      }, 30_000);
+      }, readyTimeoutMs);
     });
+  }
+
+  /**
+   * 探测服务器的 embed 协议支持（GET /api/embed）。返回 404/异常说明接入的
+   * 是原版 pi-web——VSCode 集成功能不可用，提示用户更换含补丁的发行包。
+   * 非阻断：页面仍可浏览会话。
+   */
+  private async verifyEmbedSupport(origin: string): Promise<void> {
+    try {
+      const res = await fetch(`${origin}/api/embed`, { signal: AbortSignal.timeout(3000) });
+      const data = (await res.json().catch(() => null)) as { embed?: { protocol?: number } } | null;
+      if (res.ok && data?.embed?.protocol) {
+        this.channel.appendLine(`embed 协议握手成功：protocol v${data.embed.protocol}`);
+        return;
+      }
+      throw new Error(`unexpected response: HTTP ${res.status}`);
+    } catch (e) {
+      this.channel.appendLine(`警告：/api/embed 探测失败（${String(e)}）——所连 pi-web 可能未包含 embed 桥补丁。`);
+      void vscode.window.showWarningMessage(
+        `PI Code：所连接的 pi-web 缺少 IDE 集成功能（疑似原版 pi-web）。请安装含补丁的发行包：npm i -g ${this.packageName()}。`,
+      );
+    }
   }
 }

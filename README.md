@@ -88,7 +88,8 @@ npm run package
 
 | 设置 | 说明 |
 |---|---|
-| `piWeb.executablePath` | pi-web 可执行文件（`bin/pi-web.js`）的绝对路径；留空则自动从 PATH 或工作区查找。打包进扩展的 standalone 产物优先使用。 |
+| `piWeb.executablePath` | pi-web 服务器入口绝对路径（standalone `server.js` 或发行包 `bin/pi-web.js`）；留空则按序解析：扩展内置 → 全局 npm 安装 → `npx` 兜底。 |
+| `piWeb.package` | 全局安装查询与 `npx` 兜底使用的发行包名（默认 `pi-code-web`，须含 IDE 集成补丁）。 |
 | `piWeb.workspaceRoot` | 传给 pi-web 会话的项目目录（`cwd`）；留空则用当前工作区文件夹。 |
 | `piWeb.openBeside` | 是否将 PI Code 面板打开在右侧相邻分栏（默认 true）。 |
 | `piWeb.port` | PI Code 服务器起始端口（默认 3030）；被占用时自动 +1 查找空闲端口。 |
