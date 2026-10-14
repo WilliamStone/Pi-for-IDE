@@ -1488,7 +1488,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 <div className="new-session-brand-text">
                   <span className="new-session-brand-name">{appDisplayName()}</span>
                   <span className="new-session-meta">
-                    <span>web v{process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}</span>
+                    <span>web for IDE v{process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}</span>
                     <NewSessionUpdateLink label={(version) => t("appUpdate.releaseNotes", { version })} />
                     <span aria-hidden="true">·</span>
                     <span className="new-session-meta-pi">pi v{process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}</span>
