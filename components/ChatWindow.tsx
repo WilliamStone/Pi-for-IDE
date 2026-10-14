@@ -18,6 +18,7 @@ import { MarkdownBody } from "./MarkdownBody";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { TurnFileReview } from "./embed/TurnFileReview";
 import { useTurnRevert } from "./embed/useTurnRevert";
+import { appDisplayName } from "@/lib/brand";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { AnsiText } from "./AnsiText";
@@ -1485,7 +1486,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
               <div className="new-session-brand">
                 <Image src="/icons/apple-touch-icon.png" width={40} height={40} alt="" priority className="new-session-logo" />
                 <div className="new-session-brand-text">
-                  <span className="new-session-brand-name">PI Code</span>
+                  <span className="new-session-brand-name">{appDisplayName()}</span>
                   <span className="new-session-meta">
                     <span>web v{process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}</span>
                     <NewSessionUpdateLink label={(version) => t("appUpdate.releaseNotes", { version })} />

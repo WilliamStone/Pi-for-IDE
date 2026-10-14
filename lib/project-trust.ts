@@ -134,14 +134,14 @@ export function trustProject(cwd: string, agentDir: string): ProjectTrustStatus 
  * repository's `.pi/extensions`, project `.pi/settings.json` extension
  * entries, and `.agents/skills` — behind the SDK's project-trust store.
  *
- * PI Code *executes* project extensions when it builds session services: their
+ * Pi Web+ *executes* project extensions when it builds session services: their
  * factory runs on import and their `session_start` handlers run on startup.
- * Without a trust gate, merely opening an untrusted repository in PI Code runs
+ * Without a trust gate, merely opening an untrusted repository in Pi Web+ runs
  * repository-controlled code locally (issue #236). The SDK's resource loader
  * only imports project extensions once `resolveProjectTrust` resolves true, so
  * denying trust keeps them dormant.
  *
- * PI Code and the `pi` CLI share the same trust store. Projects with gated
+ * Pi Web+ and the `pi` CLI share the same trust store. Projects with gated
  * resources default to untrusted until either client records a trust decision.
  * Returns `undefined` when the project has no trust-requiring resources,
  * leaving ordinary projects on their existing load path.

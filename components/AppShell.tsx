@@ -55,6 +55,7 @@ import {
   workspaceKeyOf,
 } from "@/lib/workspace-memory";
 import { isEmbedMode, notifyEmbedHost, installGlobalClipboardInterceptor } from "@/lib/embed/bridge";
+import { appDisplayName } from "@/lib/brand";
 import { OpenInBrowserButton } from "./embed/OpenInBrowserButton";
 import { useMentionNotification } from "./embed/useMentionNotification";
 import {
@@ -1401,7 +1402,7 @@ export function AppShell() {
   // Subagent work tabs: like files, only the active one is mounted.
   const activeAgentTab = agentTabs.find((tab) => `agent:${tab.sessionId}` === activeFileTabId) ?? null;
   const activeCwdName = activeCwd ? getFileName(activeCwd) || activeCwd : null;
-  const windowTitle = activeCwdName ? `${activeCwdName} - PI Code` : "PI Code";
+  const windowTitle = activeCwdName ? `${activeCwdName} - ${appDisplayName()}` : appDisplayName();
 
   useEffect(() => {
     const syncWindowTitle = () => {

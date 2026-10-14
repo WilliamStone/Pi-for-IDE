@@ -22,7 +22,7 @@ function isNodeVersionSupported(version) {
 
 function getUnsupportedNodeVersionMessage(version) {
   return [
-    `PI Code requires Node.js ${MIN_NODE_VERSION} or newer.`,
+    `Pi Web+ requires Node.js ${MIN_NODE_VERSION} or newer.`,
     `Current Node.js version: ${version}.`,
     "Upgrade Node.js and try again: https://nodejs.org/",
   ].join("\n");

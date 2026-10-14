@@ -1,4 +1,4 @@
-# PI Code VSCode 扩展 — 安装与初始化部署
+# pi for IDE VSCode 扩展 — 安装与初始化部署
 
 > 面向手工测试的操作清单。架构背景见 `decoupling-plan.md`。
 > 本文步骤在当前仓库 `S:\DevSpace\AI\Agents\pi-code` 已验证（Windows 11）。
@@ -84,7 +84,7 @@ code --install-extension .\pi-for-ide-0.1.0.vsix
 ## 四、首次启动与初始化
 
 1. VSCode 打开目标项目工作区。
-2. 命令面板 → **PI Code: 打开 PI Code**（或编辑器标题栏的 PI Code 图标）。
+2. 命令面板 → **pi for IDE: 打开 pi for IDE**（或编辑器标题栏的 pi for IDE 图标）。
 3. 扩展按上述顺序拉起 pi-web 子进程，打印 `pi-web ready: http://127.0.0.1:3030`，然后探测 `/api/embed` 通过后渲染 iframe。
 4. **模型/API Key**：pi-web 的设置面板内完成（OAuth 登录或 API Key 管理），数据落在 `~/.pi/agent/models.json`——与 pi CLI 共享同一份配置；也可用环境变量（如 `ANTHROPIC_API_KEY`）。
 5. **工作目录**：新会话的 cwd 取 `piIde.workspaceRoot` ?? 当前工作区根目录。
@@ -96,7 +96,7 @@ code --install-extension .\pi-for-ide-0.1.0.vsix
 | embed 桥 | 打开面板 | 无文件树/文件面板 UI（宿主接管）；顶部有「在浏览器中打开」按钮 |
 | `/api/embed` | `curl http://127.0.0.1:<port>/api/embed` | `{"embed":{"protocol":1}}` |
 | @ 补全 | 输入框打 `@` | 候选来自 VSCode `workspace.findFiles`（≤50 条，含行号） |
-| 右键提及 | 编辑器/资源管理器右键 → 在 PI Code 中提及 | 输入框注入 `@文件` 或带行号引用 |
+| 右键提及 | 编辑器/资源管理器右键 → 在 pi for IDE 中提及 | 输入框注入 `@文件` 或带行号引用 |
 | 活动文件注入 | VSCode 里打开某文件后发消息 | 输入框下方提示「当前打开：xxx」；AI 优先改该文件 |
 | 剪贴板 | 复制消息文本 / 粘贴进输入框 | 跨源 iframe 下正常（走 `vscode.env.clipboard`） |
 | 文件审查 | 让 AI 改文件 | 该轮末尾出现审查卡片，inline diff 可展开 |
@@ -108,4 +108,4 @@ code --install-extension .\pi-for-ide-0.1.0.vsix
 - **启动后警告「未包含 embed 桥补丁」**：连到原版 pi-web——检查 `piIde.package` 名是否仍是 `pi-web-for-ide`，或全局装的是旧 tarball（重新 `npm pack` + `npm i -g`）。
 - **端口被占**：`piIde.port` 会自动 +1 探测；也可 `pi-web status` 查看现有服务 / `pi-web stop` 停掉。
 - **更新 SDK**：`pi-web update-sdk <version>`（服务须先停）；`pi-web update` 升级 pi-web-for-ide 本体。
-- **看日志**：输出面板 → 扩展的 PI Code 通道记录了 spawn 命令、端口与探测结果。
+- **看日志**：输出面板 → 扩展的 pi for IDE 通道记录了 spawn 命令、端口与探测结果。

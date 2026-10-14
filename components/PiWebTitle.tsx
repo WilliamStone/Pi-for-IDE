@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
+import { appDisplayName } from "@/lib/brand";
 
 /**
  * The sidebar's brand with the files below the sessions (its toolbar row,
@@ -11,7 +12,6 @@ import { useI18n } from "@/hooks/useI18n";
  * VERSION_SHOWN_MS, or at once on a second click.
  */
 
-export const BRAND_TEXT = "PI Code";
 /** How long the versions stay, counted from the click that showed them. */
 export const VERSION_SHOWN_MS = 3000;
 /** The text settles left to right over its length times this many frames. */
@@ -89,7 +89,7 @@ export function PiWebTitle({ onWidthChange }: {
   const revertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const appVersion = process.env.NEXT_PUBLIC_APP_VERSION;
   const piVersion = process.env.NEXT_PUBLIC_PI_VERSION;
-  const text = useScramble(versionShown ? brandVersionText(appVersion, piVersion) : BRAND_TEXT);
+  const text = useScramble(versionShown ? brandVersionText(appVersion, piVersion) : appDisplayName());
 
   useLayoutEffect(() => {
     onWidthChange?.();

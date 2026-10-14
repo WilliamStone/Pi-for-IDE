@@ -19006,7 +19006,7 @@ index 0000000..0743886
 +module.exports = { runUpdateSdk };
 diff --git a/bin/pi-web-update.js b/bin/pi-web-update.js
 new file mode 100644
-index 0000000..76f8372
+index 0000000..63c790b
 --- /dev/null
 +++ b/bin/pi-web-update.js
 @@ -0,0 +1,159 @@
@@ -19021,7 +19021,7 @@ index 0000000..76f8372
 +
 +const FETCH_TIMEOUT_MS = 10_000;
 +
-+// 包名从 package.json 读——fork 发行包（如 pi-code-web）与上游共用此逻辑。
++// 包名从 package.json 读——fork 发行包（如 pi-web-for-ide）与上游共用此逻辑。
 +function getPackageName(pkgDir = path.join(__dirname, "..")) {
 +  // eslint-disable-next-line @typescript-eslint/no-require-imports
 +  return require(path.join(pkgDir, "package.json")).name;
