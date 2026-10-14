@@ -181,7 +181,7 @@
     "watch": "tsc -watch -p ./",
     "lint": "eslint src --ext ts",
     "package:pi-web": "node scripts/package-pi-web.js",
-    "package": "npm run package:pi-web && vsce package --no-yarn --no-dependencies --skip-license"
+    "package": "vsce package --no-yarn --no-dependencies --skip-license"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
