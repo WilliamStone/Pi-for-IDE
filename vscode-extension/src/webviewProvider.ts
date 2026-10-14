@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import type { PiWebServer } from "./piWebServer";
+import type { PiIdeServer } from "./piIdeServer";
 import type { Bridge } from "./bridge";
 
 /**
@@ -30,8 +30,8 @@ export class PiWebWebviewPanel extends vscode.Disposable {
 
   constructor(
     private readonly extensionUri: vscode.Uri,
-    private readonly getServer: () => Promise<PiWebServer | undefined>,
-    private readonly ensureServer: () => Promise<PiWebServer | undefined>,
+    private readonly getServer: () => Promise<PiIdeServer | undefined>,
+    private readonly ensureServer: () => Promise<PiIdeServer | undefined>,
     private readonly bridge: Bridge,
   ) {
     super(() => this.dispose());
@@ -53,8 +53,8 @@ export class PiWebWebviewPanel extends vscode.Disposable {
 
     if (!this.panel) {
       this.panel = vscode.window.createWebviewPanel(
-        "piWeb.webview",
-        "PI Code",
+        "piIde.webview",
+        "pi for IDE",
         viewColumn,
         {
           enableScripts: true,
@@ -125,7 +125,7 @@ export class PiWebWebviewPanel extends vscode.Disposable {
   }, viewColumn?: vscode.ViewColumn): Promise<void> {
     // 若面板还没创建，先 reveal 一个（带 cwd）。这里 cwd 传空字符串走默认流程。
     if (!this.panel) {
-      return; // reveal 由 piWeb.open 命令负责，这里仅推送。
+      return; // reveal 由 piIde.open 命令负责，这里仅推送。
     }
     this.panel.webview.postMessage({
       source: "host",
@@ -166,16 +166,16 @@ export class PiWebWebviewPanel extends vscode.Disposable {
     let server = await this.getServer();
     if (!server) {
       // Try to start it now (covers the case where the user opened the panel
-      // before piWeb.start finished).
+      // before piIde.start finished).
       server = await this.ensureServer();
     }
 
-    const title = this.currentCwd ? `PI Code — ${shortPath(this.currentCwd)}` : "PI Code";
+    const title = this.currentCwd ? `pi for IDE — ${shortPath(this.currentCwd)}` : "pi for IDE";
     this.panel.title = title;
 
     if (!server) {
       this.panel.webview.html = this.renderError(
-        "PI Code 服务器启动失败。详情请见输出面板（查看 → 输出 → PI Code）。",
+        "pi for IDE 服务器启动失败。详情请见输出面板（查看 → 输出 → pi for IDE）。",
       );
       return;
     }
@@ -197,14 +197,14 @@ export class PiWebWebviewPanel extends vscode.Disposable {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>PI Code</title>
+  <title>pi for IDE</title>
   <style>
     html, body { margin: 0; padding: 0; height: 100%; background: #1a1a1a; }
     iframe { width: 100%; height: 100%; border: 0; display: block; }
   </style>
 </head>
 <body>
-  <iframe id="pi-web-frame" src="${piWebUrl}" title="PI Code"></iframe>
+  <iframe id="pi-web-frame" src="${piWebUrl}" title="pi for IDE"></iframe>
   <script>
     (function () {
       const vscode = acquireVsCodeApi();
@@ -232,7 +232,7 @@ export class PiWebWebviewPanel extends vscode.Disposable {
   private renderError(message: string): string {
     return /* html */ `<!DOCTYPE html>
 <html><body style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; color: #e8e8e8; background: #1a1a1a; padding: 24px;">
-<h2 style="color:#f87171;">PI Code</h2>
+<h2 style="color:#f87171;">pi for IDE</h2>
 <p>${message}</p>
 </body></html>`;
   }

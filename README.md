@@ -10,13 +10,13 @@ pi-web 本身仍是独立可运行的 Web 应用，本扩展只是把它"搬进"
 
 ### 1. 自包含的 Web 面板
 - pi-web 的 standalone 产物随扩展一同打包，**无需全局安装** `pi-web`，扩展自动拉起本地服务器并以 iframe 渲染。
-- 服务器默认监听 **3030** 端口（被占用时自动 +1 找空闲端口），面板顶部有「**在浏览器中打开**」按钮，一键在系统默认浏览器中打开 PI Code；面板标题栏和命令面板（`PI Code: 在浏览器中打开 PI Code`）也提供同一入口。
+- 服务器默认监听 **3030** 端口（被占用时自动 +1 找空闲端口），面板顶部有「**在浏览器中打开**」按钮，一键在系统默认浏览器中打开 PI Code；面板标题栏和命令面板（`pi for IDE: 在浏览器中打开 pi for IDE`）也提供同一入口。
 - 会话浏览、Markdown 渲染、工具调用展示、分支导航、SSE 流式输出、i18n、主题——pi-web 的能力全部保留。
 
 ### 2. VSCode 工作区集成
 - **文件浏览交还 VSCode**：pi-web 原生的文件树 / 预览面板 / Tab 栏 / worktree 切换器在 VSCode 模式下隐藏，由 VSCode 资源管理器与编辑器组承接。
 - **`@` 文件提及**：输入框内的 `@` 补全通过 `vscode.workspace.findFiles` 落到 VSCode API，结果上限 50 条，只含行号不含代码内容。
-- **右键提及**：编辑器 / 资源管理器右键菜单提供「在 PI Code 中提及此文件 / 此代码」。
+- **右键提及**：编辑器 / 资源管理器右键菜单提供「在 pi for IDE 中提及此文件 / 此代码」。
 - **剪贴板桥接**：跨源 iframe 中 `navigator.clipboard` 受权限策略限制，复制 / 粘贴改走 `vscode.env.clipboard`，并对非输入框文字复制做了全局拦截。
 
 ### 3. 深色主题 + 中文界面
@@ -81,18 +81,18 @@ npm run package
 ## 运行（调试）
 
 1. 先在仓库根目录 `npm run build` 产出 pi-web 的 `.next/` 产物。
-2. 在 `vscode-extension/` 目录 F5 启动调试，命令面板运行 **PI Code: 打开 PI Code**，或点击编辑器标题栏的 PI Code 图标。
+2. 在 `vscode-extension/` 目录 F5 启动调试，命令面板运行 **pi for IDE: 打开 pi for IDE**，或点击编辑器标题栏的 pi for IDE 图标。
 3. 扩展按需启动打包进扩展的 pi-web 服务器，无需全局安装。
 
 ## 设置项
 
 | 设置 | 说明 |
 |---|---|
-| `piWeb.executablePath` | pi-web 服务器入口绝对路径（standalone `server.js` 或发行包 `bin/pi-web.js`）；留空则按序解析：扩展内置 → 全局 npm 安装 → `npx` 兜底。 |
-| `piWeb.package` | 全局安装查询与 `npx` 兜底使用的发行包名（默认 `pi-code-web`，须含 IDE 集成补丁）。 |
-| `piWeb.workspaceRoot` | 传给 pi-web 会话的项目目录（`cwd`）；留空则用当前工作区文件夹。 |
-| `piWeb.openBeside` | 是否将 PI Code 面板打开在右侧相邻分栏（默认 true）。 |
-| `piWeb.port` | PI Code 服务器起始端口（默认 3030）；被占用时自动 +1 查找空闲端口。 |
+| `piIde.executablePath` | pi-web 服务器入口绝对路径（standalone `server.js` 或发行包 `bin/pi-web.js`）；留空则按序解析：扩展内置 → 全局 npm 安装 → `npx` 兜底。 |
+| `piIde.package` | 全局安装查询与 `npx` 兜底使用的发行包名（默认 `pi-web-for-ide`，须含 IDE 集成补丁）。 |
+| `piIde.workspaceRoot` | 传给 pi-web 会话的项目目录（`cwd`）；留空则用当前工作区文件夹。 |
+| `piIde.openBeside` | 是否将 PI Code 面板打开在右侧相邻分栏（默认 true）。 |
+| `piIde.port` | PI Code 服务器起始端口（默认 3030）；被占用时自动 +1 查找空闲端口。 |
 
 ## 限制
 

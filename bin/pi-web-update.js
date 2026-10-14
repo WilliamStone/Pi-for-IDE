@@ -9,7 +9,7 @@ const path = require("path");
 
 const FETCH_TIMEOUT_MS = 10_000;
 
-// 包名从 package.json 读——fork 发行包（如 pi-code-web）与上游共用此逻辑。
+// 包名从 package.json 读——fork 发行包（如 pi-web-for-ide）与上游共用此逻辑。
 function getPackageName(pkgDir = path.join(__dirname, "..")) {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   return require(path.join(pkgDir, "package.json")).name;

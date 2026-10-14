@@ -11,7 +11,7 @@
 | npm | 随 Node 自带 |
 | VSCode | ≥ 1.85（webview iframe + clipboard API） |
 
-## 一、安装外部 pi-code-web（必需）
+## 一、安装外部 pi-web-for-ide（必需）
 
 扩展自身不再内置 pi-web 服务器，首次使用前必须把发行包装到本机。三种方式**任选其一**，按推荐度排序：
 
@@ -19,9 +19,9 @@
 
 ```bash
 # 在仓库根目录：构建 + 打包（prepack 自动产出 standalone 自包含树，约 2-3 分钟）
-npm pack                    # → pi-code-web-0.12.1.tgz（约 46MB）
+npm pack                    # → pi-web-for-ide-0.12.1.tgz（约 46MB）
 
-npm i -g ./pi-code-web-0.12.1.tgz
+npm i -g ./pi-web-for-ide-0.12.1.tgz
 ```
 
 验证：
@@ -38,19 +38,19 @@ pi-web stop                              # 停掉测试服务器
 
 > npm 可能提示 `allow-scripts` 警告（postinstall / node-pty 等）。这些是
 > 终端功能与遥测的 install 脚本，被拦不影响 embed/会话等核心功能；
-> 需要内置终端面板时执行 `npm approve-scripts pi-code-web` 再重装。
+> 需要内置终端面板时执行 `npm approve-scripts pi-web-for-ide` 再重装。
 
 ### 方式 B：直接指定入口路径
 
 不装包，指到仓库构建产物或解压目录：
 
-- 设置 `piWeb.executablePath` = `<pkg>/.next/standalone/server.js`
+- 设置 `piIde.executablePath` = `<pkg>/.next/standalone/server.js`
   （`PI_WEB_STANDALONE=1 npm run build` 产出的 standalone server）
 - 或 = `<pkg>/bin/pi-web.js`（任何含补丁的 pi-web 发行/仓库入口）
 
 ### 方式 C：npx 兜底（需已发布到 npm 后才有意义）
 
-什么都不装时扩展会尝试 `npx -y pi-code-web`——当前包未发布，**本地测试阶段不可用**，忽略。
+什么都不装时扩展会尝试 `npx -y pi-web-for-ide`——当前包未发布，**本地测试阶段不可用**，忽略。
 
 ## 二、构建并安装扩展
 
@@ -58,13 +58,13 @@ pi-web stop                              # 停掉测试服务器
 cd vscode-extension
 npm install          # 首次
 npm run compile      # tsc -p . → out/
-npm run package      # → pi-code-agent-0.1.0.vsix（约 189KB）
+npm run package      # → pi-for-ide-0.1.0.vsix（约 189KB）
 ```
 
 安装（命令面板 → `Extensions: Install from VSIX…`，或）：
 
 ```powershell
-code --install-extension .\pi-code-agent-0.1.0.vsix
+code --install-extension .\pi-for-ide-0.1.0.vsix
 ```
 
 ## 三、设置项（全部有默认值，零配置可用）
@@ -73,11 +73,11 @@ code --install-extension .\pi-code-agent-0.1.0.vsix
 
 | 设置 | 默认 | 何时需要改 |
 |---|---|---|
-| `piWeb.package` | `pi-code-web` | 发行包改名时 |
-| `piWeb.executablePath` | 空（自动解析） | 不用全局安装、想指向仓库构建产物时 |
-| `piWeb.workspaceRoot` | 空（当前工作区） | 想让会话跑在别的目录时 |
-| `piWeb.port` | `3030` | 端口冲突时（占用了会自动 +1） |
-| `piWeb.openBeside` | `true` | 想开在当前栏时设 false |
+| `piIde.package` | `pi-web-for-ide` | 发行包改名时 |
+| `piIde.executablePath` | 空（自动解析） | 不用全局安装、想指向仓库构建产物时 |
+| `piIde.workspaceRoot` | 空（当前工作区） | 想让会话跑在别的目录时 |
+| `piIde.port` | `3030` | 端口冲突时（占用了会自动 +1） |
+| `piIde.openBeside` | `true` | 想开在当前栏时设 false |
 
 服务器解析顺序：`executablePath` → 内置 `resources/pi-web`（本版已摘除）→ `npm root -g`/`PATH` 的全局包 → `npx` 兜底。解析失败会列出依次尝试过什么。
 
@@ -87,7 +87,7 @@ code --install-extension .\pi-code-agent-0.1.0.vsix
 2. 命令面板 → **PI Code: 打开 PI Code**（或编辑器标题栏的 PI Code 图标）。
 3. 扩展按上述顺序拉起 pi-web 子进程，打印 `pi-web ready: http://127.0.0.1:3030`，然后探测 `/api/embed` 通过后渲染 iframe。
 4. **模型/API Key**：pi-web 的设置面板内完成（OAuth 登录或 API Key 管理），数据落在 `~/.pi/agent/models.json`——与 pi CLI 共享同一份配置；也可用环境变量（如 `ANTHROPIC_API_KEY`）。
-5. **工作目录**：新会话的 cwd 取 `piWeb.workspaceRoot` ?? 当前工作区根目录。
+5. **工作目录**：新会话的 cwd 取 `piIde.workspaceRoot` ?? 当前工作区根目录。
 
 ## 五、功能验证清单（实测点）
 
@@ -104,8 +104,8 @@ code --install-extension .\pi-code-agent-0.1.0.vsix
 
 ## 六、排障
 
-- **面板报「未找到 pi-web 服务器」**：按第四节解析顺序排查——`npm root -g` 下是否有 `pi-code-web`；`pi-web --version` 在 VSCode 同一环境是否能跑（PATH 差异时用 `executablePath` 兜底）。
-- **启动后警告「未包含 embed 桥补丁」**：连到原版 pi-web——检查 `piWeb.package` 名是否仍是 `pi-code-web`，或全局装的是旧 tarball（重新 `npm pack` + `npm i -g`）。
-- **端口被占**：`piWeb.port` 会自动 +1 探测；也可 `pi-web status` 查看现有服务 / `pi-web stop` 停掉。
-- **更新 SDK**：`pi-web update-sdk <version>`（服务须先停）；`pi-web update` 升级 pi-code-web 本体。
+- **面板报「未找到 pi-web 服务器」**：按第四节解析顺序排查——`npm root -g` 下是否有 `pi-web-for-ide`；`pi-web --version` 在 VSCode 同一环境是否能跑（PATH 差异时用 `executablePath` 兜底）。
+- **启动后警告「未包含 embed 桥补丁」**：连到原版 pi-web——检查 `piIde.package` 名是否仍是 `pi-web-for-ide`，或全局装的是旧 tarball（重新 `npm pack` + `npm i -g`）。
+- **端口被占**：`piIde.port` 会自动 +1 探测；也可 `pi-web status` 查看现有服务 / `pi-web stop` 停掉。
+- **更新 SDK**：`pi-web update-sdk <version>`（服务须先停）；`pi-web update` 升级 pi-web-for-ide 本体。
 - **看日志**：输出面板 → 扩展的 PI Code 通道记录了 spawn 命令、端口与探测结果。

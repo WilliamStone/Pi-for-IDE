@@ -8,10 +8,10 @@ import * as vscode from "vscode";
  * 管理 pi-web 服务器的生命周期（独立进程）。
  *
  * pi-web 不打包进扩展，按以下顺序解析一个外部服务器入口：
- *   1. `piWeb.executablePath` 配置（standalone 的 server.js 或包的 bin/pi-web.js）
+ *   1. `piIde.executablePath` 配置（standalone 的 server.js 或包的 bin/pi-web.js）
  *   2. 扩展内置的 `resources/pi-web/server.js`（过渡期兼容；打包停止内置后自然消失）
- *   3. `npm root -g` 下已全局安装的 `piWeb.package`（默认 pi-code-web）
- *   4. `npx -y <piWeb.package>` 兜底（首次联网下载，之后走缓存）
+ *   3. `npm root -g` 下已全局安装的 `piIde.package`（默认 pi-web-for-ide）
+ *   4. `npx -y <piIde.package>` 兜底（首次联网下载，之后走缓存）
  *
  * 两种 spawn 模式：standalone server.js 只认 PORT/HOSTNAME 环境变量；
  * bin 脚本接受 --port/--hostname/--no-open 参数。两者都把监听地址打印到
@@ -27,9 +27,9 @@ export const DEFAULT_PORT = 3030;
 
 /**
  * 默认查询/安装的 npm 包名（含 embed 桥补丁的 pi-web 发行包）。
- * 可用 `piWeb.package` 配置覆盖；置空则跳过全局安装与 npx 兜底。
+ * 可用 `piIde.package` 配置覆盖；置空则跳过全局安装与 npx 兜底。
  */
-const DEFAULT_PACKAGE = "pi-code-web";
+const DEFAULT_PACKAGE = "pi-web-for-ide";
 
 type SpawnTarget =
   /** node <server.js>——standalone 产物，只认 PORT/HOSTNAME 环境变量。 */
@@ -85,7 +85,7 @@ function resolveGlobalPackageBin(pkg: string): Promise<string | undefined> {
   });
 }
 
-export class PiWebServer {
+export class PiIdeServer {
   context: vscode.ExtensionContext;
   child?: cp.ChildProcess;
   ready: Promise<string | undefined>;
@@ -93,17 +93,17 @@ export class PiWebServer {
   channel: vscode.OutputChannel;
   disposed = false;
 
-  static ensureStarted(context: vscode.ExtensionContext): Promise<PiWebServer | undefined> {
-    const existing = (globalThis as Record<string, unknown>).__piWebServer as PiWebServer | undefined;
+  static ensureStarted(context: vscode.ExtensionContext): Promise<PiIdeServer | undefined> {
+    const existing = (globalThis as Record<string, unknown>).__piIdeServer as PiIdeServer | undefined;
     if (existing) return Promise.resolve(existing);
-    const server = new PiWebServer(context);
-    (globalThis as Record<string, unknown>).__piWebServer = server;
+    const server = new PiIdeServer(context);
+    (globalThis as Record<string, unknown>).__piIdeServer = server;
     return server.start();
   }
 
   constructor(context: vscode.ExtensionContext) {
     this.context = context;
-    this.channel = vscode.window.createOutputChannel("PI Code");
+    this.channel = vscode.window.createOutputChannel("pi for IDE");
     this.context.subscriptions.push(this.channel);
     this.ready = this.startProcess();
     this.ready.then((origin) => {
@@ -143,7 +143,7 @@ export class PiWebServer {
       const pkg = this.packageName();
       this.channel.appendLine("未找到可用的 pi-web 服务器。");
       void vscode.window.showErrorMessage(
-        `PI Code 找不到 pi-web 服务器。请全局安装含 IDE 集成的发行包（npm i -g ${pkg}），或设置 piWeb.executablePath 指向其入口文件。`,
+        `pi for IDE 找不到 pi-web 服务器。请全局安装含 IDE 集成的发行包（npm i -g ${pkg}），或设置 piIde.executablePath 指向其入口文件。`,
       );
       return undefined;
     }
@@ -153,7 +153,7 @@ export class PiWebServer {
   }
 
   private packageName(): string {
-    const config = vscode.workspace.getConfiguration("piWeb");
+    const config = vscode.workspace.getConfiguration("piIde");
     return (config.get<string>("package") ?? DEFAULT_PACKAGE).trim() || DEFAULT_PACKAGE;
   }
 
@@ -162,7 +162,7 @@ export class PiWebServer {
    *   executablePath → 内置 resources/pi-web/server.js → 全局 npm 包 → npx 兜底。
    */
   private async resolveServerTarget(): Promise<SpawnTarget | undefined> {
-    const config = vscode.workspace.getConfiguration("piWeb");
+    const config = vscode.workspace.getConfiguration("piIde");
 
     // 1) 显式配置：接受 standalone server.js 或包内 bin/pi-web.js。
     const configured = config.get<string>("executablePath")?.trim();
@@ -174,7 +174,7 @@ export class PiWebServer {
         this.channel.appendLine(`pi-web 入口（配置）: ${configured} [${target.mode}]`);
         return target;
       }
-      this.channel.appendLine(`piWeb.executablePath 不存在，忽略: ${configured}`);
+      this.channel.appendLine(`piIde.executablePath 不存在，忽略: ${configured}`);
     }
 
     // 2) 过渡期兼容：扩展内置的 standalone 产物（停止打包后该文件自然不存在）。
@@ -200,14 +200,14 @@ export class PiWebServer {
   /** 探测空闲端口后按目标模式启动服务器，等待 stdout 打印的 URL。 */
   private async spawn(target: SpawnTarget): Promise<string | undefined> {
     // 读取用户配置的起始端口（默认 3030），探测第一个空闲端口。
-    const config = vscode.workspace.getConfiguration("piWeb");
+    const config = vscode.workspace.getConfiguration("piIde");
     const preferred =
       typeof config.get<number>("port") === "number"
         ? config.get<number>("port", DEFAULT_PORT)
         : DEFAULT_PORT;
     const port = await findFreePort(Math.max(1, preferred || DEFAULT_PORT));
     this.channel.appendLine(
-      `PI Code 端口探测：起始 ${preferred}，使用 ${port}${port === 0 ? "（OS 分配）" : ""}`,
+      `pi for IDE 端口探测：起始 ${preferred}，使用 ${port}${port === 0 ? "（OS 分配）" : ""}`,
     );
 
     // 双轨参数：env 供 standalone server.js；args 供 bin/npx 模式。
@@ -276,16 +276,16 @@ export class PiWebServer {
         this.channel.appendLine(chunk.toString());
       });
       child.on("error", (err) => {
-        this.channel.appendLine(`PI Code 进程启动失败：${err.message}`);
+        this.channel.appendLine(`pi for IDE 进程启动失败：${err.message}`);
         if (this.resolvedOrigin === undefined) resolve(undefined);
       });
       child.on("exit", (code) => {
-        this.channel.appendLine(`PI Code 进程退出，退出码 ${code}`);
+        this.channel.appendLine(`pi for IDE 进程退出，退出码 ${code}`);
         if (this.resolvedOrigin === undefined) resolve(undefined);
       });
       setTimeout(() => {
         if (this.resolvedOrigin === undefined) {
-          this.channel.appendLine(`PI Code 启动超时（${readyTimeoutMs / 1000}s）。`);
+          this.channel.appendLine(`pi for IDE 启动超时（${readyTimeoutMs / 1000}s）。`);
           resolve(undefined);
         }
       }, readyTimeoutMs);
@@ -309,7 +309,7 @@ export class PiWebServer {
     } catch (e) {
       this.channel.appendLine(`警告：/api/embed 探测失败（${String(e)}）——所连 pi-web 可能未包含 embed 桥补丁。`);
       void vscode.window.showWarningMessage(
-        `PI Code：所连接的 pi-web 缺少 IDE 集成功能（疑似原版 pi-web）。请安装含补丁的发行包：npm i -g ${this.packageName()}。`,
+        `pi for IDE：所连接的 pi-web 缺少 IDE 集成功能（疑似原版 pi-web）。请安装含补丁的发行包：npm i -g ${this.packageName()}。`,
       );
     }
   }

@@ -97,7 +97,7 @@ scripts/apply-to.sh <dir> [patch]  → git apply --3way，失败回退 --reject 
 ## 执行步骤
 
 1. **delta 瘦身重构**：剥离改名噪音；嵌入侧代码收进 `lib/embed/`、`components/embed/`；协议去 vscode 化（`?embed=<host>`、能力握手）；上游文件插入点单行化。前进式提交在 `main` 上进行，不改写历史。
-2. **扩展侧改造**：`piWebServer.ts` 实现外部 pi-web 解析（`piWeb.executablePath` → PATH → `npm root -g` → `npx -y <pkg>` 兜底，自动下载保留"装扩展即用"体验）；能力检测端点；去掉 `package:pi-web` 打包步骤。
+2. **扩展侧改造**：`piWebServer.ts` 实现外部 pi-web 解析（`piIde.executablePath` → PATH → `npm root -g` → `npx -y <pkg>` 兜底，自动下载保留"装扩展即用"体验）；能力检测端点；去掉 `package:pi-web` 打包步骤。
 3. **同步上游**：`sync-upstream` 脚本落地，rebase 到最新 release 提交，回归测试。
 4. **发布形态**：本仓 pi-web 以独立包名发 npm（包名待定）；文档更新安装/升级说明。
 5. **可选**：上游化 PR；omp-web apply 通道验证。
@@ -105,7 +105,7 @@ scripts/apply-to.sh <dir> [patch]  → git apply --3way，失败回退 --reject 
 ## 决策记录
 
 - **pi 不外置**：pi 是 pi-web 进程内依赖，跟随 pi-web 版本；pi-web 高速更新期不做 SDK 外挂。已实现低档逃生口 `pi-web update-sdk <version>`（bin 子命令，standalone 形态下就地 `npm install --save-exact --omit=dev` 四个 `@earendil-works/pi-*` 并重新物化哈希目录）——机制可用，但跨版本升级仍可能需要 pi-web 侧 API 适配；RPC 子进程方案仍待上游架构变化再评估。
-- **发行形态**：npm 包（名 `pi-code-web`）打包的是 **standalone 自包含树**（`files: [".next/standalone"]`，`prepack` 跑 `scripts/prepare-standalone.js` 构建+组装）；bin 优先跑 `.next/standalone/**/server.js`（PORT/HOSTNAME env），仓库开发回退 `next start`。本地验证：`npm pack` → `npm i -g ./pi-code-web-*.tgz` 即可走通"全局安装"解析路径，无需发布。注意 Turbopack 的 `serverExternalPackages` 会在 `.next/node_modules/` 产出 `<pkg>-<hash>` **符号链接**，npm pack 不保链接——组装步骤已把链接物化为真实文件副本。
+- **发行形态**：npm 包（名 `pi-web-for-ide`）打包的是 **standalone 自包含树**（`files: [".next/standalone"]`，`prepack` 跑 `scripts/prepare-standalone.js` 构建+组装）；bin 优先跑 `.next/standalone/**/server.js`（PORT/HOSTNAME env），仓库开发回退 `next start`。本地验证：`npm pack` → `npm i -g ./pi-web-for-ide-*.tgz` 即可走通"全局安装"解析路径，无需发布。注意 Turbopack 的 `serverExternalPackages` 会在 `.next/node_modules/` 产出 `<pkg>-<hash>` **符号链接**，npm pack 不保链接——组装步骤已把链接物化为真实文件副本。
 - **不新增 GitHub fork**：单仓多 remote/branch 已覆盖全部需求，且保留 PR 通道。
 - **omp-web**：patch 可移植性保留该选项，仅提供 apply 机制，不主动维护兼容。
 - **上游化**：不作为当前目标；delta 按可上游化的标准设计（通用 embed 语义、无 vscode 硬编码），保留可能性。

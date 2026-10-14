@@ -1,33 +1,33 @@
 /**
- * PI Code VSCode 扩展 — 主入口。
+ * pi for IDE VSCode 扩展 — 主入口。
  *
- * PI Code 是 pi 编程智能体的独立 Next.js Web 界面。本扩展将这一 Web 界面托管
+ * pi for IDE 将 pi-web（pi 编程智能体的 Web 界面，本仓库发行 pi-web-for-ide）托管
  * 在 webview 内，并在后台启动一个本地 pi-web 服务器。除了文件浏览器之外，
  * 其余体验与原版一致：会话浏览、聊天、模型/技能/插件配置、i18n 均照常工作；
  * 打开文件、@ 补全等动作通过桥接转交给 VSCode 原生 API。
  *
  * 生命周期：
  *  - activate：预热 pi-web 服务器、注册视图/命令。
- *  - piWeb.start / piWeb.open：按需启动服务器，并在当前分栏或右侧（Beside）展示面板。
- *  - piWeb.stop：终止服务器。
+ *  - piIde.start / piIde.open：按需启动服务器，并在当前分栏或右侧（Beside）展示面板。
+ *  - piIde.stop：终止服务器。
  *  - webview.onDidReceiveMessage：把 openFile / completeAt / readFile / notify
  *    请求从页面转交回 VSCode API，并返回结果。
  *  - dispose：停止服务器并销毁 webview。
  */
 
 import * as vscode from "vscode";
-import { PiWebServer } from "./piWebServer";
+import { PiIdeServer } from "./piIdeServer";
 import { PiWebWebviewPanel } from "./webviewProvider";
 import { Bridge, clearActiveEditorCache, resolveActiveEditor } from "./bridge";
 
-let server: Promise<PiWebServer | undefined>;
+let server: Promise<PiIdeServer | undefined>;
 let provider: PiWebWebviewPanel | undefined;
 let bridge: Bridge;
 let bridgeChannel: vscode.OutputChannel;
 let statusBarItem: vscode.StatusBarItem;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  bridgeChannel = vscode.window.createOutputChannel("PI Code 桥接");
+  bridgeChannel = vscode.window.createOutputChannel("pi for IDE 桥接");
   context.subscriptions.push(bridgeChannel);
   bridge = new Bridge((line) => bridgeChannel.appendLine(line));
 
@@ -36,27 +36,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.StatusBarAlignment.Right,
     100,
   );
-  statusBarItem.text = "$(comment-discussion) PI Code";
-  statusBarItem.tooltip = "PI Code — 点击打开聊天面板";
-  statusBarItem.command = "piWeb.open";
+  statusBarItem.text = "$(comment-discussion) pi for IDE";
+  statusBarItem.tooltip = "pi for IDE — 点击打开聊天面板";
+  statusBarItem.command = "piIde.open";
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
 
   // 保持「服务器运行中」上下文键同步，以便显示「停止」按钮。
   const setRunningContext = (running: boolean) => {
-    vscode.commands.executeCommand("setContext", "piWeb.serverRunning", running);
+    vscode.commands.executeCommand("setContext", "piIde.serverRunning", running);
   };
   setRunningContext(false);
 
   // 懒启动服务器 — 仅在用户显式请求时启动。避免为只装了扩展但还没用的人
   // 白白 spawn 一个 Next.js 进程。
-  const ensureServer = (): Promise<PiWebServer | undefined> => {
-    server = PiWebServer.ensureStarted(context).then((s) => {
+  const ensureServer = (): Promise<PiIdeServer | undefined> => {
+    server = PiIdeServer.ensureStarted(context).then((s) => {
       setRunningContext(!!s);
       if (s) {
-        statusBarItem.text = "$(comment-discussion) PI Code";
+        statusBarItem.text = "$(comment-discussion) pi for IDE";
         statusBarItem.backgroundColor = undefined;
-        statusBarItem.tooltip = `PI Code — 运行中，地址 ${s.origin}`;
+        statusBarItem.tooltip = `pi for IDE — 运行中，地址 ${s.origin}`;
       }
       return s;
     }).catch((error) => {
@@ -81,21 +81,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // -------------------------------------------------------------------------
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("piWeb.start", async () => {
+    vscode.commands.registerCommand("piIde.start", async () => {
       const s = await ensureServer();
       if (s) {
-        vscode.window.showInformationMessage(`PI Code 服务器已启动，地址 ${s.origin}`);
+        vscode.window.showInformationMessage(`pi for IDE 服务器已启动，地址 ${s.origin}`);
       }
     }),
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("piWeb.stop", async () => {
+    vscode.commands.registerCommand("piIde.stop", async () => {
       const s = await server;
       if (s) {
         await s.stop();
         setRunningContext(false);
-        vscode.window.showInformationMessage("PI Code 服务器已停止。");
+        vscode.window.showInformationMessage("pi for IDE 服务器已停止。");
       }
     }),
   );
@@ -103,8 +103,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // 主入口 — 在状态栏和命令面板中可见。按需启动服务器，并在右侧
   // （Beside）展示面板。
   context.subscriptions.push(
-    vscode.commands.registerCommand("piWeb.open", async () => {
-      const config = vscode.workspace.getConfiguration("piWeb");
+    vscode.commands.registerCommand("piIde.open", async () => {
+      const config = vscode.workspace.getConfiguration("piIde");
       const openBeside = config.get<boolean>("openBeside", true);
       const viewColumn = openBeside
         ? vscode.ViewColumn.Beside
@@ -120,7 +120,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           canSelectFiles: false,
           canSelectFolders: true,
           canSelectMany: false,
-          title: "PI Code：选择项目目录",
+          title: "pi for IDE：选择项目目录",
         });
         if (!picked || picked.length === 0) return;
         cwd = picked[0].fsPath;
@@ -131,21 +131,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
   );
 
-  // `piWeb.reveal` 仅聚焦已存在的面板（不触碰服务器）。
+  // `piIde.reveal` 仅聚焦已存在的面板（不触碰服务器）。
   context.subscriptions.push(
-    vscode.commands.registerCommand("piWeb.reveal", () => {
+    vscode.commands.registerCommand("piIde.reveal", () => {
       provider!.focus();
     }),
   );
 
-  // 在系统默认浏览器中打开 PI Code（面板工具条按钮 / 命令面板 / 面板标题栏）。
+  // 在系统默认浏览器中打开 pi for IDE（面板工具条按钮 / 命令面板 / 面板标题栏）。
   context.subscriptions.push(
-    vscode.commands.registerCommand("piWeb.openInBrowser", async () => {
+    vscode.commands.registerCommand("piIde.openInBrowser", async () => {
       const s = await server;
       if (s?.resolvedOrigin) {
         await vscode.env.openExternal(vscode.Uri.parse(s.resolvedOrigin));
       } else {
-        vscode.window.showWarningMessage("PI Code 服务器尚未启动，无法在浏览器中打开。");
+        vscode.window.showWarningMessage("pi for IDE 服务器尚未启动，无法在浏览器中打开。");
       }
     }),
   );
@@ -166,7 +166,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   /**
    * 触发一次提及：确保服务器和面板就绪，再把 payload 推给页面。
-   * 面板未打开时会先按 piWeb.open 的同样流程打开一次。
+   * 面板未打开时会先按 piIde.open 的同样流程打开一次。
    */
   async function triggerMention(payload: {
     relativePath: string;
@@ -175,7 +175,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     selectedText?: string;
   }): Promise<void> {
     // 面板可能还没打开；先确保服务器就绪，再 reveal（用当前 cwd）。
-    const config = vscode.workspace.getConfiguration("piWeb");
+    const config = vscode.workspace.getConfiguration("piIde");
     const openBeside = config.get<boolean>("openBeside", true);
     const viewColumn = openBeside
       ? vscode.ViewColumn.Beside
@@ -191,10 +191,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // 资源管理器 / 编辑器标题栏右键单个文件 -> 提及文件
   context.subscriptions.push(
-    vscode.commands.registerCommand("piWeb.mentionFile", async (uri: vscode.Uri) => {
+    vscode.commands.registerCommand("piIde.mentionFile", async (uri: vscode.Uri) => {
       const relativePath = relativePathFor(uri);
       if (!relativePath) {
-        vscode.window.showWarningMessage("PI Code：无法获取该文件相对工作区的路径。");
+        vscode.window.showWarningMessage("pi for IDE：无法获取该文件相对工作区的路径。");
         return;
       }
       await triggerMention({ relativePath });
@@ -203,13 +203,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // 编辑器里选中文本后右键 -> 提及代码段
   context.subscriptions.push(
-    vscode.commands.registerCommand("piWeb.mentionSelection", async () => {
+    vscode.commands.registerCommand("piIde.mentionSelection", async () => {
       const editor = vscode.window.activeTextEditor;
       if (!editor) return;
       const uri = editor.document.uri;
       const relativePath = relativePathFor(uri);
       if (!relativePath) {
-        vscode.window.showWarningMessage("PI Code：无法获取该文件相对工作区的路径。");
+        vscode.window.showWarningMessage("pi for IDE：无法获取该文件相对工作区的路径。");
         return;
       }
       const selection = editor.selection;
