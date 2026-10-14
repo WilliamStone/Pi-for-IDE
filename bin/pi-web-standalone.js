@@ -55,12 +55,23 @@ function listExternalDirs(hashedRoot) {
   return out;
 }
 
-/** 把外部包哈希目录清单写入 standalone 根（供 postinstall 重建 junction）。 */
+/** 把外部包哈希目录清单写入 standalone 根（供 postinstall 重建 junction）。
+ *  目录可能已被前一次打包删除——与已有 manifest 取并集，防止重复
+ *  for-pack 组装把清单冲空。 */
 function writeExternalsManifest(serverDir, { log = console.log } = {}) {
   const hashedRoot = path.join(serverDir, ".next", "node_modules");
-  const entries = listExternalDirs(hashedRoot);
-  fs.writeFileSync(path.join(serverDir, EXTERNALS_MANIFEST), JSON.stringify(entries, null, 1));
-  log(`  externals manifest: ${entries.length} 项`);
+  const manifestPath = path.join(serverDir, EXTERNALS_MANIFEST);
+  const entries = new Set(listExternalDirs(hashedRoot));
+  if (fs.existsSync(manifestPath)) {
+    try {
+      for (const e of JSON.parse(fs.readFileSync(manifestPath, "utf8"))) entries.add(e);
+    } catch {
+      // manifest 损坏则以现扫描为准
+    }
+  }
+  const out = [...entries];
+  fs.writeFileSync(manifestPath, JSON.stringify(out, null, 1));
+  log(`  externals manifest: ${out.length} 项`);
 }
 
 function linkExternalsToTraced(serverDir, { log = console.log } = {}) {

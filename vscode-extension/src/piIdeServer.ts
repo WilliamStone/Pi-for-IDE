@@ -143,10 +143,16 @@ export class PiIdeServer {
 
   static ensureStarted(context: vscode.ExtensionContext): Promise<PiIdeServer | undefined> {
     const existing = (globalThis as Record<string, unknown>).__piIdeServer as PiIdeServer | undefined;
-    if (existing) return Promise.resolve(existing);
+    if (existing && !existing.disposed) return Promise.resolve(existing);
     const server = new PiIdeServer(context);
     (globalThis as Record<string, unknown>).__piIdeServer = server;
     return server.start();
+  }
+
+  /** 进程停止/退出后清掉全局单例引用，下次 ensureStarted 才能重拉新进程。 */
+  private clearGlobalIfSelf(): void {
+    const g = globalThis as Record<string, unknown>;
+    if (g.__piIdeServer === this) delete g.__piIdeServer;
   }
 
   constructor(context: vscode.ExtensionContext) {
@@ -172,6 +178,7 @@ export class PiIdeServer {
   async stop(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
+    this.clearGlobalIfSelf();
     if (this.child && this.child.exitCode === null) {
       try {
         this.child.kill("SIGTERM");
@@ -338,6 +345,9 @@ export class PiIdeServer {
       });
       child.on("exit", (code) => {
         this.channel.appendLine(`pi for IDE 进程退出，退出码 ${code}`);
+        // 进程死了（含意外崩溃）：标记并清全局，下次启动拉新进程。
+        this.disposed = true;
+        this.clearGlobalIfSelf();
         if (this.resolvedOrigin === undefined) resolve(undefined);
       });
       setTimeout(() => {

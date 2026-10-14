@@ -27,6 +27,9 @@ import type { Bridge } from "./bridge";
 export class PiWebWebviewPanel extends vscode.Disposable {
   private panel: vscode.WebviewPanel | undefined;
   private currentCwd: string | undefined;
+  /** 上次渲染 iframe 用的服务器实例与 URL——变了才重载 iframe。 */
+  private lastServer: PiIdeServer | undefined;
+  private lastUrl: string | undefined;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -46,8 +49,10 @@ export class PiWebWebviewPanel extends vscode.Disposable {
     this.currentCwd = cwd;
 
     if (this.panel && !cwdChanged) {
-      // Same cwd — just reveal the existing panel.
+      // Same cwd — 聚焦面板；refresh 内部判断服务器实例是否变了，
+      // stop/start 后会把 iframe 重指到新地址，未变时不动（保住会话状态）。
       this.panel.reveal(viewColumn, false);
+      await this.refresh();
       return;
     }
 
@@ -174,6 +179,8 @@ export class PiWebWebviewPanel extends vscode.Disposable {
     this.panel.title = title;
 
     if (!server) {
+      this.lastServer = undefined;
+      this.lastUrl = undefined;
       this.panel.webview.html = this.renderError(
         "pi for IDE 服务器启动失败。详情请见输出面板（查看 → 输出 → pi for IDE）。",
       );
@@ -183,8 +190,14 @@ export class PiWebWebviewPanel extends vscode.Disposable {
     const url = new URL(server.origin);
     url.searchParams.set("embed", "vscode");
     if (this.currentCwd) url.searchParams.set("cwd", this.currentCwd);
+    const urlStr = url.toString();
 
-    this.panel.webview.html = this.renderHtml(url.toString());
+    // 服务器实例与 URL 都没变就不重渲染——避免每次点状态栏都重载 iframe
+    // 丢失页面状态；stop 后再 start 实例必变，iframe 会重新指向。
+    if (server === this.lastServer && urlStr === this.lastUrl) return;
+    this.lastServer = server;
+    this.lastUrl = urlStr;
+    this.panel.webview.html = this.renderHtml(urlStr);
   }
 
   private renderHtml(piWebUrl: string): string {

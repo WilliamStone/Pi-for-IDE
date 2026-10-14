@@ -4,7 +4,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#1a1a1a" />
-    <title>PI Code is offline</title>
+    <title>Pi Web+ is offline</title>
+    <script>
+      // embed 模式（?embed=vscode 等宿主标记）显示宿主品牌，独立运行为 Pi Web+。
+      var BRAND = new URLSearchParams(location.search).has("embed")
+        ? "pi for IDE"
+        : "Pi Web+";
+    </script>
     <style>
       :root {
         color-scheme: dark;
@@ -75,8 +81,14 @@
   <body>
     <main>
       <img src="/icons/icon-192.png" alt="" />
-      <h1>PI Code is offline</h1>
-      <p>Reconnect to the local PI Code server, then try again.</p>
+      <h1 id="offline-title">Pi Web+ is offline</h1>
+      <p id="offline-desc">Reconnect to the local Pi Web+ server, then try again.</p>
+      <script>
+        document.getElementById("offline-title").textContent = BRAND + " is offline";
+        document.getElementById("offline-desc").textContent =
+          "Reconnect to the local " + BRAND + " server, then try again.";
+        document.title = BRAND + " is offline";
+      </script>
       <button type="button" onclick="location.reload()">Try again</button>
     </main>
   </body>
