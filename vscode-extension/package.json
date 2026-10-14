@@ -38,43 +38,43 @@
     "commands": [
       {
         "command": "piIde.open",
-        "title": "打开 pi for IDE",
+        "title": "打开",
         "category": "pi for IDE",
         "icon": "$(comment-discussion)"
       },
       {
         "command": "piIde.start",
-        "title": "启动 pi for IDE 服务器",
+        "title": "启动服务器",
         "category": "pi for IDE",
         "icon": "$(debug-start)"
       },
       {
         "command": "piIde.reveal",
-        "title": "显示 pi for IDE 面板",
+        "title": "显示面板",
         "category": "pi for IDE",
         "icon": "$(comment-discussion)"
       },
       {
         "command": "piIde.stop",
-        "title": "停止 pi for IDE 服务器",
+        "title": "停止服务器",
         "category": "pi for IDE",
         "icon": "$(debug-stop)"
       },
       {
         "command": "piIde.openInBrowser",
-        "title": "在浏览器中打开 pi for IDE",
+        "title": "在浏览器中打开",
         "category": "pi for IDE",
         "icon": "$(globe)"
       },
       {
         "command": "piIde.mentionFile",
-        "title": "在 pi for IDE 中提及此文件",
+        "title": "提及此文件",
         "category": "pi for IDE",
         "icon": "$(comment-discussion)"
       },
       {
         "command": "piIde.mentionSelection",
-        "title": "在 pi for IDE 中提及此代码",
+        "title": "提及此代码",
         "category": "pi for IDE",
         "icon": "$(comment-discussion)"
       }
