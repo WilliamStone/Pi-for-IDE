@@ -78,6 +78,10 @@ export class PiWebWebviewPanel extends vscode.Disposable {
       this.panel.onDidDispose(() => {
         this.panel = undefined;
         this.currentCwd = undefined;
+        // 缓存随面板销毁失效——新面板必须重新渲染 HTML，否则
+        // 同实例同 URL 的提前返回会让新 webview 永久空白。
+        this.lastServer = undefined;
+        this.lastUrl = undefined;
       });
 
       // Bridge messages from the pi-web iframe to VSCode APIs and relay
