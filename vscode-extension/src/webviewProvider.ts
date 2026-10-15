@@ -209,6 +209,7 @@ export class PiWebWebviewPanel extends vscode.Disposable {
     // message listener. A single listener routes by `source`:
     //   "embed" -> forward to extension host via vscode.postMessage
     //   "host"  -> forward to iframe via iframe.contentWindow.postMessage
+    const serverOrigin = new URL(piWebUrl).origin;
     return /* html */ `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -218,38 +219,64 @@ export class PiWebWebviewPanel extends vscode.Disposable {
   <style>
     html, body { margin: 0; padding: 0; height: 100%; background: #1a1a1a; }
     iframe { width: 100%; height: 100%; border: 0; display: block; }
+    #gate {
+      position: fixed; inset: 0; display: grid; place-items: center;
+      color: #e8e8e8; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #1a1a1a; z-index: 10;
+    }
+    #gate main { width: min(100%, 420px); text-align: center; padding: 32px; }
+    #gate h1 { margin: 0 0 10px; font-size: 20px; font-weight: 650; }
+    #gate p { margin: 0; color: #9ca3af; font-size: 14px; line-height: 1.6; }
+    #gate.error h1 { color: #f87171; }
+    #gate .dots span { animation: blink 1.2s infinite; }
+    #gate .dots span:nth-child(2) { animation-delay: .2s; }
+    #gate .dots span:nth-child(3) { animation-delay: .4s; }
+    @keyframes blink { 50% { opacity: .25; } }
   </style>
 </head>
 <body>
-  <iframe id="pi-web-frame" src="${piWebUrl}" title="pi for IDE"></iframe>
+  <!-- 就绪门：服务器可达前不指 iframe——避免 pi-web service worker 的
+       offline.html 兜底页在冷启动时闪现（它不是错误页，是误导）。 -->
+  <div id="gate"><main>
+    <h1>pi for IDE</h1>
+    <p id="gate-text">正在连接本地服务器<span class="dots"><span>.</span><span>.</span><span>.</span></span></p>
+  </main></div>
+  <iframe id="pi-web-frame" title="pi for IDE" style="display:none"></iframe>
   <script>
     (function () {
       const vscode = acquireVsCodeApi();
       const frame = document.getElementById('pi-web-frame');
+      const gate = document.getElementById('gate');
+      const gateText = document.getElementById('gate-text');
+      const piWebUrl = ${JSON.stringify(piWebUrl)};
+      const probeUrl = ${JSON.stringify(serverOrigin)};
+      const deadline = Date.now() + 90000;
 
-      // 服务器刚启动（冷启动/杀软扫描下首次响应可能数秒）时 iframe 请求
-      // 会失败留下空白页，且 iframe 的 load/error 事件对 HTTP 层失败不可靠。
-      // 看门狗：load 未触发期间轮询探测根地址，可达后重新指 iframe。
-      let loaded = false;
-      let lastAssign = 0;
-      let attempts = 0;
-      frame.addEventListener('load', function () { loaded = true; });
-      const probeUrl = ${JSON.stringify(new URL(piWebUrl).origin)};
-      const watchdog = setInterval(function () {
-        if (loaded) { clearInterval(watchdog); return; }
-        fetch(probeUrl, { method: 'HEAD', mode: 'no-cors' })
-          .then(function () {
-            // 服务器可达但 iframe 未加载——重指 src，但限频限量防重载循环
-            // （HTTP 错误页也会触发 load，到达这里说明是网络层失败）。
-            if (!loaded && attempts < 10 && Date.now() - lastAssign > 4000) {
-              attempts++;
-              lastAssign = Date.now();
-              frame.src = ${JSON.stringify(piWebUrl)};
-            }
-          })
-          .catch(function () { /* 服务器还没起来，下轮再试 */ });
-      }, 2000);
-      setTimeout(function () { clearInterval(watchdog); }, 90000);
+      function showFrame() {
+        frame.src = piWebUrl;
+        frame.addEventListener('load', function () {
+          gate.style.display = 'none';
+          frame.style.display = 'block';
+        });
+      }
+
+      // 轮询服务器可达性（no-cors：响应体读不了，但"请求被响应"本身就是
+      // 服务器已监听的信号）；90s 仍不通才显示真错误。
+      (async function waitForServer() {
+        while (Date.now() < deadline) {
+          try {
+            await fetch(probeUrl, { method: 'HEAD', mode: 'no-cors', cache: 'no-store' });
+            showFrame();
+            return;
+          } catch (e) {
+            await new Promise(function (r) { setTimeout(r, 1500); });
+          }
+        }
+        gate.classList.add('error');
+        gateText.innerHTML =
+          '无法连接 pi for IDE 服务器。<br/>' +
+          '请查看输出面板（查看 → 输出 → pi for IDE），或执行命令 "pi for IDE: 停止服务器" 后重试。';
+      })();
 
       window.addEventListener('message', function (event) {
         const data = event.data;
