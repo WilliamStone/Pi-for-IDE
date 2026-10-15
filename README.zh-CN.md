@@ -1,151 +1,98 @@
-# PI Code
+# pi-code — Pi Web+ / pi for IDE
 
 [English](./README.md) | [日本語](./README.ja.md) | [Русский](./README.ru.md)
 
-[pi 编程智能体](https://github.com/badlogic/pi-mono) 的本地网页界面。它会读取本机的 pi 会话文件，在浏览器里提供会话管理、实时对话、模型配置、技能管理和项目文件预览。
+[pi 编程智能体](https://github.com/badlogic/pi-mono) 的 Web 界面，同时能以一等面板形态嵌入 VSCode/VSCodium。本仓库产出两个可独立安装、独立更新的产物：
 
-中文微信群：请查看 [GitHub Discussions 帖子](https://github.com/agegr/pi-web/discussions/271)。
+| 产物 | 名称 | 角色 |
+|---|---|---|
+| npm 包 | **`pi-web-for-ide`** | 增强版 pi-web。独立浏览器运行时品牌为 **Pi Web+**；被宿主以 `?embed=<host>` 嵌入时切换为 **pi for IDE** 宿主模式。CLI 命令：`pi-web`。 |
+| VSCode 扩展 | **`pi-for-ide`**（`WilliamStone.pi-for-ide`） | 轻量宿主壳（~190KB），拉起或连接全局安装的发行包，在 webview 内叠加 IDE 集成能力。 |
 
-## 快速开始
+扩展不再捆绑 pi-web——两者解耦发行。
 
-PI Code 要求 Node.js 22.19.0 或更高版本。可通过 `node --version` 检查当前版本。
+## 功能
 
-**无需安装，直接运行：**
+### pi-web 本体（独立运行与嵌入模式均可用）
 
-```bash
-npx @agegr/pi-web@latest
-```
+- 会话管理：浏览、搜索、分叉、恢复本机 pi 会话，实时流式对话
+- 模型与服务商配置：OAuth 登录、API Key、models.json 编辑、模型目录刷新
+- MCP 服务器配置、技能搜索/安装、插件启用/禁用
+- 文件预览、worktree、终端面板、i18n（en/zh-CN/ja/ru）、明暗主题、PWA
+- `pi-web` CLI：`pi-web [--port N] [--hostname H] [--no-open]`、`status`、`stop`、`open`、`update`、`update-sdk`
 
-**或全局安装后使用：**
+### IDE 集成（embed 模式，VSCode 宿主）
 
-```bash
-npm install -g @agegr/pi-web
-pi-web
-```
+- **`@` 文件提及**：补全走 `vscode.workspace.findFiles`，不再查服务器文件系统
+- **右键提及**：资源管理器/编辑器右键「在 pi for IDE 中提及」文件与选中代码
+- **活动文件上下文注入**：正在查看的文件以隐藏 marker 注入 system prompt（AI 可见、UI 不显示、不落盘）
+- **文件审查卡片 + inline diff + 一键回退**：每轮列出 AI 改动的文件；回退恢复代码并删除该轮会话记录——只读 git，绝不产生 stash/commit
+- **剪贴板桥接**：沙箱 iframe 里的复制/粘贴走 `vscode.env.clipboard`
+- 内置文件树/预览面板在宿主模式下隐藏，交还 VSCode 资源管理器与编辑器组
 
-启动后打开 [http://127.0.0.1:30141](http://127.0.0.1:30141)。命令行版本会在服务就绪后尝试自动打开浏览器。PI Code 默认仅监听 `127.0.0.1`。
+所有 IDE 相关能力都挂在 `?embed=<host>` 开关后——普通浏览器访问就是完整的 pi-web，宿主桥不激活。
 
-**可选参数：**
+## 安装与使用
 
-```bash
-pi-web --port 8080              # 自定义端口
-pi-web --hostname 0.0.0.0       # 在可信网络中开放访问
-pi-web -p 8080 -H 0.0.0.0       # 组合使用
-pi-web --no-open                # 不自动打开浏览器
+要求 Node.js ≥ 22.19.0。
 
-PORT=8080 pi-web                # 也支持环境变量
-PI_WEB_HOSTNAME=0.0.0.0 pi-web  # 显式开放网络访问
-PI_WEB_ALLOWED_HOSTS=pi-web.internal pi-web  # 允许指定的代理或自定义主机名
-PI_WEB_PASSWORD='足够长的随机密码' pi-web  # 启用 Basic Auth（用户名固定为 pi）
-PI_WEB_NO_OPEN=1 pi-web         # 适用于后台服务或开机自启
-```
-
-设置 `PI_WEB_PASSWORD` 后，网页和所有 API 端点都会启用 HTTP Basic Auth，用户名固定为 `pi`。未设置或设置为空值时不启用认证。
-
-PI Code 可以调用高权限智能体。Basic Auth 不会加密传输中的密码，因此不要把明文 HTTP 暴露到互联网。远程访问时应使用可信反向代理提供 HTTPS，或通过可信 VPN 访问。
-API 请求仅接受 loopback 名称、IP 字面量、当前监听主机名，以及 `PI_WEB_ALLOWED_HOSTS` 中以逗号分隔的精确主机名。可信反向代理使用不同的外部主机名时，请配置该变量。
-
-## HTTP 代理
-
-PI Code 的服务端模型请求和 API 请求会读取标准的 `HTTP_PROXY`、`HTTPS_PROXY` 和 `NO_PROXY` 环境变量。
-
-macOS 或 Linux：
+### 独立运行（Pi Web+）
 
 ```bash
-HTTP_PROXY=http://127.0.0.1:7890 \
-HTTPS_PROXY=http://127.0.0.1:7890 \
-NO_PROXY=localhost,127.0.0.1 \
-npx @agegr/pi-web@latest
+npm install -g pi-web-for-ide   # 或本地包：npm i -g ./pi-web-for-ide-0.12.1.tgz
+pi-web                          # 监听 http://127.0.0.1:3030，自动开浏览器
 ```
 
-Windows PowerShell：
+`PI_WEB_PASSWORD='足够长的随机密码' pi-web` 启用 HTTP Basic Auth（用户名固定 `pi`）。包依赖 postinstall 把 Turbopack 外部包接成 junction——请确保装包脚本允许执行（pnpm 默认执行；npm 见 `docs/vscode-extension-deploy.md` 排障节）。
 
-```powershell
-$env:HTTP_PROXY = "http://127.0.0.1:7890"
-$env:HTTPS_PROXY = "http://127.0.0.1:7890"
-$env:NO_PROXY = "localhost,127.0.0.1"
-npx @agegr/pi-web@latest
+### VSCode / VSCodium（pi for IDE）
+
+1. 按上文全局安装 `pi-web-for-ide`。
+2. 装扩展：`code --install-extension vscode-extension/pi-for-ide-0.1.0.vsix`（VSCodium 用 `codium`）。
+3. 点状态栏 **pi for IDE** 按钮，或命令面板执行 **pi for IDE: 打开**。
+
+扩展按序解析服务器入口：`piIde.executablePath` → 内置 `resources/`（过渡兼容）→ `npm root -g` → `pi-web` PATH shim（支持 pnpm/yarn/bun shim）→ `npx` 兜底。启动后探测 `GET /api/embed`，若所连服务器不含 IDE 补丁会弹警告。
+
+| 设置 | 说明 |
+|---|---|
+| `piIde.executablePath` | pi-web 入口绝对路径（standalone `server.js` 或 `bin/pi-web.js`）。 |
+| `piIde.package` | 全局查询与 npx 兜底使用的包名（默认 `pi-web-for-ide`）。 |
+| `piIde.workspaceRoot` | 传给 pi-web 会话的项目目录（`cwd`）；留空用当前工作区文件夹。 |
+| `piIde.openBeside` | 面板打开在右侧相邻分栏（默认 true）。 |
+| `piIde.port` | 起始端口（默认 3030，被占用自动 +1）。 |
+
+完整部署与排障指南见 [`docs/vscode-extension-deploy.md`](./docs/vscode-extension-deploy.md)。
+
+## 架构
+
+```
+pi-for-ide 扩展（VSCode）
+  ├── piIdeServer        解析入口 → spawn pi-web → 探测 /api/embed
+  ├── webviewProvider    <iframe src="…/?embed=vscode"> + 就绪门
+  └── bridge             页面 ↔ VSCode API：
+                         openFile / completeAt / clipboard / 快照 /
+                         回退 / activeEditor
+pi-web-for-ide（外部包）
+  └── embed 宿主抽象（?embed=<host>）——宿主无关协议，VSCode 是首个
+      适配器，后续可接 JetBrains 等其他宿主
 ```
 
-## 功能介绍
+## 上游与各层贡献
 
-- **把历史工作接回来**：打开网页就能按项目找到以前的 pi 对话，不必在终端里翻文件或记住会话路径。
-- **放心试不同方向**：可以从某条历史消息重新开始，也可以复制出一条独立的新路线，探索方案时不怕弄乱原来的对话。
-- **跨分支工作**：在侧边栏切换 Git worktree，让新会话和 Explorer 跟随你选择的 checkout。
-- **边聊边看项目文件**：左侧浏览项目文件，右侧打开源码、文档、图片、音频和 PDF；文件变化会自动刷新，适合边让 agent 改边检查结果。
-- **随时掌握会话状态**：在顶部就能看到上下文占用、花费、压缩结果和系统提示，长会话不再像黑箱。
-- **少离开当前界面**：模型、登录/API key、模型测试和技能开关都能在网页里处理，配置 agent 时不用在多个工具之间来回切换。
-
-## 注意事项
-
-- **数据目录**：默认读取 `~/.pi/agent/sessions` 下的会话文件。可通过环境变量 `PI_CODING_AGENT_DIR` 指定其他 pi agent 目录。
-- **会话文件**：路径形如 `~/.pi/agent/sessions/<编码后的工作目录>/<时间戳>_<uuid>.jsonl`。
-- **模型配置**：Models 面板读写 pi agent 目录下的 `models.json`，模型列表和默认模型由 pi 的配置解析得到。
-- **文件访问**：文件浏览和预览面向当前选择的项目目录，以及会话中已出现过的工作目录。
-- **Git worktree**：什么时候显示切换器、新建目录在哪里、删除会影响什么，见 [PI Code 里的 Worktree](./docs/worktrees.zh-CN.md)。
-- **Fork 与会话内分支不同**：Fork 会创建新的 `.jsonl` 文件；“Edit from here” 是同一会话文件里的分支。
+- **[pi](https://github.com/badlogic/pi-mono)**（badlogic）：底层编程智能体本体——所有层共同驱动的引擎。
+- **[pi-web](https://github.com/agegr/pi-web)**（agegr）：pi 的 Next.js Web UI——本仓的直接上游。整个 Web 应用（会话 UI、流式对话、模型/MCP/技能/插件管理、终端、PWA）出自上游；我们定期合并上游版本而不是重写。
+- **[pi-code](https://github.com/wangjinxin613/pi-code)**（wangjinxin613）：首个 IDE 集成——引入了 VSCode 扩展、embed 宿主模式（`?embed`）、页面↔宿主桥、文件审查/回退、活动文件注入。本仓库从它 fork。
+- **本仓（WilliamStone/pi-code）**：在 pi-code 之上——发行形态解耦（外置 `pi-web-for-ide` npm 包 + 轻量扩展壳）、品牌分层（Pi Web+/pi for IDE）、pnpm/PATH shim 服务器解析、standalone MCP 修复、服务器/webview 生命周期修复，以及持续的上游同步。详见 `docs/decoupling-plan.md`。
 
 ## 开发
 
 ```bash
-npm install
-npm run dev
+npm install                 # 依赖
+npm run build               # next build（浏览器应用）
+node scripts/prepare-standalone.js   # npm pack 使用的 standalone 组装
+npm pack                    # → pi-web-for-ide-<ver>.tgz
+cd vscode-extension && npm run compile && npm run package   # → pi-for-ide-<ver>.vsix
+bash scripts/sync-upstream.sh vX.Y.Z   # 合并上游 pi-web 某个 tag
 ```
 
-本地开发端口为 [http://127.0.0.1:30141](http://127.0.0.1:30141)。
-
-常用检查：
-
-```bash
-node_modules/.bin/tsc --noEmit
-npm run lint
-```
-
-开发时不要运行 `next build` / `npm run build`，它会写入 `.next/`，容易影响正在运行的 dev server。发布流程再执行构建。
-
-## 项目结构
-
-```
-app/
-  api/
-    agent/          # 创建/驱动 AgentSession，提供 SSE 事件流
-    auth/           # OAuth 和 API key 管理
-    cwd/browse/     # 服务端目录浏览
-    cwd/validate/   # 自定义工作目录校验
-    default-cwd/    # 获取 pi 默认工作目录
-    files/          # 文件列表、读取、预览、watch
-    home/           # 当前用户 home 目录
-    models/         # 可用模型、默认模型、thinking levels
-    models-config/  # 读写 models.json、测试模型
-    sessions/       # 会话读取、重命名、删除、上下文、HTML 导出
-    skills/         # skills 列表、搜索、安装、启停
-components/
-  AppShell.tsx        # 主布局、URL 状态、顶部面板、文件标签
-  SessionSidebar.tsx  # 项目选择、会话树、Explorer
-  DirectoryPicker.tsx # 支持浏览和路径输入的工作目录选择器
-  ChatWindow.tsx      # 消息区、SSE、拖拽图片、minimap
-  ChatInput.tsx       # 输入栏、模型/工具/thinking/compact/slash controls
-  MessageView.tsx     # 消息、thinking、tool call/result 渲染
-  ModelsConfig.tsx    # 模型和认证配置面板
-  SkillsConfig.tsx    # 技能管理面板
-  FileExplorer.tsx    # 文件树
-  FileViewer.tsx      # 源码、diff、图片、音频、PDF、DOCX 预览
-lib/
-  directory-browser.ts # 目录规范化和安全枚举工具
-  http-dispatcher.ts  # 服务端 fetch 的 HTTP(S) 代理配置
-  rpc-manager.ts      # AgentSessionWrapper 生命周期和全局 registry
-  session-reader.ts   # 解析 .jsonl 会话文件和分支上下文
-  normalize.ts        # 规范化 toolCall 字段名
-  file-access.ts      # 文件读取安全边界
-  file-paths.ts       # 文件路径编码/相对路径工具
-  markdown.ts         # Markdown/Mermaid/KaTeX 插件配置
-  pi-types.ts         # pi 相关类型
-hooks/
-  useAgentSession.ts  # 会话加载、发送命令、SSE 状态机
-  useAudio.ts         # 完成提示音
-  useDragDrop.ts      # 图片拖拽
-  useTheme.ts         # 主题切换
-bin/
-  pi-web.js           # npm CLI 入口
-instrumentation.ts    # 初始化服务端 HTTP dispatcher
-```
+`PI_WEB_STANDALONE=1` 开启 Next standalone 输出；`scripts/` 下是上游同步与补丁导出工具链（`sync-upstream.sh`、`export-patches.sh`、`apply-to.sh`）。

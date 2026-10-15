@@ -1,101 +1,98 @@
-# Pi Web+ — VSCode 扩展
+# pi-code — Pi Web+ / pi for IDE
 
-![Pi Web+ 截图](./vscode-extension/screen.png)
+[中文](./README.zh-CN.md) | [日本語](./README.ja.md) | [Русский](./README.ru.md)
 
-**Pi Web+** 是在 [pi-web](https://github.com/agegr/pi-web)（pi 编程智能体的 Next.js Web UI）基础上构建的 VSCode 扩展。它把 pi-web 的完整 Web 界面封装为一个自包含的 webview 面板，让你不必离开 VSCode 就能与 pi 编程智能体对话、浏览会话历史、配置模型与技能，并叠加了一层针对 VSCode 工作流的深度集成。
+A web interface for the [pi coding agent](https://github.com/badlogic/pi-mono) that also embeds into VSCode/VSCodium as a first-class panel. Two deliverables ship from this repo:
 
-pi-web 本身仍是独立可运行的 Web 应用，本扩展只是把它"搬进" VSCode 并补充原生集成能力。
+| Deliverable | Name | Role |
+|---|---|---|
+| npm package | **`pi-web-for-ide`** | Enhanced pi-web. Runs standalone in any browser as **Pi Web+**; when a host embeds it with `?embed=<host>` it switches to **pi for IDE** host mode. CLI command: `pi-web`. |
+| VSCode extension | **`pi-for-ide`** (`WilliamStone.pi-for-ide`) | Lightweight host shell (~190KB). Launches or connects to the globally installed package and adds IDE integration inside the webview. |
 
-## 核心功能
+The package and the extension are independently installable and updateable — the extension carries no pi-web payload.
 
-### 1. 自包含的 Web 面板
-- pi-web 的 standalone 产物随扩展一同打包，**无需全局安装** `pi-web`，扩展自动拉起本地服务器并以 iframe 渲染。
-- 服务器默认监听 **3030** 端口（被占用时自动 +1 找空闲端口），面板顶部有「**在浏览器中打开**」按钮，一键在系统默认浏览器中打开 Pi Web+；面板标题栏和命令面板（`pi for IDE: 在浏览器中打开 pi for IDE`）也提供同一入口。
-- 会话浏览、Markdown 渲染、工具调用展示、分支导航、SSE 流式输出、i18n、主题——pi-web 的能力全部保留。
+## Features
 
-### 2. VSCode 工作区集成
-- **文件浏览交还 VSCode**：pi-web 原生的文件树 / 预览面板 / Tab 栏 / worktree 切换器在 VSCode 模式下隐藏，由 VSCode 资源管理器与编辑器组承接。
-- **`@` 文件提及**：输入框内的 `@` 补全通过 `vscode.workspace.findFiles` 落到 VSCode API，结果上限 50 条，只含行号不含代码内容。
-- **右键提及**：编辑器 / 资源管理器右键菜单提供「在 pi for IDE 中提及此文件 / 此代码」。
-- **剪贴板桥接**：跨源 iframe 中 `navigator.clipboard` 受权限策略限制，复制 / 粘贴改走 `vscode.env.clipboard`，并对非输入框文字复制做了全局拦截。
+### pi-web core (standalone & embedded)
 
-### 3. 深色主题 + 中文界面
-- 默认深色配色，与 VSCode 暗色主题视觉一致；界面文案默认中文（`zh-CN`）。
+- Session management: browse, search, fork, and resume local pi sessions with real-time streaming chat
+- Model & provider configuration: OAuth login, API keys, models.json editing, catalog refresh
+- MCP server configuration, skills search/install, plugin enable/disable
+- File preview, worktrees, terminal panel, i18n (en/zh-CN/ja/ru), light/dark themes, PWA
+- `pi-web` CLI: `pi-web [--port N] [--hostname H] [--no-open]`, `status`, `stop`, `open`, `update`, `update-sdk`
 
-### 4. 文件审查 + Diff + 一键回退
-每轮对话结束后，扩展会在该轮消息附近展示**文件审查卡片**，列出 AI 改动过的文件：
-- **inline Diff**：纯前端渲染 unified diff（edit 工具用 `toolResult.details.diff`，write 工具构造伪 unified diff），无需依赖 git。
-- **一键回退**：在用户消息左侧提供「回退此轮」入口（hover 显示）。
-  - **edit 回退**：纯文件系统反向 apply（反序遍历 `edits`，把 `newText` 写回为 `oldText`），零 git、零快照。
-  - **write 回退**：基于快照恢复（只读 git 取旧内容，绝不删除文件）。
-  - 回退 = **恢复代码 + 删除该轮会话记录**（parentId 自动重连，中间轮回退不会丢后续轮次），完成后自动刷新会话，对应消息与审查卡片一并消失。
-- **不污染用户 git**：全程只读 git，绝不创建 stash / commit / dangling object；任何 git 写入操作前都会向用户确认。
+### IDE integration (embed mode, VSCode host)
 
-### 5. 当前文件上下文注入
-- 扩展监听 VSCode 活动编辑器，把**用户正在查看的文件**以隐藏形式注入 system prompt（marker 包裹，LLM 可见、UI 不显示、不落盘到 session 文件），AI 会优先考虑直接修改这些正在打开的文件。
-- **缓存最后一次有效活动编辑器**：用户切到 Pi Web+ 面板时编辑器失焦，但文件标签仍展示——缓存生效，注入与提示不丢；文件真正关闭时才清除。
-- 输入框下方显示当前文件提示「📄 当前打开：xxx」，让用户清楚 AI 知道哪个文件。
+- **`@` file mention**: completion queries `vscode.workspace.findFiles` instead of the server filesystem
+- **Right-click mention**: Explorer/editor context menus "在 pi for IDE 中提及" for files and selections
+- **Active-file context injection**: the file you're viewing is injected into the system prompt (hidden marker — AI sees it, UI doesn't, nothing written to session files)
+- **File review cards + inline diff + one-click revert**: per-turn cards list AI-modified files; revert restores code and removes the turn without touching git history (read-only git, no stash/commit)
+- **Clipboard bridge**: copy/paste routes through `vscode.env.clipboard` inside the sandboxed iframe
+- The built-in file tree/preview panels hide in host mode — VSCode's explorer and editor groups take over
 
-### 6. 模型 / 技能 / 插件配置
-- 直接复用 pi-web 的配置面板：OAuth 登录与 API Key 管理、models.json 编辑、技能搜索与安装、包插件启用 / 禁用，全部在 webview 内完成。
+Everything embed-specific is gated behind `?embed=<host>` — standalone browser use is a complete pi-web with the host bridge inert.
 
-## 架构
+## Install & run
 
-```
-扩展宿 (extension.ts)
-  ├── PiWebServer          以子进程启动打包进扩展的 pi-web standalone 服务器
-  ├── PiWebWebviewPanel    注册 webview 面板，渲染 <iframe> 指向本地服务器
-  └── Bridge               处理页面 ↔ VSCode 的请求：
-                            openFile / completeAt / readFile / notify
-                            clipboardRead / clipboardWrite
-                            captureSnapshot / getBeforeContent / showDiff
-                            revertFiles / revertEdit / getActiveEditor
-```
+Requires Node.js ≥ 22.19.0.
 
-消息路径（postMessage 桥接）：
-
-```
-pi-web 页面 (iframe)
-  ── window.parent.postMessage({ source: "embed", id, request }) ──▶ webview HTML
-  ── vscode.postMessage(...) ──▶ 扩展宿
-  ◀── webview.postMessage({ source: "host", id, payload }) ── 扩展宿
-  ◀── iframe.contentWindow.postMessage(...) ── webview HTML
-  ◀── window 'message' 监听 ── pi-web 页面 (lib/embed/bridge.ts)
-```
-
-## 开发与构建
+### Standalone (Pi Web+)
 
 ```bash
-cd vscode-extension
-npm install
-npm run compile      # tsc -p .   → out/
-npm run watch       # 监听模式
+npm install -g pi-web-for-ide   # or: npm i -g ./pi-web-for-ide-0.12.1.tgz (local tarball)
+pi-web                          # serves http://127.0.0.1:3030, auto-opens browser
 ```
 
-打包 `.vsix`（会先把 pi-web standalone 产物复制到 `resources/pi-web/`）：
+`PI_WEB_PASSWORD='long-random' pi-web` enables HTTP Basic Auth (user `pi`). The postinstall script links Turbopack external packages — make sure install scripts are allowed (pnpm does by default; for npm see the troubleshooting note in `docs/vscode-extension-deploy.md`).
 
-```bash
-npm run package
-```
+### VSCode / VSCodium (pi for IDE)
 
-## 运行（调试）
+1. Install the package globally (as above).
+2. Install the extension: `code --install-extension vscode-extension/pi-for-ide-0.1.0.vsix` (VSCodium: `codium`).
+3. Click the **pi for IDE** status-bar item, or run **pi for IDE: 打开** from the command palette.
 
-1. 先在仓库根目录 `npm run build` 产出 pi-web 的 `.next/` 产物。
-2. 在 `vscode-extension/` 目录 F5 启动调试，命令面板运行 **pi for IDE: 打开 pi for IDE**，或点击编辑器标题栏的 pi for IDE 图标。
-3. 扩展按需启动打包进扩展的 pi-web 服务器，无需全局安装。
+The extension resolves the server entry in order: `piIde.executablePath` → bundled `resources/` (transitional) → `npm root -g` → `pi-web` PATH shim (pnpm/yarn/bun shims included) → `npx` fallback. After spawn it probes `GET /api/embed` and warns if the connected server lacks the IDE patch.
 
-## 设置项
-
-| 设置 | 说明 |
+| Setting | Description |
 |---|---|
-| `piIde.executablePath` | pi-web 服务器入口绝对路径（standalone `server.js` 或发行包 `bin/pi-web.js`）；留空则按序解析：扩展内置 → 全局 npm 安装 → `npx` 兜底。 |
-| `piIde.package` | 全局安装查询与 `npx` 兜底使用的发行包名（默认 `pi-web-for-ide`，须含 IDE 集成补丁）。 |
-| `piIde.workspaceRoot` | 传给 pi-web 会话的项目目录（`cwd`）；留空则用当前工作区文件夹。 |
-| `piIde.openBeside` | 是否将 Pi Web+ 面板打开在右侧相邻分栏（默认 true）。 |
-| `piIde.port` | Pi Web+ 服务器起始端口（默认 3030）；被占用时自动 +1 查找空闲端口。 |
+| `piIde.executablePath` | Absolute path to a pi-web entry (standalone `server.js` or `bin/pi-web.js`). |
+| `piIde.package` | Package name for global lookup / npx fallback (default `pi-web-for-ide`). |
+| `piIde.workspaceRoot` | Project dir passed to pi-web (`cwd`); defaults to the workspace folder. |
+| `piIde.openBeside` | Open the panel in the adjacent column (default true). |
+| `piIde.port` | Preferred starting port (default 3030; auto-increments when busy). |
 
-## 限制
+Full deploy & troubleshooting guide: [`docs/vscode-extension-deploy.md`](./docs/vscode-extension-deploy.md).
 
-- pi-web 页面在 webview iframe 中以 sandbox 运行，`window.confirm()` / `alert()` / `prompt()` 被禁用，所有确认交互改用 UI 内弹层（如回退确认、toast 通知）。
-- `?embed=vscode` 让 pi-web 进入宿主模式（隐藏文件浏览器相关 UI、启用桥能力），但**不破坏**其在普通浏览器里的独立运行能力。
-- `@` 文件补全回退到 VSCode 的 `findFiles`，结果上限 50 条。
+## Architecture
+
+```
+pi-for-ide extension (VSCode)
+  ├── piIdeServer        resolves entry → spawns pi-web → probes /api/embed
+  ├── webviewProvider    <iframe src="…/?embed=vscode"> + readiness gate
+  └── bridge             page ↔ VSCode API:
+                         openFile / completeAt / clipboard / snapshots /
+                         revert / activeEditor
+pi-web-for-ide (external package)
+  └── embed host abstraction (?embed=<host>) — host-agnostic, VSCode is
+      the first adapter; JetBrains-class hosts can plug in later
+```
+
+## Upstream & credits
+
+- **[pi](https://github.com/badlogic/pi-mono)** (badlogic): the coding agent itself — the engine every layer drives.
+- **[pi-web](https://github.com/agegr/pi-web)** (agegr): the Next.js web UI for pi — this repo's upstream. The entire web application (sessions UI, streaming chat, model/MCP/skills/plugin management, terminal, PWA) is theirs; we merge upstream releases regularly rather than re-implementing them.
+- **[pi-code](https://github.com/wangjinxin613/pi-code)** (wangjinxin613): the original IDE integration — introduced the VSCode extension, the embed host mode (`?embed`), the page↔host bridge, file review/revert, and active-file injection. This repo forks from it.
+- **This repo (WilliamStone/pi-code)**: on top of pi-code — decoupled packaging (external `pi-web-for-ide` npm package + thin extension), brand layering (Pi Web+ / pi for IDE), pnpm/PATH-shim server resolution, standalone MCP fix, server/webview lifecycle fixes, and continued upstream sync. See `docs/decoupling-plan.md`.
+
+## Development
+
+```bash
+npm install                 # deps
+npm run build               # next build (browser app)
+node scripts/prepare-standalone.js   # standalone assembly used by npm pack
+npm pack                    # → pi-web-for-ide-<ver>.tgz
+cd vscode-extension && npm run compile && npm run package   # → pi-for-ide-<ver>.vsix
+bash scripts/sync-upstream.sh vX.Y.Z   # merge an upstream pi-web tag
+```
+
+`PI_WEB_STANDALONE=1` flips the build into Next standalone output; `scripts/` contains the upstream-sync and patch-export toolchain (`sync-upstream.sh`, `export-patches.sh`, `apply-to.sh`).
