@@ -39,7 +39,11 @@ function isNewerVersion(latest: string, current: string): boolean {
   const a = parse(latest);
   const b = parse(current);
   if (!a || !b) return false;
-  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i];
+  for (let i = 0; i < 3; i++) {
+    const ap = a[i] ?? 0;
+    const bp = b[i] ?? 0;
+    if (ap !== bp) return ap > bp;
+  }
   if (a[3] === null) return b[3] !== null;
   if (b[3] === null) return false;
   return a[3] > b[3];
