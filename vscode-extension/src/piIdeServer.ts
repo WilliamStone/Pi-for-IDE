@@ -31,6 +31,9 @@ export const DEFAULT_PORT = 3030;
  */
 const DEFAULT_PACKAGE = "pi-web-for-ide";
 
+/** 扩展支持的 embed 协议版本（与 pi-web /api/embed 返回值比对）。 */
+const EMBED_PROTOCOL_SUPPORTED = 1;
+
 /** npm registry 元数据地址（unscoped 包无需转义斜杠）。 */
 const REGISTRY_LATEST_URL = (pkg: string) =>
   `https://registry.npmjs.org/${pkg.replace("/", "%2F")}/latest`;
@@ -467,9 +470,14 @@ export class PiIdeServer {
     while (Date.now() < deadline) {
       try {
         const res = await fetch(`${origin}/api/embed`, { signal: AbortSignal.timeout(4000) });
-        const data = (await res.json().catch(() => null)) as { embed?: { protocol?: number } } | null;
+        const data = (await res.json().catch(() => null)) as
+          | { embed?: { protocol?: number; version?: string } }
+          | null;
         if (res.ok && data?.embed?.protocol) {
-          this.channel.appendLine(`embed 协议握手成功：protocol v${data.embed.protocol}`);
+          this.channel.appendLine(
+            `embed 协议握手成功：protocol v${data.embed.protocol}，服务器版本 ${data.embed.version ?? "未知"}`,
+          );
+          this.checkProtocolCompat(data.embed.protocol, data.embed.version);
           return;
         }
         lastError = `HTTP ${res.status}`;
@@ -481,6 +489,29 @@ export class PiIdeServer {
     this.channel.appendLine(`警告：/api/embed 探测失败（${lastError}）——所连 pi-web 可能未包含 embed 桥补丁。`);
     void vscode.window.showWarningMessage(
       `pi for IDE：所连接的 pi-web 缺少 IDE 集成功能（疑似原版 pi-web）。请安装含补丁的发行包：npm i -g ${this.packageName()}。`,
+    );
+  }
+
+  /**
+   * embed 协议兼容性检查。桥消息结构不兼容时按偏新的一侧给出升级指引：
+   * 服务器协议高 → 升级扩展；服务器协议低 → 升级 pi-web-for-ide 包。
+   * 警告而非硬阻断：会话浏览等基础功能在协议偏差下通常仍可用。
+   */
+  private checkProtocolCompat(protocol: number, serverVersion?: string): void {
+    if (protocol === EMBED_PROTOCOL_SUPPORTED) return;
+    const pkg = this.packageName();
+    const ver = serverVersion ? ` v${serverVersion}` : "";
+    if (protocol > EMBED_PROTOCOL_SUPPORTED) {
+      void vscode.window.showWarningMessage(
+        `pi-web${ver} 的 embed 协议（v${protocol}）高于扩展支持的 v${EMBED_PROTOCOL_SUPPORTED}，IDE 集成功能可能异常。请在扩展商店升级 pi for IDE 扩展。`,
+      );
+    } else {
+      void vscode.window.showWarningMessage(
+        `pi-web${ver} 的 embed 协议（v${protocol}）低于扩展支持的 v${EMBED_PROTOCOL_SUPPORTED}，IDE 集成功能可能异常。请升级发行包：npm i -g ${pkg}@latest。`,
+      );
+    }
+    this.channel.appendLine(
+      `embed 协议不匹配：服务器 v${protocol}（${ver || "版本未知"}）vs 扩展支持 v${EMBED_PROTOCOL_SUPPORTED}`,
     );
   }
 }

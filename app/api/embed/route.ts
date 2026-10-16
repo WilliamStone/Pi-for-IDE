@@ -8,5 +8,11 @@ import { NextResponse } from "next/server";
 const EMBED_PROTOCOL_VERSION = 1;
 
 export function GET() {
-  return NextResponse.json({ embed: { protocol: EMBED_PROTOCOL_VERSION } });
+  // version 供宿主做版本/协议兼容性提示（扩展据此判断该升级哪一侧）。
+  return NextResponse.json({
+    embed: {
+      protocol: EMBED_PROTOCOL_VERSION,
+      version: process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0",
+    },
+  });
 }
