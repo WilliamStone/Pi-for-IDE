@@ -1,4 +1,4 @@
-# pi-code — pi for IDE
+# Pi for IDE / Pi Web+
 
 [English](./README.md) | [日本語](./README.ja.md) | [Русский](./README.ru.md)
 
@@ -9,7 +9,7 @@
 | 产物 | 名称 | 角色 |
 |---|---|---|
 | VSCode 扩展 | **`pi-for-ide`**（`WilliamStone.pi-for-ide`） | **主体**。轻量宿主壳（~190KB）：拉起/连接 pi-web 服务器，在 webview 内叠加 IDE 集成。 |
-| npm 包 | **`pi-web-for-ide`** | 底座。pi-web + IDE 适配层；被宿主以 `?embed=<host>` 嵌入时激活 IDE 能力。CLI 命令：`pi-web`。 |
+| npm 包 | **`pi-web-for-ide`** | 底座。pi-web + IDE 适配层；被宿主以 `?embed=<host>` 嵌入时激活 IDE 能力，否则仍提供原版能力。CLI 命令：`pi-web`。 |
 
 两者的关系：`pi-web-for-ide` 就是"pi-web + 一层宿主适配"，独立运行时与原版 pi-web 无异（品牌位显示 **Pi Web+**）；IDE 特性只在嵌入模式下激活。扩展本身不再携带 pi-web——pi-web 单独安装、单独升级，扩展只负责拉起与桥接。
 

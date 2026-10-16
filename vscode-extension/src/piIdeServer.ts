@@ -31,6 +31,10 @@ export const DEFAULT_PORT = 3030;
  */
 const DEFAULT_PACKAGE = "pi-web-for-ide";
 
+/** npm registry 元数据地址（unscoped 包无需转义斜杠）。 */
+const REGISTRY_LATEST_URL = (pkg: string) =>
+  `https://registry.npmjs.org/${pkg.replace("/", "%2F")}/latest`;
+
 type SpawnTarget =
   /** node <server.js>——standalone 产物，只认 PORT/HOSTNAME 环境变量。 */
   | { mode: "script"; path: string }
@@ -133,6 +137,77 @@ function resolvePathShimBin(): Promise<string | undefined> {
   });
 }
 
+/** 探测可用的包管理器：优先 pnpm（默认执行装包脚本），其次 npm。 */
+function detectPackageManager(): Promise<"pnpm" | "npm" | undefined> {
+  const tryCmd = (cmd: string): Promise<boolean> =>
+    new Promise((r) => cp.exec(`${cmd} --version`, { timeout: 8_000 }, (e) => r(!e)));
+  return tryCmd("pnpm").then((ok) => (ok ? "pnpm" : tryCmd("npm").then((ok2) => (ok2 ? "npm" : undefined))));
+}
+
+/**
+ * 全局安装 pi-web 发行包（流式输出到扩展的输出通道）。返回是否成功。
+ * 由"找不到服务器"的引导按钮和升级流程共用。
+ */
+export async function installPiWebPackage(
+  channel: vscode.OutputChannel,
+  pkg: string,
+  version?: string,
+): Promise<boolean> {
+  const pm = await detectPackageManager();
+  if (!pm) {
+    channel.appendLine("未找到 pnpm/npm，无法自动安装。");
+    return false;
+  }
+  const spec = version ? `${pkg}@${version}` : pkg;
+  const cmd = `${pm} i -g ${spec}`;
+  channel.appendLine(`执行：${cmd}`);
+  channel.show(true);
+  return new Promise((resolve) => {
+    const child = cp.spawn(cmd, { shell: true });
+    child.stdout?.on("data", (d: Buffer) => channel.append(d.toString()));
+    child.stderr?.on("data", (d: Buffer) => channel.append(d.toString()));
+    child.on("error", (e) => {
+      channel.appendLine(`安装进程启动失败：${e.message}`);
+      resolve(false);
+    });
+    child.on("exit", (code) => {
+      channel.appendLine(`安装进程退出，退出码 ${code}`);
+      resolve(code === 0);
+    });
+  });
+}
+
+/**
+ * 检查已全局安装的 pi-web 发行包是否有 npm 新版。
+ * 只覆盖"全局安装"解析路径（executablePath/npx 无法定位本地副本就跳过）。
+ * 返回 {current, latest}；未安装/检查失败返回 undefined。
+ */
+export async function checkPiWebUpdate(
+  pkg: string,
+): Promise<{ current: string; latest: string } | undefined> {
+  const binPath = (await resolveGlobalPackageBin(pkg)) ?? (await resolvePathShimBin());
+  if (!binPath) return undefined;
+  const pkgJson = path.join(path.dirname(path.dirname(binPath)), "package.json");
+  let current: string;
+  try {
+    current = JSON.parse(readFileSync(pkgJson, "utf8")).version;
+  } catch {
+    return undefined;
+  }
+  if (!current) return undefined;
+  try {
+    const res = await fetch(REGISTRY_LATEST_URL(pkg), {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(8000),
+    });
+    const body = (await res.json().catch(() => null)) as { version?: unknown } | null;
+    const latest = typeof body?.version === "string" ? body.version : "";
+    return latest ? { current, latest } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export class PiIdeServer {
   context: vscode.ExtensionContext;
   child?: cp.ChildProcess;
@@ -193,14 +268,34 @@ export class PiIdeServer {
   // ------------------------------------------------------------------
   /** 解析并启动 pi-web 服务器，返回解析后的 origin。 */
   private async startProcess(): Promise<string | undefined> {
-    const target = await this.resolveServerTarget();
+    let target = await this.resolveServerTarget();
     if (!target) {
+      // 所有解析路径失败（含 npx）→ 引导用户全局安装，成功后重试一次。
       const pkg = this.packageName();
       this.channel.appendLine("未找到可用的 pi-web 服务器。");
-      void vscode.window.showErrorMessage(
-        `pi for IDE 找不到 pi-web 服务器。请全局安装含 IDE 集成的发行包（npm i -g ${pkg}），或设置 piIde.executablePath 指向其入口文件。`,
+      const pick = await vscode.window.showErrorMessage(
+        `pi for IDE 找不到 pi-web 服务器。可一键全局安装发行包 ${pkg}，或自行安装后重试。`,
+        "一键安装",
+        "稍后",
       );
-      return undefined;
+      if (pick !== "一键安装") return undefined;
+      const ok = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: `正在安装 ${pkg}…` },
+        () => installPiWebPackage(this.channel, pkg),
+      );
+      if (!ok) {
+        void vscode.window.showErrorMessage(
+          `${pkg} 安装失败，详情请见输出面板（查看 → 输出 → pi for IDE）。`,
+        );
+        return undefined;
+      }
+      target = await this.resolveServerTarget();
+      if (!target) {
+        void vscode.window.showErrorMessage(
+          `${pkg} 已安装但仍解析不到入口，请查看输出面板日志。`,
+        );
+        return undefined;
+      }
     }
     const origin = await this.spawn(target);
     if (origin) await this.verifyEmbedSupport(origin);

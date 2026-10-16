@@ -16,7 +16,7 @@
  */
 
 import * as vscode from "vscode";
-import { PiIdeServer } from "./piIdeServer";
+import { PiIdeServer, checkPiWebUpdate, installPiWebPackage } from "./piIdeServer";
 import { PiWebWebviewPanel } from "./webviewProvider";
 import { Bridge, clearActiveEditorCache, resolveActiveEditor } from "./bridge";
 
@@ -25,6 +25,19 @@ let provider: PiWebWebviewPanel | undefined;
 let bridge: Bridge;
 let bridgeChannel: vscode.OutputChannel;
 let statusBarItem: vscode.StatusBarItem;
+
+/** 三段数字版本比较：latest > current 返回 true。非 x.y.z 一律视为无更新。 */
+function isNewerVersion(latest: string, current: string): boolean {
+  const parse = (v: string) => {
+    const m = /^(\d+)\.(\d+)\.(\d+)$/.exec(v);
+    return m ? m.slice(1).map(Number) : undefined;
+  };
+  const a = parse(latest);
+  const b = parse(current);
+  if (!a || !b) return false;
+  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i];
+  return false;
+}
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   bridgeChannel = vscode.window.createOutputChannel("pi for IDE 桥接");
@@ -268,6 +281,51 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       setTimeout(pushActiveEditor, 0);
     }),
   );
+
+  // -------------------------------------------------------------------------
+  // pi-web 发行包升级检查（后台、一次、静默失败）
+  // -------------------------------------------------------------------------
+  // 仅覆盖"全局安装"解析路径：executablePath/npx 方式定位不到本地副本时跳过。
+  setTimeout(() => {
+    void (async () => {
+      const pkg =
+        (vscode.workspace.getConfiguration("piIde").get<string>("package") ?? "").trim() ||
+        "pi-web-for-ide";
+      const info = await checkPiWebUpdate(pkg);
+      if (!info || !isNewerVersion(info.latest, info.current)) return;
+      const pick = await vscode.window.showInformationMessage(
+        `pi-web 有新版本 ${info.latest}（当前 ${info.current}）。`,
+        "立即升级",
+        "稍后",
+      );
+      if (pick !== "立即升级") return;
+      const installChannel = vscode.window.createOutputChannel("pi for IDE 安装");
+      const ok = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: `正在升级 ${pkg}…` },
+        () => installPiWebPackage(installChannel, pkg, "latest"),
+      );
+      installChannel.dispose();
+      if (!ok) {
+        void vscode.window.showErrorMessage(
+          `${pkg} 升级失败，详情请见输出面板（pi for IDE 安装）。`,
+        );
+        return;
+      }
+      // 运行中的服务器仍是旧代码，提示重启生效。
+      const running = await server;
+      if (running && !running.disposed) {
+        const r = await vscode.window.showInformationMessage(
+          `${pkg} 已升级到 ${info.latest}，重启服务器生效。`,
+          "重启服务器",
+          "稍后",
+        );
+        if (r === "重启服务器") {
+          await running.stop();
+          await ensureServer();
+        }
+      }
+    })();
+  }, 8000);
 }
 
 export function deactivate(): void {
