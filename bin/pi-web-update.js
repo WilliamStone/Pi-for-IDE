@@ -24,23 +24,29 @@ function manualCommand(name) {
 }
 
 // Port of lib/app-update.ts (bin cannot import TypeScript).
+// 版本号形如 0.12.1 或 0.12.1-3（上游 base + 本仓迭代序号）。
 function parseStableVersion(version) {
-  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:-(\d+))?$/.exec(version);
   if (!match) return null;
-  const parts = match.slice(1).map(Number);
-  return parts.every(Number.isSafeInteger) ? parts : null;
+  const parts = match.slice(1).map((part) => (part === undefined ? null : Number(part)));
+  if (!parts.slice(0, 3).every(Number.isSafeInteger)) return null;
+  if (parts[3] !== null && !Number.isSafeInteger(parts[3])) return null;
+  return parts;
 }
 
 function isNewerStableVersion(candidate, current) {
   const candidateParts = parseStableVersion(candidate);
   const currentParts = parseStableVersion(current);
   if (!candidateParts || !currentParts) return false;
-  for (let index = 0; index < candidateParts.length; index += 1) {
+  for (let index = 0; index < 3; index += 1) {
     if (candidateParts[index] !== currentParts[index]) {
       return candidateParts[index] > currentParts[index];
     }
   }
-  return false;
+  // 同 base：正式版 > 序号版；同有序号时比序号。
+  if (candidateParts[3] === null) return currentParts[3] !== null;
+  if (currentParts[3] === null) return false;
+  return candidateParts[3] > currentParts[3];
 }
 
 async function fetchLatestVersion(name) {

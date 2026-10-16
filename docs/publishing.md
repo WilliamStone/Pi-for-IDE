@@ -89,7 +89,7 @@ npx ovsx publish -p <token>
 
 ### 版本号规则
 
-- **`@william_stone/pi-web-for-ide`（npm）**：自由递增 semver，不锁定上游号段——上游 base 版本记进发版说明/CHANGELOG（如 "0.12.2 = upstream v0.12.1 + ide fixes"）。触发时机：
+- **`@william_stone/pi-web-for-ide`（npm）**：`<上游base>-<本仓序号>` 格式，如 `0.12.1-1` = 上游 v0.12.1 之上的第 1 次发行迭代。上游合并 0.12.2 后序号重置为 `0.12.2-1`。版本号本身即表明上游 base，发版说明里再补一句改动摘要。触发时机：
   - 合并上游 tag 后验证发布（跟随 pi-web 更新节奏，pi-web 负责跟踪 pi）；
   - 自有修复/功能攒成一批用户可见的变化时发 patch/minor。
 - **`pi-for-ide`（扩展）**：独立 semver，只在扩展代码变更时升版。pi-web 升级而桥协议不变时扩展无需发版。

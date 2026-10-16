@@ -28,15 +28,21 @@ let statusBarItem: vscode.StatusBarItem;
 
 /** 三段数字版本比较：latest > current 返回 true。非 x.y.z 一律视为无更新。 */
 function isNewerVersion(latest: string, current: string): boolean {
+  // 版本号形如 0.12.1 或 0.12.1-3（上游 base + 本仓迭代序号）。
   const parse = (v: string) => {
-    const m = /^(\d+)\.(\d+)\.(\d+)$/.exec(v);
-    return m ? m.slice(1).map(Number) : undefined;
+    const m = /^(\d+)\.(\d+)\.(\d+)(?:-(\d+))?$/.exec(v);
+    if (!m) return undefined;
+    const parts = m.slice(1).map((p) => (p === undefined ? null : Number(p)));
+    if (!parts.slice(0, 3).every(Number.isSafeInteger)) return undefined;
+    return parts as [number, number, number, number | null];
   };
   const a = parse(latest);
   const b = parse(current);
   if (!a || !b) return false;
   for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i];
-  return false;
+  if (a[3] === null) return b[3] !== null;
+  if (b[3] === null) return false;
+  return a[3] > b[3];
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
