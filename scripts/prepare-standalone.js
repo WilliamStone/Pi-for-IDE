@@ -168,10 +168,36 @@ function assembleStandalone() {
     writeExternalsManifest(serverDir);
     fs.rmSync(path.join(serverDir, ".next", "node_modules"), { recursive: true, force: true });
     console.log("  removed .next/node_modules（由 postinstall 重建 junction）");
+    pruneStandaloneNoise(serverDir);
   } else {
     linkExternalsToTraced(serverDir);
   }
   return serverDir;
+}
+
+/**
+ * nft 的动态 fs 访问告警会把整个仓库追进 standalone 根部（app/ lib/ docs/
+ * demo/ vscode-extension/ patches/ 源码与文档全是死重）。运行时只需要下表
+ * 中的条目，for-pack 时按白名单物理删除其余。
+ */
+const STANDALONE_KEEP = new Set([
+  ".next",
+  "node_modules",
+  "public",
+  "server.js",
+  "package.json",
+  "standalone-externals.json",
+  "LICENSE",
+]);
+
+function pruneStandaloneNoise(standaloneDir) {
+  let removed = 0;
+  for (const entry of fs.readdirSync(standaloneDir)) {
+    if (STANDALONE_KEEP.has(entry)) continue;
+    fs.rmSync(path.join(standaloneDir, entry), { recursive: true, force: true });
+    removed++;
+  }
+  console.log(`  pruned standalone 根部噪音条目 ${removed} 个（保留 ${[...STANDALONE_KEEP].join("/")}）`);
 }
 
 function main() {
