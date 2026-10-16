@@ -105,6 +105,13 @@ export function IdeHintBadge() {
         >
           <div style={{ fontWeight: 600, marginBottom: 6 }}>{t("system.ideHintTitle")}</div>
           <div style={{ color: "var(--text-muted)" }}>{t("system.ideHintBody")}</div>
+          <div style={{ marginTop: 8, fontWeight: 600, fontSize: 11 }}>{t("system.ideHintHow")}</div>
+          <ul style={{ margin: "4px 0 0", paddingLeft: 16, color: "var(--text-muted)" }}>
+            <li>
+              <strong>VSCode / VSCodium / Cursor / Windsurf</strong>
+              <div>{t("system.ideHintHowVSCode")}</div>
+            </li>
+          </ul>
           <label
             style={{
               display: "flex", alignItems: "center", gap: 6,
