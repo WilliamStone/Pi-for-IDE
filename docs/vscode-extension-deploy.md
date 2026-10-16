@@ -11,7 +11,7 @@
 | npm | 随 Node 自带 |
 | VSCode | ≥ 1.85（webview iframe + clipboard API） |
 
-## 一、安装外部 pi-web-for-ide（必需）
+## 一、安装外部 @william_stone/pi-web-for-ide（必需）
 
 扩展自身不再内置 pi-web 服务器，首次使用前必须把发行包装到本机。三种方式**任选其一**，按推荐度排序：
 
@@ -38,7 +38,7 @@ pi-web stop                              # 停掉测试服务器
 
 > npm 可能提示 `allow-scripts` 警告（postinstall / node-pty 等）。这些是
 > 终端功能与遥测的 install 脚本，被拦不影响 embed/会话等核心功能；
-> 需要内置终端面板时执行 `npm approve-scripts pi-web-for-ide` 再重装。
+> 需要内置终端面板时执行 `npm approve-scripts @william_stone/pi-web-for-ide` 再重装。
 
 ### 方式 B：直接指定入口路径
 
@@ -50,7 +50,7 @@ pi-web stop                              # 停掉测试服务器
 
 ### 方式 C：npx 兜底（需已发布到 npm 后才有意义）
 
-什么都不装时扩展会尝试 `npx -y pi-web-for-ide`——当前包未发布，**本地测试阶段不可用**，忽略。
+什么都不装时扩展会尝试 `npx -y -p @william_stone/pi-web-for-ide pi-web`（包名与 bin 名不同，必须 `-p` 指定包）——发布后首次运行联网下载，之后走 npx 缓存。
 
 ## 二、构建并安装扩展
 
@@ -73,7 +73,7 @@ code --install-extension .\pi-for-ide-0.1.0.vsix
 
 | 设置 | 默认 | 何时需要改 |
 |---|---|---|
-| `piIde.package` | `pi-web-for-ide` | 发行包改名时 |
+| `piIde.package` | `@william_stone/pi-web-for-ide` | 发行包改名时 |
 | `piIde.executablePath` | 空（自动解析） | 不用全局安装、想指向仓库构建产物时 |
 | `piIde.workspaceRoot` | 空（当前工作区） | 想让会话跑在别的目录时 |
 | `piIde.port` | `3030` | 端口冲突时（占用了会自动 +1） |
@@ -104,15 +104,16 @@ code --install-extension .\pi-for-ide-0.1.0.vsix
 
 ## 六、排障
 
-- **面板报「未找到 pi-web 服务器」**：按第四节解析顺序排查——`npm root -g` 下是否有 `pi-web-for-ide`；`pi-web --version` 在 VSCode 同一环境是否能跑（PATH 差异时用 `executablePath` 兜底）。
-- **启动后警告「未包含 embed 桥补丁」**：连到原版 pi-web——检查 `piIde.package` 名是否仍是 `pi-web-for-ide`，或全局装的是旧 tarball（重新 `npm pack` + `npm i -g`）。
+- **面板报「未找到 pi-web 服务器」**：按第四节解析顺序排查——`npm root -g` 下是否有 `@william_stone/pi-web-for-ide`；`pi-web --version` 在 VSCode 同一环境是否能跑（PATH 差异时用 `executablePath` 兜底）。
+- **启动后警告「未包含 embed 桥补丁」**：连到原版 pi-web——检查 `piIde.package` 名是否仍是 `@william_stone/pi-web-for-ide`，或全局装的是旧 tarball（重新 `npm pack` + `npm i -g`）。
 - **端口被占**：`piIde.port` 会自动 +1 探测；也可 `pi-web status` 查看现有服务 / `pi-web stop` 停掉。
-- **更新 SDK**：`pi-web update-sdk <version>`（服务须先停）；`pi-web update` 升级 pi-web-for-ide 本体。
-- **安装时脚本被拦**（npm `allow-scripts` 类限制）：`pi-web-for-ide` 的
-  `postinstall` 负责把 standalone 外部包接成 junction——被拦时服务可能
-  起不来或 MCP 报 `internals-unavailable`。pnpm 默认执行装包脚本；npm 需
-  允许 `pi-web-for-ide` 的 postinstall（`npm config set allow-scripts=pi-web-for-ide --location=user`
-  或装后手动 `node bin/prepare-terminal.js`）。
+- **更新 SDK**：`pi-web update-sdk <version>`（服务须先停）；`pi-web update` 升级 @william_stone/pi-web-for-ide 本体。
+- **安装时脚本被拦**（npm `allow-scripts`、pnpm 忽略 build scripts 等）：
+  `@william_stone/pi-web-for-ide` 的 `postinstall` 负责把 standalone 外部包接成
+  junction。0.12.2 起 `pi-web` 启动时会自检并按 `standalone-externals.json`
+  补链（不依赖装包脚本），仅日志多一行"补建链接"；0.12.1 及更早版本被拦时
+  服务起不来或 MCP 报 `internals-unavailable`，需手动跑一次
+  `node bin/prepare-terminal.js`（在包安装目录下）。
 - **保存模型设置报 `EPERM rename …\.models.json-*.tmp -> models.json`**（Windows）：
   不是代码 bug，是该文件对象上挂了内核态残留引用（曾有不释放 delete-share
   的进程抓过它，常见于崩溃/被杀的 pi 系进程或安全软件）。判别特征：

@@ -9,9 +9,9 @@
 | 产物 | 名称 | 角色 |
 |---|---|---|
 | VSCode 扩展 | **`pi-for-ide`**（`WilliamStone.pi-for-ide`） | **主体**。轻量宿主壳（~190KB）：拉起/连接 pi-web 服务器，在 webview 内叠加 IDE 集成。 |
-| npm 包 | **`pi-web-for-ide`** | 底座。pi-web + IDE 适配层；被宿主以 `?embed=<host>` 嵌入时激活 IDE 能力，否则仍提供原版能力。CLI 命令：`pi-web`。 |
+| npm 包 | **`@william_stone/pi-web-for-ide`** | 底座。pi-web + IDE 适配层；被宿主以 `?embed=<host>` 嵌入时激活 IDE 能力，否则仍提供原版能力。CLI 命令：`pi-web`。 |
 
-两者的关系：`pi-web-for-ide` 就是"pi-web + 一层宿主适配"，独立运行时与原版 pi-web 无异（品牌位显示 **Pi Web+**）；IDE 特性只在嵌入模式下激活。扩展本身不再携带 pi-web——pi-web 单独安装、单独升级，扩展只负责拉起与桥接。
+两者的关系：`@william_stone/pi-web-for-ide` 就是"pi-web + 一层宿主适配"，独立运行时与原版 pi-web 无异（品牌位显示 **Pi Web+**）；IDE 特性只在嵌入模式下激活。扩展本身不再携带 pi-web——pi-web 单独安装、单独升级，扩展只负责拉起与桥接。
 
 ## IDE 集成（本项目的主体功能）
 
@@ -30,13 +30,13 @@ pi-web 本体的能力（会话管理、流式对话、模型/OAuth/MCP/技能/�
 
 要求 Node.js ≥ 22.19.0。
 
-**第一步：全局安装 pi-web-for-ide（推荐 pnpm——npm 若拦装包脚本会导致服务异常）：**
+**第一步：全局安装 @william_stone/pi-web-for-ide（推荐 pnpm）：**
 
 ```bash
-pnpm i -g pi-web-for-ide                 # 或本地包：pnpm i -g ./pi-web-for-ide-0.12.1.tgz
+pnpm add -g @william_stone/pi-web-for-ide   # 也可用 npm i -g；本地包：pnpm i -g ./pi-web-for-ide-0.12.1.tgz
 ```
 
-> 包依赖 postinstall 把 Turbopack 外部包接成 junction；pnpm 默认执行装包脚本。用 npm 且装包脚本被拦时，见 `docs/vscode-extension-deploy.md` 排障节。
+> 推荐 pnpm 的原因：它装完会列出待批准的构建脚本并可交互勾选确认（`pnpm approve-builds`）——包的 postinstall 要把 standalone 外部包接成 junction；npm 的脚本拦截则没有对应入口。被拦了也有兜底：`pi-web` 启动时会自检补链（≥0.12.2），见 `docs/vscode-extension-deploy.md` 排障节。
 
 **第二步：安装扩展并打开：**
 
@@ -61,7 +61,7 @@ pi-web status|stop|open|update|update-sdk
 | `piIde.workspaceRoot` | 传给会话的项目目录（`cwd`）；留空用当前工作区文件夹。 |
 | `piIde.openBeside` | 面板打开在右侧相邻分栏（默认 true）。 |
 | `piIde.port` | 起始端口（默认 3030，被占用自动 +1）。 |
-| `piIde.package` | 全局查询/npx 兜底用的包名（默认 `pi-web-for-ide`）。 |
+| `piIde.package` | 全局查询/npx 兜底用的包名（默认 `@william_stone/pi-web-for-ide`）。 |
 
 连不上服务器、面板空白、保存报错等排障指引：[docs/vscode-extension-deploy.md](./docs/vscode-extension-deploy.md)。
 
@@ -84,7 +84,7 @@ pi-for-ide 扩展（VSCode）
   ├── webviewProvider    <iframe src="…/?embed=vscode"> + 就绪门
   └── bridge             页面 ↔ VSCode API：openFile / completeAt /
                          clipboard / 快照 / 回退 / activeEditor
-pi-web-for-ide（外部包）
+@william_stone/pi-web-for-ide（外部包）
   └── embed 宿主抽象（?embed=<host>）——宿主无关协议，VSCode 是首个
       适配器，后续可接 JetBrains 等其他宿主
 ```
@@ -95,7 +95,7 @@ pi-web-for-ide（外部包）
 npm install                 # 依赖
 npm run build               # next build（浏览器应用）
 node scripts/prepare-standalone.js   # npm pack 使用的 standalone 组装
-npm pack                    # → pi-web-for-ide-<ver>.tgz
+npm pack                    # → @william_stone/pi-web-for-ide-<ver>.tgz
 cd vscode-extension && npm run compile && npm run package   # → pi-for-ide-<ver>.vsix
 bash scripts/sync-upstream.sh vX.Y.Z   # 合并上游 pi-web 某个 tag
 ```

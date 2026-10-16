@@ -2,7 +2,7 @@
 
 > 面向维护者。用户侧安装指引见 `vscode-extension-deploy.md`。
 
-## 1. 发布 `pi-web-for-ide` 到 npmjs.com
+## 1. 发布 `@william_stone/pi-web-for-ide` 到 npmjs.com
 
 ### 首次准备
 
@@ -10,7 +10,7 @@
 npm login          # 浏览器跳转 npmjs.com 完成认证（一次即可）
 ```
 
-`package.json` 已就绪：`name: pi-web-for-ide`（unscoped，公开包免费）、`files` 白名单、`prepack` 钩子会在发布前自动重建 standalone 产物并清理旧 tarball。
+`package.json` 已就绪：`name: @william_stone/pi-web-for-ide`（unscoped，公开包免费）、`files` 白名单、`prepack` 钩子会在发布前自动重建 standalone 产物并清理旧 tarball。
 
 ### 发布
 
@@ -22,14 +22,14 @@ npm publish              # prepack 自动跑构建+standalone 组装（约 2-3 �
 ### 验证
 
 ```bash
-npm view pi-web-for-ide version
-pnpm i -g pi-web-for-ide
+npm view @william_stone/pi-web-for-ide version
+pnpm add -g @william_stone/pi-web-for-ide
 pi-web --version
 ```
 
 ### 注意
 
-- tarball ~34-67MB，发布后 `npx pi-web-for-ide` 也能跑（首次联网下载）
+- tarball ~34-67MB，发布后 `npx @william_stone/pi-web-for-ide` 也能跑（首次联网下载）
 - postinstall 必须在用户机器上执行（junction 建链）——pnpm 默认允许；npm 用户若拦脚本，见 deploy 文档排障节
 - 上游合并发版流程：合并 tag → `npm version` → `npm publish`
 
@@ -89,7 +89,7 @@ npx ovsx publish -p <token>
 
 ### 版本号规则
 
-- **`pi-web-for-ide`（npm）**：自由递增 semver，不锁定上游号段——上游 base 版本记进发版说明/CHANGELOG（如 "0.12.2 = upstream v0.12.1 + ide fixes"）。触发时机：
+- **`@william_stone/pi-web-for-ide`（npm）**：自由递增 semver，不锁定上游号段——上游 base 版本记进发版说明/CHANGELOG（如 "0.12.2 = upstream v0.12.1 + ide fixes"）。触发时机：
   - 合并上游 tag 后验证发布（跟随 pi-web 更新节奏，pi-web 负责跟踪 pi）；
   - 自有修复/功能攒成一批用户可见的变化时发 patch/minor。
 - **`pi-for-ide`（扩展）**：独立 semver，只在扩展代码变更时升版。pi-web 升级而桥协议不变时扩展无需发版。
@@ -101,7 +101,7 @@ npx ovsx publish -p <token>
 
 - **协议不一致** → 警告（非阻断，会话浏览等基础功能仍可用）+ 方向性指引：
   - 服务器协议 **高于**扩展支持 → 提示升级**扩展**（商店更新）；
-  - 服务器协议 **低于**扩展支持 → 提示升级**包**（`npm i -g pi-web-for-ide@latest`）。
+  - 服务器协议 **低于**扩展支持 → 提示升级**包**（`npm i -g @william_stone/pi-web-for-ide@latest`）。
 - **同协议但版本偏旧** → 静默兼容；扩展另有 npm 新版提示（见下节），不打扰。
 - **协议完全不存在**（原版 pi-web）→ 警告"缺少 IDE 集成功能"+安装指引。
 
@@ -109,7 +109,7 @@ npx ovsx publish -p <token>
 
 ## 5. 升级链路（两商店+npm 的配套行为，已实现）
 
-- **用户只装扩展没装包**：扩展找不到服务器时弹「一键安装」按钮——自动选 pnpm（无则 npm）全局安装 `pi-web-for-ide`，装完自动重试解析并拉起；npx 兜底路径在包发布后自动生效（首次联网下载）。
-- **包发新版后的升级提示**：扩展启动后约 8s 后台查 npm registry `pi-web-for-ide/latest` 与本地全局安装版本比对，有新版弹「立即升级」→ 全局重装 → 提示重启服务器生效。executablePath/npx 用户定位不到本地副本时静默跳过。
-- **页面内的更新检查**（pi-web 自带）：已改为查 `pi-web-for-ide` 的 npm latest，发布说明链接指向本仓 releases。
+- **用户只装扩展没装包**：扩展找不到服务器时弹「一键安装」按钮——自动选 pnpm（无则 npm）全局安装 `@william_stone/pi-web-for-ide`，装完自动重试解析并拉起；npx 兜底路径在包发布后自动生效（首次联网下载）。
+- **包发新版后的升级提示**：扩展启动后约 8s 后台查 npm registry `@william_stone/pi-web-for-ide/latest` 与本地全局安装版本比对，有新版弹「立即升级」→ 全局重装 → 提示重启服务器生效。executablePath/npx 用户定位不到本地副本时静默跳过。
+- **页面内的更新检查**（pi-web 自带）：已改为查 `@william_stone/pi-web-for-ide` 的 npm latest，发布说明链接指向本仓 releases。
 - **`pi-web update`**：CLI 自升级命令，动态读包名，已兼容新名。

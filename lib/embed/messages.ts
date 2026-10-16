@@ -27,6 +27,10 @@ export const embedEnMessages: Record<string, string> = {
   "chat.revertUnavailable": "No snapshot available (older than 3 turns or non-git)",
   "chat.activeFileLabel": "Open now: ",
   "chat.activeFileTitle": "This file is open in the host editor — the AI will prioritize modifying it directly",
+  "system.ideHintTip": "Pi Web+ tip",
+  "system.ideHintTitle": "Pi Web+ works best inside an IDE",
+  "system.ideHintBody": "It also runs inside VSCode / VSCodium as the pi for IDE extension — @-mentions, file review cards, active-file context and one-click turn revert included.",
+  "system.ideHintDontShow": "Don't show again until next version",
 };
 
 /** embed 功能的繁体中文字符串。 */
@@ -55,6 +59,10 @@ export const embedZhTWMessages: Record<string, string> = {
   "chat.revertUnavailable": "無可用快照（可能已超過 3 輪或非 git 倉庫）",
   "chat.activeFileLabel": "目前開啟：",
   "chat.activeFileTitle": "宿主編輯器正在開啟此檔案——AI 會優先考慮直接修改它",
+  "system.ideHintTip": "Pi Web+ 提示",
+  "system.ideHintTitle": "Pi Web+ 在 IDE 裡體驗更好",
+  "system.ideHintBody": "它也能以 pi for IDE 擴充功能的形式執行於 VSCode / VSCodium 中——含 @ 提及、檔案審查卡片、活動檔案感知與一鍵回退。",
+  "system.ideHintDontShow": "下個版本前不再提示",
 };
 
 /** embed 功能的简体中文字符串。 */
@@ -83,4 +91,8 @@ export const embedZhCNMessages: Record<string, string> = {
   "chat.revertUnavailable": "无可用快照（可能已超过 3 轮或非 git 仓库）",
   "chat.activeFileLabel": "当前打开：",
   "chat.activeFileTitle": "宿主编辑器正在打开此文件——AI 会优先考虑直接修改它",
+  "system.ideHintTip": "Pi Web+ 提示",
+  "system.ideHintTitle": "Pi Web+ 在 IDE 里体验更好",
+  "system.ideHintBody": "它也能以 pi for IDE 扩展的形式运行在 VSCode / VSCodium 中——含 @ 提及、文件审查卡片、活动文件感知与一键回退。",
+  "system.ideHintDontShow": "下个版本前不再提示",
 };

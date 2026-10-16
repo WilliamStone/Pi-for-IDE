@@ -2,7 +2,7 @@
 
 ![pi for IDE 截图](/vscode-extension/screen.png)
 
-**pi for IDE** 是在 [pi-web](https://github.com/agegr/pi-web)（pi 编程智能体的 Next.js Web UI）基础上构建的 VSCode 扩展。它把 pi-web 的完整 Web 界面嵌入 webview 面板（pi-web 服务器由外部独立安装的 `pi-web-for-ide` 包提供），让你不必离开 VSCode 就能与 pi 编程智能体对话、浏览会话历史、配置模型与技能，并叠加了一层针对 VSCode 工作流的深度集成。
+**pi for IDE** 是在 [pi-web](https://github.com/agegr/pi-web)（pi 编程智能体的 Next.js Web UI）基础上构建的 VSCode 扩展。它把 pi-web 的完整 Web 界面嵌入 webview 面板（pi-web 服务器由外部独立安装的 `@william_stone/pi-web-for-ide` 包提供），让你不必离开 VSCode 就能与 pi 编程智能体对话、浏览会话历史、配置模型与技能，并叠加了一层针对 VSCode 工作流的深度集成。
 
 pi-web 本身仍是独立可运行的 Web 应用，本扩展只是把它"搬进" VSCode 并补充原生集成能力。
 
@@ -83,7 +83,7 @@ npm run package
 
 ## 运行（调试）
 
-1. 确保有可解析的 pi-web 入口（全局 `pi-web-for-ide`，或 `piIde.executablePath` 指向仓库 standalone 产物）。
+1. 确保有可解析的 pi-web 入口（全局 `@william_stone/pi-web-for-ide`，或 `piIde.executablePath` 指向仓库 standalone 产物）。
 2. 在 `vscode-extension/` 目录 F5 启动调试，命令面板运行 **pi for IDE: 打开 pi for IDE**，或点击编辑器标题栏的 pi for IDE 图标。
 3. 扩展按解析顺序拉起外部 pi-web 服务器。
 
@@ -92,7 +92,7 @@ npm run package
 | 设置 | 说明 |
 |---|---|
 | `piIde.executablePath` | pi-web 服务器入口绝对路径（standalone `server.js` 或发行包 `bin/pi-web.js`）；留空则按序解析：扩展内置 → `npm root -g` → PATH shim → `npx` 兜底。 |
-| `piIde.package` | 全局安装查询与 `npx` 兜底使用的发行包名（默认 `pi-web-for-ide`，须含 IDE 集成补丁）。 |
+| `piIde.package` | 全局安装查询与 `npx` 兜底使用的发行包名（默认 `@william_stone/pi-web-for-ide`，须含 IDE 集成补丁）。 |
 | `piIde.workspaceRoot` | 传给 pi-web 会话的项目目录（`cwd`）；留空则用当前工作区文件夹。 |
 | `piIde.openBeside` | 是否将 pi for IDE 面板打开在右侧相邻分栏（默认 true）。 |
 | `piIde.port` | pi for IDE 服务器起始端口（默认 3030）；被占用时自动 +1 查找空闲端口。 |

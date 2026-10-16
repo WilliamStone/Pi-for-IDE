@@ -9,9 +9,9 @@ This repo ships two independently installable and updateable deliverables:
 | Deliverable | Name | Role |
 |---|---|---|
 | VSCode extension | **`pi-for-ide`** (`WilliamStone.pi-for-ide`) | **The product**. A lightweight host shell (~190KB): launches/connects to a pi-web server and layers IDE integration inside the webview. |
-| npm package | **`pi-web-for-ide`** | The substrate. pi-web plus an IDE adaptation layer; IDE features activate when a host embeds it via `?embed=<host>`. CLI command: `pi-web`. |
+| npm package | **`@william_stone/pi-web-for-ide`** | The substrate. pi-web plus an IDE adaptation layer; IDE features activate when a host embeds it via `?embed=<host>`. CLI command: `pi-web`. |
 
-The relationship: `pi-web-for-ide` is "pi-web + a host-adaptation layer". Standalone it behaves like stock pi-web (brand slot shows **Pi Web+**); IDE features activate only in embed mode. The extension carries no pi-web payload — the web app installs and upgrades separately.
+The relationship: `@william_stone/pi-web-for-ide` is "pi-web + a host-adaptation layer". Standalone it behaves like stock pi-web (brand slot shows **Pi Web+**); IDE features activate only in embed mode. The extension carries no pi-web payload — the web app installs and upgrades separately.
 
 ## IDE integration (the core)
 
@@ -30,13 +30,13 @@ All pi-web capabilities (session management, streaming chat, model/OAuth/MCP/ski
 
 Requires Node.js ≥ 22.19.0.
 
-**Step 1 — install pi-web-for-ide globally (pnpm recommended — npm may block the install scripts the package depends on):**
+**Step 1 — install @william_stone/pi-web-for-ide globally (pnpm recommended):**
 
 ```bash
-pnpm i -g pi-web-for-ide                 # or local: pnpm i -g ./pi-web-for-ide-0.12.1.tgz
+pnpm add -g @william_stone/pi-web-for-ide   # npm i -g works too; local: pnpm i -g ./pi-web-for-ide-0.12.1.tgz
 ```
 
-> The package's postinstall links Turbopack externals into junctions; pnpm runs install scripts by default. For npm with blocked scripts see `docs/vscode-extension-deploy.md`.
+> Why pnpm: it surfaces the package's postinstall for interactive approval (`pnpm approve-builds`) — needed to link the standalone external packages. npm's script blocking has no equivalent escape hatch. Fallback anyway: `pi-web` self-heals the links on startup (≥0.12.2); see `docs/vscode-extension-deploy.md`.
 
 **Step 2 — install the extension and open:**
 
@@ -61,7 +61,7 @@ pi-web status|stop|open|update|update-sdk
 | `piIde.workspaceRoot` | Project dir for sessions (`cwd`); defaults to the workspace folder. |
 | `piIde.openBeside` | Open the panel in the adjacent column (default true). |
 | `piIde.port` | Preferred starting port (default 3030; auto-increments when busy). |
-| `piIde.package` | Package name for global lookup / npx fallback (default `pi-web-for-ide`). |
+| `piIde.package` | Package name for global lookup / npx fallback (default `@william_stone/pi-web-for-ide`). |
 
 Can't connect, blank panel, save errors: see [docs/vscode-extension-deploy.md](./docs/vscode-extension-deploy.md).
 
@@ -84,7 +84,7 @@ pi-for-ide extension (VSCode)
   ├── webviewProvider    <iframe src="…/?embed=vscode"> + readiness gate
   └── bridge             page ↔ VSCode API: openFile / completeAt /
                          clipboard / snapshots / revert / activeEditor
-pi-web-for-ide (external package)
+@william_stone/pi-web-for-ide (external package)
   └── embed host abstraction (?embed=<host>) — host-agnostic protocol;
       VSCode is the first adapter, JetBrains-class hosts can follow
 ```
@@ -95,7 +95,7 @@ Build & sync:
 npm install                 # deps
 npm run build               # next build (browser app)
 node scripts/prepare-standalone.js   # standalone assembly used by npm pack
-npm pack                    # → pi-web-for-ide-<ver>.tgz
+npm pack                    # → @william_stone/pi-web-for-ide-<ver>.tgz
 cd vscode-extension && npm run compile && npm run package   # → pi-for-ide-<ver>.vsix
 bash scripts/sync-upstream.sh vX.Y.Z   # merge an upstream pi-web tag
 ```

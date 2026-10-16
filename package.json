@@ -1,6 +1,6 @@
 {
-  "name": "pi-web-for-ide",
-  "version": "0.12.1",
+  "name": "@william_stone/pi-web-for-ide",
+  "version": "0.12.3",
   "description": "Web UI for the pi coding agent",
   "homepage": "https://github.com/WilliamStone/Pi-for-IDE#readme",
   "repository": {

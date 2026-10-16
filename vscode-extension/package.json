@@ -89,7 +89,7 @@
         },
         "piIde.package": {
           "type": "string",
-          "default": "pi-web-for-ide",
+          "default": "@william_stone/pi-web-for-ide",
           "description": "全局安装查询与 npx 兜底使用的 pi-web 发行包名（须为含 IDE 集成补丁的版本，而非原版 pi-web）。"
         },
         "piIde.workspaceRoot": {

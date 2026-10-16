@@ -30,7 +30,7 @@ const { createRunRecordTracker, getOpenUrl, getRunDir } = require("./run-records
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { getPackageVersion, runCommand } = require("./pi-web-commands");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { findStandaloneServer } = require("./pi-web-standalone");
+const { findStandaloneServer, linkExternalsToTraced } = require("./pi-web-standalone");
 
 let launchOptions;
 try {
@@ -70,6 +70,26 @@ function exitWhenIdle(code) {
   setTimeout(() => process.exit(code), 2_000).unref();
 }
 
+/**
+ * 装包脚本未跑时补建 .next/node_modules/<pkg>-<hash> junction。
+ * 快路径：清单内每条目都存在则零成本返回。
+ */
+function ensureExternalsLinked(serverDir) {
+  const manifestPath = path.join(serverDir, "standalone-externals.json");
+  if (!fs.existsSync(manifestPath)) return;
+  let rels;
+  try {
+    rels = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  } catch {
+    return;
+  }
+  const hashedRoot = path.join(serverDir, ".next", "node_modules");
+  const missing = rels.filter((rel) => !fs.existsSync(path.join(hashedRoot, ...rel.split("/"))));
+  if (missing.length === 0) return;
+  console.log(`pi-web: 补建 ${missing.length} 个外部包链接（postinstall 未执行）…`);
+  linkExternalsToTraced(serverDir);
+}
+
 function startServer({ port, hostname, openBrowser }) {
 
   const pkgDir = path.join(__dirname, "..");
@@ -78,6 +98,11 @@ function startServer({ port, hostname, openBrowser }) {
   // 没有 standalone → 回退 next start。
   const standaloneServer = findStandaloneServer(pkgDir);
   const serverDir = standaloneServer ? path.dirname(standaloneServer) : pkgDir;
+
+  // 装包脚本可能被 npm/pnpm 的脚本策略拦下（registry 全局安装时 pnpm 默认
+  // 不跑 postinstall）→ .next/node_modules 的 junction 缺失会使外部包无法
+  // 解析、MCP 自检失败。启动时自检并按清单补链，不依赖 postinstall。
+  if (standaloneServer) ensureExternalsLinked(serverDir);
   const nextDir = path.join(serverDir, ".next");
 
   // Resolve next's CLI entry directly to avoid relying on .bin symlinks (which

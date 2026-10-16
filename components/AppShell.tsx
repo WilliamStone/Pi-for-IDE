@@ -57,6 +57,7 @@ import {
 import { isEmbedMode, notifyEmbedHost, installGlobalClipboardInterceptor } from "@/lib/embed/bridge";
 import { appDisplayName } from "@/lib/brand";
 import { OpenInBrowserButton } from "./embed/OpenInBrowserButton";
+import { IdeHintBadge } from "./IdeHintBadge";
 import { useMentionNotification } from "./embed/useMentionNotification";
 import {
   getDefaultRightPanelWidth,
@@ -2277,6 +2278,7 @@ export function AppShell() {
                 </div>
               )}
               <OpenInBrowserButton />
+              <IdeHintBadge />
             </div>
           )}
           {!isMobile && (
@@ -2288,6 +2290,7 @@ export function AppShell() {
           )}
           {!isMobile && renderMainFileToggle(false)}
           {!isMobile && <OpenInBrowserButton />}
+          {!isMobile && <IdeHintBadge />}
           {isMobile && sessionHasBranches && (
             <BranchNavigator
               tree={branchTree}

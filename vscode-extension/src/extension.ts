@@ -1,7 +1,7 @@
 /**
  * pi for IDE VSCode 扩展 — 主入口。
  *
- * pi for IDE 将 pi-web（pi 编程智能体的 Web 界面，本仓库发行 pi-web-for-ide）托管
+ * pi for IDE 将 pi-web（pi 编程智能体的 Web 界面，本仓库发行 @william_stone/pi-web-for-ide）托管
  * 在 webview 内，并在后台启动一个本地 pi-web 服务器。除了文件浏览器之外，
  * 其余体验与原版一致：会话浏览、聊天、模型/技能/插件配置、i18n 均照常工作；
  * 打开文件、@ 补全等动作通过桥接转交给 VSCode 原生 API。
@@ -290,7 +290,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     void (async () => {
       const pkg =
         (vscode.workspace.getConfiguration("piIde").get<string>("package") ?? "").trim() ||
-        "pi-web-for-ide";
+        "@william_stone/pi-web-for-ide";
       const info = await checkPiWebUpdate(pkg);
       if (!info || !isNewerVersion(info.latest, info.current)) return;
       const pick = await vscode.window.showInformationMessage(

@@ -10,7 +10,7 @@ import * as vscode from "vscode";
  * pi-web 不打包进扩展，按以下顺序解析一个外部服务器入口：
  *   1. `piIde.executablePath` 配置（standalone 的 server.js 或包的 bin/pi-web.js）
  *   2. 扩展内置的 `resources/pi-web/server.js`（过渡期兼容；打包停止内置后自然消失）
- *   3. `npm root -g` 下已全局安装的 `piIde.package`（默认 pi-web-for-ide）
+ *   3. `npm root -g` 下已全局安装的 `piIde.package`（默认 @william_stone/pi-web-for-ide）
  *   4. `npx -y <piIde.package>` 兜底（首次联网下载，之后走缓存）
  *
  * 两种 spawn 模式：standalone server.js 只认 PORT/HOSTNAME 环境变量；
@@ -29,7 +29,7 @@ export const DEFAULT_PORT = 3030;
  * 默认查询/安装的 npm 包名（含 embed 桥补丁的 pi-web 发行包）。
  * 可用 `piIde.package` 配置覆盖；置空则跳过全局安装与 npx 兜底。
  */
-const DEFAULT_PACKAGE = "pi-web-for-ide";
+const DEFAULT_PACKAGE = "@william_stone/pi-web-for-ide";
 
 /** 扩展支持的 embed 协议版本（与 pi-web /api/embed 返回值比对）。 */
 const EMBED_PROTOCOL_SUPPORTED = 1;
@@ -397,7 +397,8 @@ export class PiIdeServer {
         break;
       case "npx":
         command = "npx";
-        args = ["-y", target.pkg, ...launchArgs];
+        // -p 显式指定包：包名与 bin 名不同（pi-web）时 npx 无法推断。
+        args = ["-y", "-p", target.pkg, "pi-web", ...launchArgs];
         // Windows 上 npx 是 .cmd shim，必须经 shell 启动。
         useShell = process.platform === "win32";
         this.channel.appendLine(`首次经 npx 启动需联网下载 ${target.pkg}，可能较慢。`);
@@ -509,7 +510,7 @@ export class PiIdeServer {
 
   /**
    * embed 协议兼容性检查。桥消息结构不兼容时按偏新的一侧给出升级指引：
-   * 服务器协议高 → 升级扩展；服务器协议低 → 升级 pi-web-for-ide 包。
+   * 服务器协议高 → 升级扩展；服务器协议低 → 升级 @william_stone/pi-web-for-ide 包。
    * 警告而非硬阻断：会话浏览等基础功能在协议偏差下通常仍可用。
    */
   private checkProtocolCompat(protocol: number, serverVersion?: string): void {
