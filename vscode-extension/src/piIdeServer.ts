@@ -463,13 +463,17 @@ export class PiIdeServer {
    * 非阻断：页面仍可浏览会话。
    */
   private async verifyEmbedSupport(origin: string): Promise<void> {
-    // 服务器刚起时 /api/embed 可能要几秒（冷启动、杀软扫描、懒加载路由），
-    // 单次 3s 探测会误报"缺补丁"。重试约 20s，全部失败才警告。
-    const deadline = Date.now() + 20_000;
+    // standalone 在 listen 成功时就打印 URL，但首请求还要懒加载路由，
+    // 冷启动/杀软扫描下可能 30s+ 才真正可服务。探测分两态：
+    //   连接层失败 → 仍在启动，继续等（窗口 90s）；
+    //   拿到 HTTP 响应 → 立即判定：404=真原版，200+协议号=通过。
+    const deadline = Date.now() + 90_000;
     let lastError = "no response";
+    let gotHttpResponse = false;
     while (Date.now() < deadline) {
       try {
-        const res = await fetch(`${origin}/api/embed`, { signal: AbortSignal.timeout(4000) });
+        const res = await fetch(`${origin}/api/embed`, { signal: AbortSignal.timeout(5000) });
+        gotHttpResponse = true;
         const data = (await res.json().catch(() => null)) as
           | { embed?: { protocol?: number; version?: string } }
           | null;
@@ -480,11 +484,22 @@ export class PiIdeServer {
           this.checkProtocolCompat(data.embed.protocol, data.embed.version);
           return;
         }
+        if (res.status === 404) {
+          lastError = "HTTP 404（路由不存在）";
+          break; // 服务器在跑但确实没有 embed 路由——原版，立即警告
+        }
         lastError = `HTTP ${res.status}`;
       } catch (e) {
         lastError = String(e);
       }
       await new Promise((r) => setTimeout(r, 2000));
+    }
+    if (!gotHttpResponse) {
+      this.channel.appendLine(`警告：/api/embed 探测 90s 内未获 HTTP 响应（${lastError}）——服务器可能仍在启动或已崩溃。`);
+      void vscode.window.showWarningMessage(
+        "pi for IDE：服务器启动后 90 秒仍未响应，请查看输出面板（pi for IDE）中的 spawn 日志，或执行「pi for IDE: 停止服务器」后重试。",
+      );
+      return;
     }
     this.channel.appendLine(`警告：/api/embed 探测失败（${lastError}）——所连 pi-web 可能未包含 embed 桥补丁。`);
     void vscode.window.showWarningMessage(
