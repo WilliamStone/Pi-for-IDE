@@ -1,4 +1,4 @@
-# pi-code — pi for IDE
+# Pi for IDE / Pi Web+
 
 [中文](./README.zh-CN.md) | [日本語](./README.ja.md) | [Русский](./README.ru.md)
 
@@ -70,7 +70,7 @@ Can't connect, blank panel, save errors: see [docs/vscode-extension-deploy.md](.
 - **[pi](https://github.com/earendil-works/pi)** (earendil-works): the underlying coding agent.
 - **[pi-web](https://github.com/agegr/pi-web)** (agegr): the Next.js web UI for pi — this repo's direct upstream; the entire web application is theirs, and we merge upstream releases rather than re-implementing.
 - **[pi-code](https://github.com/wangjinxin613/pi-code)** (wangjinxin613): the original IDE integration — the VSCode extension, embed bridge, file review/revert, and active-file injection all originate there; this repo forks from it.
-- **This repo (WilliamStone/pi-code)**: on top of pi-code — decoupled packaging (external npm package + thin extension), brand layering (Pi Web+ / pi for IDE), pnpm/PATH-shim server resolution, the standalone MCP fix, server/webview lifecycle fixes, and continued upstream sync. See `docs/decoupling-plan.md`.
+- **[pi-for-ide](https://github.com/WilliamStone/Pi-for-IDE) (This Repo)**: on top of pi-code — decoupled packaging (external npm package + thin extension), brand layering (Pi Web+ / pi for IDE), pnpm/PATH-shim server resolution, the standalone MCP fix, server/webview lifecycle fixes, and continued upstream sync. See `docs/decoupling-plan.md`.
 
 ## For developers
 

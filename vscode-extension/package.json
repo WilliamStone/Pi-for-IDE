@@ -8,7 +8,7 @@
   "icon": "resources/icons/icon-128.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/WilliamStone/pi-code.git"
+    "url": "https://github.com/WilliamStone/Pi-for-IDE.git"
   },
   "engines": {
     "vscode": "^1.80.0"

@@ -1,4 +1,4 @@
-diff --git a/.gitignore b/.gitignore
+﻿diff --git a/.gitignore b/.gitignore
 index 3a44c74..6abdd10 100644
 --- a/.gitignore
 +++ b/.gitignore
@@ -6761,7 +6761,7 @@ index 0000000..116f52e
 +- 扩展 ↔ pi-web 之间已是进程间协议：HTTP（iframe 加载页面）+ postMessage 双向桥。
 +- 上游 pi-web **没有**任何 embed/vscode 代码；本仓 delta 独有（~1500 行）。
 +- pi-web 进程内 import `@earendil-works/pi-coding-agent` 创建 AgentSession；pi 没有可作为独立服务的边界（pi 虽有 JSONL RPC 模式，但 pi-web 未使用）。
-+- 本仓 `WilliamStone/pi-code` 处于 agegr/pi-web 的 fork 网络内 → 可直接向两个上游提 PR；GitHub "单 fork" 限制只限 repo 数量，不限 git remote/branch。
++- 本仓 `WilliamStone/Pi-for-IDE` 处于 agegr/pi-web 的 fork 网络内 → 可直接向两个上游提 PR；GitHub "单 fork" 限制只限 repo 数量，不限 git remote/branch。
 +
 +## 总原则
 +
@@ -6789,7 +6789,7 @@ index 0000000..116f52e
 +
 +```
 +remotes:
-+  origin        = WilliamStone/pi-code   （本仓）
++  origin        = WilliamStone/Pi-for-IDE   （本仓）
 +  upstream      = wangjinxin613/pi-code  （扩展代码来源；若复活可合并，降为"参考"）
 +  agegr-pi-web  = agegr/pi-web           （pi-web 上游，tag vX.Y.Z 齐全）
 +
@@ -245867,7 +245867,7 @@ index 0000000..d12a9da
 ++- 扩展 ↔ pi-web 之间已是进程间协议：HTTP（iframe 加载页面）+ postMessage 双向桥。
 ++- 上游 pi-web **没有**任何 embed/vscode 代码；本仓 delta 独有（~1500 行）。
 ++- pi-web 进程内 import `@earendil-works/pi-coding-agent` 创建 AgentSession；pi 没有可作为独立服务的边界（pi 虽有 JSONL RPC 模式，但 pi-web 未使用）。
-++- 本仓 `WilliamStone/pi-code` 处于 agegr/pi-web 的 fork 网络内 → 可直接向两个上游提 PR；GitHub "单 fork" 限制只限 repo 数量，不限 git remote/branch。
+++- 本仓 `WilliamStone/Pi-for-IDE` 处于 agegr/pi-web 的 fork 网络内 → 可直接向两个上游提 PR；GitHub "单 fork" 限制只限 repo 数量，不限 git remote/branch。
 ++
 ++## 总原则
 ++
@@ -245895,7 +245895,7 @@ index 0000000..d12a9da
 ++
 ++```
 ++remotes:
-++  origin        = WilliamStone/pi-code   （本仓）
+++  origin        = WilliamStone/Pi-for-IDE   （本仓）
 ++  upstream      = wangjinxin613/pi-code  （扩展代码来源；若复活可合并，降为"参考"）
 ++  agegr-pi-web  = agegr/pi-web           （pi-web 上游，tag vX.Y.Z 齐全）
 ++
@@ -262900,7 +262900,7 @@ index 0000000..d12a9da
 +++- 扩展 ↔ pi-web 之间已是进程间协议：HTTP（iframe 加载页面）+ postMessage 双向桥。
 +++- 上游 pi-web **没有**任何 embed/vscode 代码；本仓 delta 独有（~1500 行）。
 +++- pi-web 进程内 import `@earendil-works/pi-coding-agent` 创建 AgentSession；pi 没有可作为独立服务的边界（pi 虽有 JSONL RPC 模式，但 pi-web 未使用）。
-+++- 本仓 `WilliamStone/pi-code` 处于 agegr/pi-web 的 fork 网络内 → 可直接向两个上游提 PR；GitHub "单 fork" 限制只限 repo 数量，不限 git remote/branch。
++++- 本仓 `WilliamStone/Pi-for-IDE` 处于 agegr/pi-web 的 fork 网络内 → 可直接向两个上游提 PR；GitHub "单 fork" 限制只限 repo 数量，不限 git remote/branch。
 +++
 +++## 总原则
 +++
@@ -262928,7 +262928,7 @@ index 0000000..d12a9da
 +++
 +++```
 +++remotes:
-+++  origin        = WilliamStone/pi-code   （本仓）
++++  origin        = WilliamStone/Pi-for-IDE   （本仓）
 +++  upstream      = wangjinxin613/pi-code  （扩展代码来源；若复活可合并，降为"参考"）
 +++  agegr-pi-web  = agegr/pi-web           （pi-web 上游，tag vX.Y.Z 齐全）
 +++

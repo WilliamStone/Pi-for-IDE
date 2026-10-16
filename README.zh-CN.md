@@ -68,9 +68,9 @@ pi-web status|stop|open|update|update-sdk
 ## 上游与各层贡献
 
 - **[pi](https://github.com/earendil-works/pi)**（earendil-works）：底层智能体本体。
-- **[pi-web](https://github.com/agegr/pi-web)**（agegr）：pi 的 Next.js Web UI——本仓的直接上游；Web 应用本体全部出自上游，我们定期合并上游版本而非重写。
+- **[pi-web](https://github.com/agegr/pi-web)**（agegr）：pi 的 Next.js Web UI——本仓的直接上游；Web 应用本体全部出自上游，我们定期合并上游版本而非重写。  
 - **[pi-code](https://github.com/wangjinxin613/pi-code)**（wangjinxin613）：首个 IDE 集成——VSCode 扩展、embed 桥、文件审查/回退、活动文件注入均源于它；本仓库从它 fork。
-- **本仓（WilliamStone/pi-code）**：在 pi-code 之上——发行形态解耦（外置 npm 包 + 轻量扩展壳）、品牌分层（Pi Web+/pi for IDE）、pnpm/PATH shim 解析、standalone MCP 修复、服务器/webview 生命周期修复、持续上游同步。详见 `docs/decoupling-plan.md`。
+- **[pi-for-ide](https://github.com/WilliamStone/Pi-for-IDE)（本仓）**：在 pi-code 之上——发行形态解耦（外置 npm 包 + 轻量扩展壳）、品牌分层（Pi Web+/pi for IDE）、pnpm/PATH shim 解析、standalone MCP 修复、服务器/webview 生命周期修复、持续上游同步。详见 `docs/decoupling-plan.md`。
 
 ## 面向开发者
 

@@ -19,7 +19,7 @@
 - 扩展 ↔ pi-web 之间已是进程间协议：HTTP（iframe 加载页面）+ postMessage 双向桥。
 - 上游 pi-web **没有**任何 embed/vscode 代码；本仓 delta 独有（~1500 行）。
 - pi-web 进程内 import `@earendil-works/pi-coding-agent` 创建 AgentSession；pi 没有可作为独立服务的边界（pi 虽有 JSONL RPC 模式，但 pi-web 未使用）。
-- 本仓 `WilliamStone/pi-code` 处于 agegr/pi-web 的 fork 网络内 → 可直接向两个上游提 PR；GitHub "单 fork" 限制只限 repo 数量，不限 git remote/branch。
+- 本仓 `WilliamStone/Pi-for-IDE` 处于 agegr/pi-web 的 fork 网络内 → 可直接向两个上游提 PR；GitHub "单 fork" 限制只限 repo 数量，不限 git remote/branch。
 
 ## 总原则
 
@@ -47,9 +47,9 @@
 
 ```
 remotes:
-  origin        = WilliamStone/pi-code   （本仓）
-  upstream      = wangjinxin613/pi-code  （扩展代码来源；若复活可合并，降为"参考"）
-  agegr-pi-web  = agegr/pi-web           （pi-web 上游，tag vX.Y.Z 齐全）
+  origin        = WilliamStone/Pi-for-IDE （本仓）
+  upstream      = wangjinxin613/pi-code   （扩展代码来源；若复活可合并，降为"参考"）
+  agegr-pi-web  = agegr/pi-web            （pi-web 上游，tag vX.Y.Z 齐全）
 
 branches:
   main = 产品分支：embed 抽象层 + vscode-extension/ + 打过 delta 的 pi-web 树

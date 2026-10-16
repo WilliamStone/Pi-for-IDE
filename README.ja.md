@@ -1,4 +1,4 @@
-# pi-code — Pi Web+ / pi for IDE
+# Pi for IDE / Pi Web+
 
 [English](./README.md) | [中文](./README.zh-CN.md) | [Русский](./README.ru.md)
 

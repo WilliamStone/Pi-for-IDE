@@ -24,5 +24,5 @@ export function isNewerStableVersion(candidate: string, current: string): boolea
 
 export function getPiWebReleaseUrl(version: string): string | null {
   if (!parseStableVersion(version)) return null;
-  return `https://github.com/WilliamStone/pi-code/releases/tag/v${version}`;
+  return `https://github.com/WilliamStone/Pi-for-IDE/releases/tag/v${version}`;
 }
