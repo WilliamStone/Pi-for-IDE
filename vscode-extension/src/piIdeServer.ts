@@ -96,10 +96,27 @@ function resolveGlobalPackageBin(pkg: string): Promise<string | undefined> {
  * 在 PATH 上找 `pi-web` shim（`where`/`which`），从 shim 内容里提取它实际
  * 调用的 bin/pi-web.js 路径。npm/pnpm/yarn/bun 的全局 shim 都会内嵌真实
  * 入口（`%~dp0\..\...\bin\pi-web.js` 或 `$basedir/...`），各包管理器通用。
+ *
+ * shim 只按命令名匹配，背后可能挂着旧 unscoped 包（pi-web-for-ide）或
+ * 上游原版 @agegr/pi-web——因此还要读目标包的 package.json，name 与
+ * expectedPkg 不一致时跳过该 shim（交给后续 npx 兜底拿到正确发行包）。
  * 找不到或解析失败时安静返回 undefined。
  */
-function resolvePathShimBin(): Promise<string | undefined> {
-  const cmd = process.platform === "win32" ? "where pi-web" : "which pi-web";
+async function resolvePathShimBin(
+  expectedPkg: string,
+  log?: (line: string) => void,
+): Promise<string | undefined> {
+  // 只认本包专属命令名 pi-web-for-ide——上游 pi-web 同名 shim 不做
+  // 回退探测：本包不在就直接走 npx/安装流程，杜绝误拉原版。
+  return resolveSingleShimBin("pi-web-for-ide", expectedPkg, log);
+}
+
+function resolveSingleShimBin(
+  binName: string,
+  expectedPkg: string,
+  log?: (line: string) => void,
+): Promise<string | undefined> {
+  const cmd = process.platform === "win32" ? `where ${binName}` : `which ${binName}`;
   return new Promise((resolve) => {
     cp.exec(cmd, { timeout: 10_000 }, (err, stdout) => {
       if (err) {
@@ -120,10 +137,10 @@ function resolvePathShimBin(): Promise<string | undefined> {
         let target: string | undefined;
         const tagged = content.match(/^#?\s*cmd-shim-target=(\S+)/m);
         if (tagged) target = tagged[1];
-        // 兜底：取第一个引号包裹的 …/bin/pi-web.js，把开头的 %~dp0 /
+        // 兜底：取第一个引号包裹的 …/bin/<binName>.js，把开头的 %~dp0 /
         // $basedir / $basedir_win 等"shim 目录变量"归一化成相对路径。
         if (!target || !existsSync(target)) {
-          const m = content.match(/["']([^"']*bin[/\\]pi-web\.js)["']/);
+          const m = content.match(new RegExp(`["']([^"']*bin[/\\\\]${binName}\\.js)["']`));
           if (!m) continue;
           target = path.resolve(
             shimDirOf(line),
@@ -131,6 +148,21 @@ function resolvePathShimBin(): Promise<string | undefined> {
           );
         }
         if (existsSync(target)) {
+          // 校验 shim 背后真实包的 name——名字不符说明挂的是别的包。
+          let actualName: string | undefined;
+          try {
+            actualName = JSON.parse(
+              readFileSync(path.join(path.dirname(path.dirname(target)), "package.json"), "utf8"),
+            ).name;
+          } catch {
+            // 读不到 package.json 视为身份不明，同样跳过。
+          }
+          if (actualName !== expectedPkg) {
+            log?.(
+              `PATH shim ${line} 指向 ${actualName ?? "未知包"}（期望 ${expectedPkg}），跳过。`,
+            );
+            continue;
+          }
           resolve(target);
           return;
         }
@@ -188,7 +220,7 @@ export async function installPiWebPackage(
 export async function checkPiWebUpdate(
   pkg: string,
 ): Promise<{ current: string; latest: string } | undefined> {
-  const binPath = (await resolveGlobalPackageBin(pkg)) ?? (await resolvePathShimBin());
+  const binPath = (await resolveGlobalPackageBin(pkg)) ?? (await resolvePathShimBin(pkg));
   if (!binPath) return undefined;
   const pkgJson = path.join(path.dirname(path.dirname(binPath)), "package.json");
   let current: string;
@@ -348,7 +380,7 @@ export class PiIdeServer {
     // 4) PATH 上的 pi-web shim（pnpm/yarn/bun 全局安装都会落这里；
     //    shim 脚本内含真实 bin/pi-web.js 路径，解析后仍走 node 直启，
     //    避免经 .cmd 外壳导致 stop 杀不死内层服务进程）。
-    const shimBin = await resolvePathShimBin();
+    const shimBin = await resolvePathShimBin(pkg, (l) => this.channel.appendLine(l));
     if (shimBin) {
       this.channel.appendLine(`pi-web 入口（PATH shim）: ${shimBin}`);
       return { mode: "bin", path: shimBin };
@@ -398,7 +430,8 @@ export class PiIdeServer {
       case "npx":
         command = "npx";
         // -p 显式指定包：包名与 bin 名不同（pi-web）时 npx 无法推断。
-        args = ["-y", "-p", target.pkg, "pi-web", ...launchArgs];
+        // -p 显式指定包；bin 名 pi-web-for-ide（与上游 pi-web 不撞名）。
+        args = ["-y", "-p", target.pkg, "pi-web-for-ide", ...launchArgs];
         // Windows 上 npx 是 .cmd shim，必须经 shell 启动。
         useShell = process.platform === "win32";
         this.channel.appendLine(`首次经 npx 启动需联网下载 ${target.pkg}，可能较慢。`);
@@ -471,10 +504,12 @@ export class PiIdeServer {
     const deadline = Date.now() + 90_000;
     let lastError = "no response";
     let gotHttpResponse = false;
+    let saw5xx = false;
     while (Date.now() < deadline) {
       try {
         const res = await fetch(`${origin}/api/embed`, { signal: AbortSignal.timeout(5000) });
         gotHttpResponse = true;
+        if (res.status >= 500) saw5xx = true;
         const data = (await res.json().catch(() => null)) as
           | { embed?: { protocol?: number; version?: string } }
           | null;
@@ -499,6 +534,16 @@ export class PiIdeServer {
       this.channel.appendLine(`警告：/api/embed 探测 90s 内未获 HTTP 响应（${lastError}）——服务器可能仍在启动或已崩溃。`);
       void vscode.window.showWarningMessage(
         "pi for IDE：服务器启动后 90 秒仍未响应，请查看输出面板（pi for IDE）中的 spawn 日志，或执行「pi for IDE: 停止服务器」后重试。",
+      );
+      return;
+    }
+    // 5xx ≠ 原版：服务器在跑但路由抛错，多半是发行包安装不完整
+    // （典型：pnpm/npm 拦了 postinstall，junction 未建）——提示重装/升级，
+    // 而不是误报成"原版 pi-web"。
+    if (saw5xx) {
+      this.channel.appendLine(`警告：/api/embed 返回 ${lastError}——服务器在运行但路由报错，发行包可能安装不完整。`);
+      void vscode.window.showWarningMessage(
+        `pi for IDE：pi-web 服务器启动但接口报错（${lastError}），安装可能不完整。请重装发行包：pnpm remove -g pi-web-for-ide && pnpm add -g ${this.packageName()}@latest，或查看输出面板（pi for IDE）。`,
       );
       return;
     }

@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.4] - 2026-10-17
+
+- Fix: PATH shim resolution verified the shim's backing package — a stale install of the old unscoped `pi-web-for-ide` (or upstream `pi-web`) shim is now skipped in favor of the npx fallback, instead of launching the wrong package.
+- Diagnose /api/embed 5xx as broken install (reinstall guidance) instead of mislabeling it as upstream pi-web.
+
 ## [0.1.2] - 2026-10-17
 
 - Store listing readme now generated from the repository root README (single source of truth).

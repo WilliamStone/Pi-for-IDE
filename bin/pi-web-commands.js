@@ -115,7 +115,7 @@ async function runCommand(options, {
       // A running server holds .next/ open; never rewrite its SDK underneath.
       const running = await list();
       if (running.length > 0) {
-        error(`pi-web is running:\n${running.map(records.formatRunRecord).join("\n")}\nRun \`pi-web stop\` first, then update the SDK.`);
+        error(`pi-web is running:\n${running.map(records.formatRunRecord).join("\n")}\nRun \`pi-web-for-ide \` first, then update the SDK.`);
         return 1;
       }
       return runUpdateSdk(options.sdkVersion, { pkgDir, log, error });

@@ -27,11 +27,11 @@ npm i -g ./pi-web-for-ide-0.12.1.tgz
 验证：
 
 ```bash
-pi-web --version            # 0.12.1
-pi-web --port 30146 --no-open
+pi-web-for-ide --version         # 0.12.1
+pi-web-for-ide --port 30146 --no-open
 # 另开终端：
 curl http://127.0.0.1:30146/api/embed   # → {"embed":{"protocol":1}}
-pi-web stop                              # 停掉测试服务器
+pi-web-for-ide stop                           # 停掉测试服务器
 ```
 
 `/api/embed` 返回 `{"embed":{"protocol":1}}` 是**打过 IDE 集成补丁的 pi-web 的指纹**——原版上游包没有此端点。扩展启动后也会探测它，连到原版（或未打补丁的包名）会弹警告而不是静默失败。
@@ -50,7 +50,7 @@ pi-web stop                              # 停掉测试服务器
 
 ### 方式 C：npx 兜底（需已发布到 npm 后才有意义）
 
-什么都不装时扩展会尝试 `npx -y -p @william_stone/pi-web-for-ide pi-web`（包名与 bin 名不同，必须 `-p` 指定包）——发布后首次运行联网下载，之后走 npx 缓存。
+什么都不装时扩展会尝试 `npx -y -p @william_stone/pi-web-for-ide pi-web-for-ide`（包名与 bin 名不同，必须 `-p` 指定包）——发布后首次运行联网下载，之后走 npx 缓存。
 
 ## 二、构建并安装扩展
 
@@ -106,7 +106,7 @@ code --install-extension .\pi-for-ide-0.1.0.vsix
 
 - **面板报「未找到 pi-web 服务器」**：按第四节解析顺序排查——`npm root -g` 下是否有 `@william_stone/pi-web-for-ide`；`pi-web --version` 在 VSCode 同一环境是否能跑（PATH 差异时用 `executablePath` 兜底）。
 - **启动后警告「未包含 embed 桥补丁」**：连到原版 pi-web——检查 `piIde.package` 名是否仍是 `@william_stone/pi-web-for-ide`，或全局装的是旧 tarball（重新 `npm pack` + `npm i -g`）。
-- **端口被占**：`piIde.port` 会自动 +1 探测；也可 `pi-web status` 查看现有服务 / `pi-web stop` 停掉。
+- **端口被占**：`piIde.port` 会自动 +1 探测；也可 `pi-web-for-ide status` 查看现有服务 / `pi-web-for-ide stop` 停掉。
 - **更新 SDK**：`pi-web update-sdk <version>`（服务须先停）；`pi-web update` 升级 @william_stone/pi-web-for-ide 本体。
 - **安装时脚本被拦**（npm `allow-scripts`、pnpm 忽略 build scripts 等）：
   `@william_stone/pi-web-for-ide` 的 `postinstall` 负责把 standalone 外部包接成

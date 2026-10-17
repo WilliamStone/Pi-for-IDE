@@ -22,7 +22,7 @@
     "ios_saf 16.2"
   ],
   "bin": {
-    "pi-web": "bin/pi-web.js"
+    "pi-web-for-ide": "bin/pi-web.js"
   },
   "files": [
     "bin",

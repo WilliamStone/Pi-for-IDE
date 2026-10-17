@@ -9,7 +9,7 @@ This repo ships two independently installable and updateable deliverables:
 | Deliverable | Name | Role |
 |---|---|---|
 | VSCode extension | **`pi-for-ide`** (`WilliamStone.pi-for-ide`) | **The product**. A lightweight host shell (~190KB): launches/connects to a pi-web server and layers IDE integration inside the webview. |
-| npm package | **`@william_stone/pi-web-for-ide`** | The substrate. pi-web plus an IDE adaptation layer; IDE features activate when a host embeds it via `?embed=<host>`. CLI command: `pi-web`. |
+| npm package | **`@william_stone/pi-web-for-ide`** | The substrate. pi-web plus an IDE adaptation layer; IDE features activate when a host embeds it via `?embed=<host>`. CLI command: `pi-web-for-ide` (deliberately distinct from upstream's `pi-web` so the two can coexist). |
 
 The relationship: `@william_stone/pi-web-for-ide` is "pi-web + a host-adaptation layer". Standalone it behaves like stock pi-web (brand slot shows **Pi Web+**); IDE features activate only in embed mode. The extension carries no pi-web payload — the web app installs and upgrades separately.
 
@@ -49,7 +49,7 @@ Then click the **pi for IDE** status-bar item or run **pi for IDE: 打开**. On 
 **Optional: standalone mode.** The installed package also runs in a plain browser like stock pi-web (brand shows Pi Web+):
 
 ```bash
-pi-web                # http://127.0.0.1:3030; see pi-web --help for --port/--hostname/--no-open
+pi-web-for-ide            # http://127.0.0.1:3030; see pi-web-for-ide --help for --port/--hostname/--no-open
 pi-web status|stop|open|update|update-sdk
 ```
 
@@ -74,7 +74,7 @@ Can't connect, blank panel, save errors: see [docs/vscode-extension-deploy.md](.
 
 ## For developers
 
-Server-entry resolution order (extension side): `piIde.executablePath` → bundled `resources/` (transitional) → `npm root -g` → `pi-web` PATH shim (npm/pnpm/yarn/bun shims all supported) → `npx` fallback. After spawn it probes `GET /api/embed` and warns when the connected server lacks the IDE patch.
+Server-entry resolution order (extension side): `piIde.executablePath` → bundled `resources/` (transitional) → `npm root -g` → `pi-web-for-ide` PATH shim (only our package's own command name is accepted — an upstream `pi-web` shim is never launched) → `npx` fallback. After spawn it probes `GET /api/embed` and warns when the connected server lacks the IDE patch.
 
 Architecture:
 

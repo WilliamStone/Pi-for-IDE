@@ -9,7 +9,7 @@
 | 产物 | 名称 | 角色 |
 |---|---|---|
 | VSCode 扩展 | **`pi-for-ide`**（`WilliamStone.pi-for-ide`） | **主体**。轻量宿主壳（~190KB）：拉起/连接 pi-web 服务器，在 webview 内叠加 IDE 集成。 |
-| npm 包 | **`@william_stone/pi-web-for-ide`** | 底座。pi-web + IDE 适配层；被宿主以 `?embed=<host>` 嵌入时激活 IDE 能力，否则仍提供原版能力。CLI 命令：`pi-web`。 |
+| npm 包 | **`@william_stone/pi-web-for-ide`** | 底座。pi-web + IDE 适配层；被宿主以 `?embed=<host>` 嵌入时激活 IDE 能力，否则仍提供原版能力。CLI 命令：`pi-web-for-ide`（刻意区别于上游 `pi-web`，两者可共存）。 |
 
 两者的关系：`@william_stone/pi-web-for-ide` 就是"pi-web + 一层宿主适配"，独立运行时与原版 pi-web 无异（品牌位显示 **Pi Web+**）；IDE 特性只在嵌入模式下激活。扩展本身不再携带 pi-web——pi-web 单独安装、单独升级，扩展只负责拉起与桥接。
 
@@ -49,7 +49,7 @@ code --install-extension vscode-extension/pi-for-ide-0.1.0.vsix    # VSCodium �
 **可选：独立运行**。装好的包也能脱离 IDE 在浏览器里跑（此时即原版 pi-web 形态，品牌位显示 Pi Web+）：
 
 ```bash
-pi-web                # http://127.0.0.1:3030；--port/--hostname/--no-open 等参数见 pi-web --help
+pi-web-for-ide            # http://127.0.0.1:3030；--port/--hostname/--no-open 等参数见 pi-web-for-ide --help
 pi-web status|stop|open|update|update-sdk
 ```
 
@@ -74,7 +74,7 @@ pi-web status|stop|open|update|update-sdk
 
 ## 面向开发者
 
-服务器入口解析顺序（扩展侧）：`piIde.executablePath` → 内置 `resources/`（过渡兼容）→ `npm root -g` → `pi-web` PATH shim（npm/pnpm/yarn/bun shim 均可）→ `npx` 兜底。启动后探测 `GET /api/embed`，所连服务器不含 IDE 补丁时弹警告。
+服务器入口解析顺序（扩展侧）：`piIde.executablePath` → 内置 `resources/`（过渡兼容）→ `npm root -g` → `pi-web-for-ide` PATH shim（只认本包专属命令名，上游 `pi-web` shim 不会被拉起）→ `npx` 兜底。启动后探测 `GET /api/embed`，所连服务器不含 IDE 补丁时弹警告。
 
 架构：
 
