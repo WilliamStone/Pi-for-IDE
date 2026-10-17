@@ -53,6 +53,28 @@ Locale: `defaultLocale` is `"en"` (SSR default; browser detection still applies 
 
 Known remaining: `lib/subagent-mcp.integration.test.mjs` takes ~233s per mcp test on Windows (SDK-side connect wait, still passes). Suspect antivirus interception of child spawns or proxy env vars — verify by retesting with Defender off / unset `HTTP(S)_PROXY`.
 
+## Authoritative test env: docker155 (Linux)
+
+The Windows dev box passes too, but its suite has platform skips and slow subagent tests. The **authoritative** gate is the LAN docker host — upstream's environment exactly, ~3.3min for the full suite:
+
+- Host: `ssh docker155` (root@192.168.1.155, key `~/.ssh/lan_rsa`, recorded in `machine-env.md`). DockerHub unreachable; node is a bind-mounted binary at `/root/node24` and git at host paths — do NOT `apt`.
+- Repo: `git archive HEAD | ssh docker155 'tar xz -C /root/pi-code'` (tracked files only; commit test changes first).
+- Install once per source update: `docker run --rm -v /root/node24:/opt/node:ro -v /root/pi-code:/w -w /w ubuntu:22.04 bash -c 'PATH=/opt/node/bin:$PATH npm ci --registry=https://registry.npmmirror.com --replace-registry-host=always --no-audit --no-fund'`
+- Test run must be **non-root** (root ignores read-only dirs → false failures) and mount host git:
+
+```bash
+docker run --rm --user 1000:1000 -e HOME=/tmp \
+  -e GIT_AUTHOR_NAME=t -e GIT_AUTHOR_EMAIL=t@t -e GIT_COMMITTER_NAME=t -e GIT_COMMITTER_EMAIL=t@t \
+  -v /root/node24:/opt/node:ro -v /root/pi-code:/w \
+  -v /usr/bin/git:/usr/bin/git:ro -v /usr/lib/git-core:/usr/lib/git-core:ro \
+  -v /usr/share/git-core:/usr/share/git-core:ro \
+  -v /lib/x86_64-linux-gnu/libpcre2-8.so.0:/lib/x86_64-linux-gnu/libpcre2-8.so.0:ro \
+  -v /lib/x86_64-linux-gnu/libz.so.1:/lib/x86_64-linux-gnu/libz.so.1:ro \
+  -w /w ubuntu:22.04 bash -c 'PATH=/opt/node/bin:$PATH npm test'
+```
+
+v0.12.2 result: **2779 tests, 2778 pass, 0 fail, 1 skip** in 196s. The Windows-only skips (read-only-dir, mode bits) DO run here.
+
 ## Test suite practicalities
 
 - Full run ~10–25min on Windows; prefer targeted runs while iterating:
