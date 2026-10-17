@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.1.5] - 2026-10-17
+
+- Renamed the fallback command to `pi-web-for-ide` (matches the 0.12.1-2 package bin; the stale 0.1.4 upload referenced a nonexistent `pi-web-ide` bin in its npx fallback — superseded).
+
 ## [0.1.4] - 2026-10-17
 
 - Fix: PATH shim resolution verified the shim's backing package — a stale install of the old unscoped `pi-web-for-ide` (or upstream `pi-web`) shim is now skipped in favor of the npx fallback, instead of launching the wrong package.
