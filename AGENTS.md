@@ -18,6 +18,15 @@ This is an internationalized project — every string an end user can see follow
 - **Where it does not, write English.** Runtime strings everywhere — extension notifications/status bar/output logs/webview shell/bridge messages, and package-side CLI output (`bin/pi-web*.js` console/error text users can see in the log channel) — are English-only literals; do not add Chinese (or other locale) user-facing strings.
 - Code comments are developer-facing and exempt; this rule covers UI surface only.
 
+### Fork delta discipline (upstream merges)
+
+Every in-place edit inside an upstream-owned file is a future merge conflict. Keep the delta minimal:
+
+- Embed/IDE features live in our own files first: `lib/embed/**`, `components/embed/**`, `hooks/useEmbed*`, `bin/pi-web-standalone.js`, `vscode-extension/**`.
+- When an upstream file must change, prefer **adding a call site** (a hook call, an options field, a conditional branch) over changing existing signatures or logic.
+- When a signature genuinely must change (e.g. `getInstallKind` needing `name`), keep the change small and expect to re-resolve it at every sync.
+- Upstream test files will assume POSIX; on Windows failures, apply the playbook in [upstream-sync.md](docs/agents/upstream-sync.md) rather than diagnosing from scratch.
+
 ### Dev server troubleshooting
 
 - First run `lsof -nP -iTCP:30141 -sTCP:LISTEN` and reuse a healthy Pi Web process. A second `next dev` on another port is no workaround: both contend for `.next/dev/lock`.
@@ -261,6 +270,7 @@ Design decisions and traps live in `docs/agents/`, one note per area. Read every
 - [files-and-access.md](docs/agents/files-and-access.md): worktrees and project grouping, the file access allow-list (the `/api/files` security boundary), file tree visibility and its open directories per folder, uploads and chat file drops, the source view's languages by extension, the CSV/TSV table view, web password throttling. Files: `app/api/files/**`, `app/api/cwd/**`, `app/api/worktrees/**`, `app/api/file-index/**`, `app/api/web-auth/**`, `proxy.ts`, `lib/path-security.ts`, `lib/file-access.ts`, `lib/linked-directory.ts`, `lib/session-file-references*.ts`, `lib/file-tree-visibility.ts`, `lib/file-tree-expansion.ts`, `lib/file-upload-client.ts`, `lib/worktree.ts`, `lib/paths.ts`, `lib/auth-throttle.ts`, `components/ProjectWorktreePicker.tsx`, `components/NewSessionContextBar.tsx`, `components/FileExplorer.tsx`, `lib/delimited-table.ts`, `components/DelimitedTable.tsx`, the table branch of `components/FileViewer.tsx`, `hooks/useDragDrop.ts`.
 - [settings-ui.md](docs/agents/settings-ui.md): General's sidebar file-browser choice, Plugins and Skills routes, sidebar group switches, the shared `SettingsUi` blocks every settings panel and add pane uses. Files: `app/api/plugins/**`, `app/api/skills/**`, `lib/skills-service.ts`, `components/SettingsUi.tsx`, `components/settings-ui-helpers.ts`, `components/SkillsConfig.tsx`, `components/PluginsConfig.tsx`, `hooks/useFilesPlacement.ts`; also before adding a settings section or add pane.
 - [subagents.md](docs/agents/subagents.md): the built-in subagent setting, profiles and their files, run status, completion notifications, the subagent viewer tab. Files: `lib/subagent*.ts`, `app/api/subagents/**`, `components/AgentsConfig.tsx`, `components/SubagentViewer.tsx`, `components/subagent-viewer-state.ts`.
+- [upstream-sync.md](docs/agents/upstream-sync.md): the merge SOP — read before every `sync-upstream.sh` run (keep-ours file list, post-merge checks, Windows test-failure playbook).
 - [client-platform.md](docs/agents/client-platform.md): mobile software keyboard and viewport height, the terminal's extra keys and its own dark/light theme, completion sound. Files: `hooks/useViewportHeight.ts`, `hooks/useAudio.ts`, `components/TerminalExtraKeys.tsx`, `lib/terminal-extra-keys.ts`, `lib/terminal-theme.ts`, `hooks/useTerminalTheme.ts`, the keyboard-open CSS.
 
 ---

@@ -1,0 +1,3 @@
+# 全仓统一 LF：源码切片类测试用 '\n' 定位，CRLF 检出会炸。
+# text=auto 只影响判定为文本的文件；二进制（png/vsix 等）不动。
+* text=auto eol=lf
