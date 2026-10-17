@@ -274,3 +274,9 @@ Location: `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`
 --accent --user-bg --tool-bg
 --font-mono
 ```
+
+## Git 提交节奏
+
+- 不边改边提交：一个工作内容完成并可验收时再提交（如确定发布时、切换工作项时收上一轮）。
+- 同一工作的多个连续提交用 squash 合并成一个后再推。
+- 一切公开发布（npm stage/publish、ovsx/vsce publish、unpublish/delete）先提方案经用户审批，不擅自执行。
