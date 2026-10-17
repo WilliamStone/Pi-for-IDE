@@ -5,10 +5,8 @@
 [pi エージェント](https://github.com/earendil-works/pi) の Web UI を VSCode/VSCodium に `pi-for-ide` 拡張機能として組み込み、IDE ワークフロー向けの統合層を重ねたプロジェクト。
 
 - **`pi-for-ide`**（VSCode 拡張機能）：本体。pi-web サーバーを起動・接続する軽量ホストシェル。
-- **`pi-web-for-ide`**（npm パッケージ）：下地。pi-web + IDE 適応層。ブラウザでは **Pi Web+** として独立動作し、`?embed=<host>` で埋め込むと **pi for IDE** モードに切り替わります。CLI: `pi-web`。
+- **`pi-web-for-ide`**（npm パッケージ）：下地。pi-web + IDE 適応層。ブラウザでは **Pi Web+** として独立動作し、`?embed=<host>` で埋め込むと **pi for IDE** モードに切り替わります。CLI: `pi-web-for-ide`。
 
 上流：[pi-web](https://github.com/agegr/pi-web)（agegr、Web UI 本体）、[pi-code](https://github.com/wangjinxin613/pi-code)（wangjinxin613、IDE 統合の起源）。
 
 詳細は英語版 [README.md](../README.md) または中文版 [README.zh-CN.md](./README.zh-CN.md) をご覧ください。
-
-<!-- upstream v0.12.2 の全文翻訳は @agegr/pi-web の説明（パッケージ名・コマンド・ポートが本製品と異なる）のため未採用。以下は参考として保持： -->

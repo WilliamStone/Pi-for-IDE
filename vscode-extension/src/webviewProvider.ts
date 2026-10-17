@@ -182,7 +182,7 @@ export class PiWebWebviewPanel extends vscode.Disposable {
     startLine?: number;
     endLine?: number;
     selectedText?: string;
-  }, viewColumn?: vscode.ViewColumn): Promise<void> {
+  }): Promise<void> {
     // 若面板还没创建，先 reveal 一个（带 cwd）。这里 cwd 传空字符串走默认流程。
     if (!this.panel) {
       return; // reveal 由 piIde.open 命令负责，这里仅推送。

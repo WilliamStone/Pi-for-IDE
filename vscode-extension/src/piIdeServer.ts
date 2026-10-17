@@ -9,7 +9,6 @@ import {
   installManagedPackage,
   levelSupported,
   managedPackageBin,
-  managedRuntimeRoot,
   queryRegistryCompat,
 } from "./managedRuntime";
 

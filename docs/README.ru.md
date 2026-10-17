@@ -4,7 +4,7 @@
 Встраивает веб-интерфейс [агента pi](https://github.com/earendil-works/pi) в VSCode/VSCodium через расширение `pi-for-ide` с интеграционным слоем для IDE-задач.
 
 - **`pi-for-ide`** (расширение VSCode): основной продукт. Лёгкая оболочка, запускающая/подключающая pi-web сервер.
-- **`pi-web-for-ide`** (npm-пакет): основа. pi-web + слой адаптации под IDE. В браузере работает как **Pi Web+**, при встраивании через `?embed=<host>` переключается в режим **pi for IDE**. CLI: `pi-web`.
+- **`pi-web-for-ide`** (npm-пакет): основа. pi-web + слой адаптации под IDE. В браузере работает как **Pi Web+**, при встраивании через `?embed=<host>` переключается в режим **pi for IDE**. CLI: `pi-web-for-ide`.
 
 Апстримы: [pi-web](https://github.com/agegr/pi-web) (agegr, сам веб-интерфейс), [pi-code](https://github.com/wangjinxin613/pi-code) (wangjinxin613, первоисточник IDE-интеграции).
 

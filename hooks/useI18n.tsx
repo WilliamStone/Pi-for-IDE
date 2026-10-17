@@ -6,7 +6,7 @@ import { translateMessage } from "@/lib/i18n/format";
 import type { Locale, LocalePlugin, TranslationParams } from "@/lib/i18n/types";
 
 const LOCALE_STORAGE_KEY = "pi-locale";
-const defaultLocale: Locale = "zh-CN";
+const defaultLocale: Locale = "en";
 
 interface I18nContextValue {
   locale: Locale;

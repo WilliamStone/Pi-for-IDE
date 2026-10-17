@@ -18,9 +18,14 @@ export const VERSION_SHOWN_MS = 3000;
 export const SCRAMBLE_FRAMES_PER_CHAR = 4;
 export const SCRAMBLE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*";
 
+/** The brand text this component scrambles — the product's display name. */
+export const BRAND_TEXT = appDisplayName();
+
 /** The versions as the brand shows them: "0.11.0p1.1.0". */
 export function brandVersionText(appVersion: string | undefined, piVersion: string | undefined): string {
-  return `${appVersion ?? "0.0.0"}p${piVersion ?? "0.0.0"}`;
+  // 品牌彩蛋位只放得下上游 base —— 本仓迭代序号（0.12.2-1 的 -1）略去。
+  const app = (appVersion ?? "0.0.0").replace(/-\d+$/, "");
+  return `${app}p${piVersion ?? "0.0.0"}`;
 }
 
 /** How many frames `target` takes to settle. */

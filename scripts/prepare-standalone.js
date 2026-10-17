@@ -138,6 +138,7 @@ function materializeExternalLinks(serverDir) {
  * 副本的 junction——实现见 bin/pi-web-standalone.js，postinstall 共用
  * （npm pack 会把 junction 展开回实目录，装包时必须重连）。
  */
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- Node CJS 脚本，非 TS 模块
 const { linkExternalsToTraced, writeExternalsManifest } = require("../bin/pi-web-standalone");
 
 /**

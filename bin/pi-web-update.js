@@ -89,7 +89,9 @@ function getInstallKind({ name, pkgDir, npmRoot, realpath = fs.realpathSync }) {
   if (realPkgDir.split(/[\\/]/).includes("_npx")) return "npx";
   if (!npmRoot) return "other";
   const expected = path.join(realpathOrSelf(npmRoot, realpath), ...name.split("/"));
-  return realPkgDir === expected ? "global" : "other";
+  // Windows: separators differ between join() output and forward-slash inputs.
+  const normalize = (p) => (process.platform === "win32" ? p.replaceAll("\\", "/") : p);
+  return normalize(realPkgDir) === normalize(expected) ? "global" : "other";
 }
 
 function getGlobalNpmRoot() {
