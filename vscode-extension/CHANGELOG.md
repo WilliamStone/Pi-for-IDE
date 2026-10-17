@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.6] - 2026-10-17
+
+- Store listing description switched to English.
+- Icon: added a light border ring so the dark title bar stays distinguishable on dark themes.
+
 ## [0.1.5] - 2026-10-17
 
 - Renamed the fallback command to `pi-web-for-ide` (matches the 0.12.1-2 package bin; the stale 0.1.4 upload referenced a nonexistent `pi-web-ide` bin in its npx fallback — superseded).

@@ -31,6 +31,8 @@ PI_SIZE = 146       # π 字号（px，@256）
 PI_LIFT = 8 + 20    # π 相对正文中心上移量（px，@256）
 C_TOP = (99, 102, 241)    # 渐变顶色 #6366F1
 C_BOT = (139, 92, 246)    # 渐变底色 #8B5CF6
+BORDER = (255, 255, 255, 90)  # 浅色细边线：标题栏深色在暗色主题下会融入背景
+BORDER_W = 2              # 边线宽度（px，@256）；以圆角边缘为中线向两侧铺
 
 OUT = Path(__file__).resolve().parent.parent / "resources" / "icons" / "icon-128.png"
 
@@ -81,6 +83,15 @@ def main() -> None:
     )
     out = Image.new("RGBA", (w, w), (0, 0, 0, 0))
     out.paste(base, (0, 0), mask)
+
+    # 3) 浅色细边线：以圆角边缘为中线（一半在内一半在外），
+    #    不外露紫色主体、也不侵占标题栏。
+    ImageDraw.Draw(out).rounded_rectangle(
+        [s(INSET), s(INSET), s(SIZE - INSET), s(SIZE - INSET)],
+        radius=s(CORNER),
+        outline=BORDER,
+        width=s(BORDER_W),
+    )
 
     out.resize((SIZE, SIZE), Image.LANCZOS).save(OUT)
     print(f"saved {OUT}")
