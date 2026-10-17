@@ -86,7 +86,7 @@ function ensureExternalsLinked(serverDir) {
   const hashedRoot = path.join(serverDir, ".next", "node_modules");
   const missing = rels.filter((rel) => !fs.existsSync(path.join(hashedRoot, ...rel.split("/"))));
   if (missing.length === 0) return;
-  console.log(`pi-web: 补建 ${missing.length} 个外部包链接（postinstall 未执行）…`);
+  console.log(`pi-web: relinking ${missing.length} external package links (postinstall did not run)…`);
   linkExternalsToTraced(serverDir);
 }
 

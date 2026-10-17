@@ -31,7 +31,7 @@ function runUpdateSdk(version, {
   error = console.error,
 } = {}) {
   if (!version) {
-    error("用法: pi-web update-sdk <version>，如 pi-web update-sdk 1.3.0");
+    error("usage: pi-web update-sdk <version>, e.g. pi-web update-sdk 1.3.0");
     return 1;
   }
   const standaloneServerPath = findStandaloneServer(pkgDir);
@@ -41,18 +41,18 @@ function runUpdateSdk(version, {
   const args = ["install", "--save-exact", "--no-audit", "--no-fund", ...omitDev, ...SDK_PACKAGES.map((n) => `${n}@${version}`)];
   const invocation = findNpmInvocation(args, path.dirname(process.execPath), process.platform);
   if (!invocation) {
-    error("找不到 npm，请手动在 " + targetDir + " 下执行: npm " + args.join(" "));
+    error("npm not found; run manually inside " + targetDir + "  : npm " + args.join(" "));
     return 1;
   }
-  log(`在 ${targetDir} 内升级 pi SDK → ${version}`);
+  log(`upgrading pi SDK to ${version} inside ${targetDir}`);
   const result = spawnSync(invocation.command, invocation.args, { cwd: targetDir, stdio: "inherit" });
   if (result.error) {
-    error(`npm 启动失败: ${result.error.message}`);
+    error(`npm failed to start: ${result.error.message}`);
     return 1;
   }
   if (result.status !== 0) return result.status ?? 1;
   if (standaloneServerPath) rematerializeExternalLinks(targetDir, { log });
-  log("pi SDK 已更新。跨版本升级可能需要 pi-web 侧适配——请重启服务并回归验证。");
+  log("pi SDK updated. Cross-version upgrades may need pi-web-side adaptation — restart the server and re-verify.");
   return 0;
 }
 

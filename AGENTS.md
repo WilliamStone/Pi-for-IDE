@@ -15,7 +15,7 @@ Typecheck: `node_modules/.bin/tsc --noEmit` · Lint: `npm run lint`
 This is an internationalized project — every string an end user can see follows one rule:
 
 - **Where the platform supports i18n, use it.** VSCode manifest strings (settings descriptions, command titles, extension description) go through `%key%` placeholders resolved by `package.nls.json` (English default) + `package.nls.zh-cn.json`. Brand names (`Pi for IDE`, `Pi Web+`, `displayName`) are never translated.
-- **Where it does not, write English.** Extension runtime strings (notifications, status bar, output-channel logs, the webview shell page, bridge error/revert messages) are English-only literals — do not add Chinese (or other locale) user-facing strings.
+- **Where it does not, write English.** Runtime strings everywhere — extension notifications/status bar/output logs/webview shell/bridge messages, and package-side CLI output (`bin/pi-web*.js` console/error text users can see in the log channel) — are English-only literals; do not add Chinese (or other locale) user-facing strings.
 - Code comments are developer-facing and exempt; this rule covers UI surface only.
 
 ### Dev server troubleshooting

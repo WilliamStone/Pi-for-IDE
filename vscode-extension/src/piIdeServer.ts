@@ -539,8 +539,9 @@ export class PiIdeServer {
   private async startProcess(): Promise<string | undefined> {
     let target = await this.resolveServerTarget();
     logLifecycle(target ? `resolved target: mode=${target.mode}` : "resolved target: all legs failed");
-    // 非下载路径统一标"启动中"（下载路径在 resolve 内部已单独置过状态）。
-    if (target) emitServerStatus("Starting local server…");
+    // 阶段状态由 resolveServerTarget 各腿自报（managed 腿在 724/742 发
+    // "Starting local server…"；下载腿先发 "Downloading…"再发 Starting）。
+    // 不再这里统一补——双层发同一文案会重复。
     if (!target) {
       // 所有解析路径失败（含 npx）→ 引导用户全局安装，成功后重试一次。
       const pkg = this.packageName();
@@ -724,7 +725,7 @@ export class PiIdeServer {
       emitServerStatus("Starting local server…");
       return { mode: "bin", path: managedBin };
     }
-    emitServerStatus("Downloading and installing the server component (~90MB, slower on first run)…");
+    emitServerStatus("Downloading and installing the server component (~540MB on disk, slower on first run)…");
     this.channel.appendLine(`managed runtime missing; running npm --prefix install…`);
     const installed = await vscode.window.withProgress(
       {

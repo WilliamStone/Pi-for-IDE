@@ -71,7 +71,7 @@ function writeExternalsManifest(serverDir, { log = console.log } = {}) {
   }
   const out = [...entries];
   fs.writeFileSync(manifestPath, JSON.stringify(out, null, 1));
-  log(`  externals manifest: ${out.length} 项`);
+  log(`  externals manifest: ${out.length} entries`);
 }
 
 function linkExternalsToTraced(serverDir, { log = console.log } = {}) {
@@ -129,7 +129,7 @@ function rematerializeExternalLinks(serverDir, { log = console.log } = {}) {
     // prepare-standalone 起哈希入口改为 junction：指向 trace 副本，
     // 保持 SDK"同一副本"自检通过；旧物化目录也统一改链。
     fs.symlinkSync(fresh, dir, "junction");
-    log(`  已刷新 ${name} 的链接`);
+    log(`  refreshed link for ${name}`);
   };
   for (const entry of fs.readdirSync(hashedRoot, { withFileTypes: true })) {
     const full = path.join(hashedRoot, entry.name);
