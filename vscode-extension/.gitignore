@@ -4,3 +4,4 @@ resources/pi-web/
 *.vsix
 .vscode-test/
 sample-workspace/
+readme.md
