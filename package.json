@@ -95,5 +95,8 @@
     "remark-math": "^6.0.0",
     "tailwindcss": "^4.2.2",
     "typescript": "^5"
+  },
+  "piIde": {
+    "level": 1
   }
 }

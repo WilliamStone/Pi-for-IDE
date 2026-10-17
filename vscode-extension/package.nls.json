@@ -1,0 +1,18 @@
+{
+  "cmd.open": "Open",
+  "cmd.start": "Start Server",
+  "cmd.reveal": "Show Panel",
+  "cmd.stop": "Stop Server",
+  "cmd.openInBrowser": "Open in Browser",
+  "cmd.mentionFile": "Mention This File",
+  "cmd.mentionSelection": "Mention This Code",
+  "cmd.upgrade": "Upgrade Server Component",
+  "cmd.versions": "Manage Server Versions",
+  "config.executablePath": "Absolute path to the pi-web server entry: a standalone server.js or the bin/pi-web.js inside the package. Leave empty for automatic resolution: built-in → global npm install → managed runtime.",
+  "config.package": "The pi-web package name used for managed/global install lookups (must be the build with IDE integration patches, not upstream pi-web).",
+  "config.workspaceRoot": "Project directory (cwd) passed to pi-web sessions. Leave empty to use the current workspace folder.",
+  "config.openBeside": "Open the Pi for IDE panel in the adjacent column instead of the active one.",
+  "config.port": "Preferred starting port for the Pi for IDE server (default 3030). If occupied, the next free port is used.",
+  "config.autoStart": "Start the local pi-web server in the background when the extension activates (before the panel is first opened). Keep off if unused to avoid a resident process.",
+  "description": "Pi for IDE — VSCode-native editor experience for pi coding agent. Full pi-web GUI (chat, sessions, model/MCP config, themes, etc.) plus deep VSCode integration: @ file mentions, context-menu mentions, active-file context, per-turn file review cards with inline diffs and one-click revert, clipboard bridge, etc."
+}

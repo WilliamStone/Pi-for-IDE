@@ -1629,6 +1629,21 @@ pre, code {
   text-overflow: ellipsis;
 }
 
+/* embed 模式：品牌名后的扩展版本号——小字、与大字基线对齐。 */
+.new-session-brand-ext {
+  margin-left: 10px;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+/* embed 模式：版本信息改为两行小字堆叠（web 包版本 / pi+pi-web 版本）。 */
+.new-session-meta-stack {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+}
+
 /* Its box shows on hover and focus; the negative margins keep it off the
    line's layout, and on a coarse pointer they grow the tap target the same
    way. */

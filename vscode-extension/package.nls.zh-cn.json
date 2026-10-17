@@ -1,0 +1,18 @@
+{
+  "cmd.open": "打开",
+  "cmd.start": "启动服务器",
+  "cmd.reveal": "显示面板",
+  "cmd.stop": "停止服务器",
+  "cmd.openInBrowser": "在浏览器中打开",
+  "cmd.mentionFile": "提及此文件",
+  "cmd.mentionSelection": "提及此代码",
+  "cmd.upgrade": "升级服务器组件",
+  "cmd.versions": "管理服务器版本",
+  "config.executablePath": "pi-web 服务器入口的绝对路径：standalone 产物的 server.js，或发行包的 bin/pi-web.js。留空则按顺序自动解析：扩展内置 → 全局 npm 安装 → 托管运行时。",
+  "config.package": "托管/全局安装查询使用的 pi-web 发行包名（须为含 IDE 集成补丁的版本，而非原版 pi-web）。",
+  "config.workspaceRoot": "传给 pi-web 会话的项目目录（cwd）。留空则使用当前工作区文件夹。",
+  "config.openBeside": "将 Pi for IDE 面板打开在右侧（相邻分栏），而不是当前活动分栏。",
+  "config.port": "Pi for IDE 服务器起始端口（默认 3030）。该端口被占用时自动 +1 查找下一个空闲端口。",
+  "config.autoStart": "扩展激活时自动启动本地 pi-web 服务器（不等首次打开面板）。打开面板更顺手但常驻占资源；不需要时请保持关闭。",
+  "description": "Pi for IDE — 为 pi 编程智能体打造的 VSCode 原生编辑器体验：完整 pi-web 图形界面（会话、模型/MCP 配置、主题等），加上深度 IDE 集成：@ 文件提及、右键提及、活动文件上下文、逐轮文件审查卡片（内联 diff、一键回退）、剪贴板桥接等。"
+}

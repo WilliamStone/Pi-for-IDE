@@ -10,6 +10,14 @@ Typecheck: `node_modules/.bin/tsc --noEmit` · Lint: `npm run lint`
 
 **Never run `next build` during dev**: it pollutes `.next/` and breaks `npm run dev`.
 
+### Language policy (user-facing strings)
+
+This is an internationalized project — every string an end user can see follows one rule:
+
+- **Where the platform supports i18n, use it.** VSCode manifest strings (settings descriptions, command titles, extension description) go through `%key%` placeholders resolved by `package.nls.json` (English default) + `package.nls.zh-cn.json`. Brand names (`Pi for IDE`, `Pi Web+`, `displayName`) are never translated.
+- **Where it does not, write English.** Extension runtime strings (notifications, status bar, output-channel logs, the webview shell page, bridge error/revert messages) are English-only literals — do not add Chinese (or other locale) user-facing strings.
+- Code comments are developer-facing and exempt; this rule covers UI surface only.
+
 ### Dev server troubleshooting
 
 - First run `lsof -nP -iTCP:30141 -sTCP:LISTEN` and reuse a healthy Pi Web process. A second `next dev` on another port is no workaround: both contend for `.next/dev/lock`.

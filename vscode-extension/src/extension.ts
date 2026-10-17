@@ -1,7 +1,7 @@
 /**
- * pi for IDE VSCode 扩展 — 主入口。
+ * Pi for IDE VSCode 扩展 — 主入口。
  *
- * pi for IDE 将 pi-web（pi 编程智能体的 Web 界面，本仓库发行 @william_stone/pi-web-for-ide）托管
+ * Pi for IDE 将 pi-web（pi 编程智能体的 Web 界面，本仓库发行 @william_stone/pi-web-for-ide）托管
  * 在 webview 内，并在后台启动一个本地 pi-web 服务器。除了文件浏览器之外，
  * 其余体验与原版一致：会话浏览、聊天、模型/技能/插件配置、i18n 均照常工作；
  * 打开文件、@ 补全等动作通过桥接转交给 VSCode 原生 API。
@@ -16,7 +16,21 @@
  */
 
 import * as vscode from "vscode";
-import { PiIdeServer, checkPiWebUpdate, installPiWebPackage } from "./piIdeServer";
+import {
+  PiIdeServer,
+  checkPiWebUpdate,
+  installPiWebPackage,
+  outputChannel,
+  sweepLegacyOrphans,
+} from "./piIdeServer";
+import {
+  installManagedPackage,
+  isNewerVersion,
+  levelSupported,
+  listManagedVersions,
+  setManagedMarker,
+  sweepManagedVersions,
+} from "./managedRuntime";
 import { PiWebWebviewPanel } from "./webviewProvider";
 import { Bridge, clearActiveEditorCache, resolveActiveEditor } from "./bridge";
 
@@ -26,41 +40,24 @@ let bridge: Bridge;
 let bridgeChannel: vscode.OutputChannel;
 let statusBarItem: vscode.StatusBarItem;
 
-/** 三段数字版本比较：latest > current 返回 true。非 x.y.z 一律视为无更新。 */
-function isNewerVersion(latest: string, current: string): boolean {
-  // 版本号形如 0.12.1 或 0.12.1-3（上游 base + 本仓迭代序号）。
-  const parse = (v: string) => {
-    const m = /^(\d+)\.(\d+)\.(\d+)(?:-(\d+))?$/.exec(v);
-    if (!m) return undefined;
-    const parts = m.slice(1).map((p) => (p === undefined ? null : Number(p)));
-    if (!parts.slice(0, 3).every(Number.isSafeInteger)) return undefined;
-    return parts as [number, number, number, number | null];
-  };
-  const a = parse(latest);
-  const b = parse(current);
-  if (!a || !b) return false;
-  for (let i = 0; i < 3; i++) {
-    const ap = a[i] ?? 0;
-    const bp = b[i] ?? 0;
-    if (ap !== bp) return ap > bp;
-  }
-  if (a[3] === null) return b[3] !== null;
-  if (b[3] === null) return false;
-  return a[3] > b[3];
-}
-
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  bridgeChannel = vscode.window.createOutputChannel("pi for IDE 桥接");
+  // 统一输出频道：桥接/生命周期/spawn 日志同流（按时间戳排序）。
+  bridgeChannel = outputChannel();
   context.subscriptions.push(bridgeChannel);
   bridge = new Bridge((line) => bridgeChannel.appendLine(line));
+
+  // 存量清理（过渡措施，后续版本移除）：历史版本 npx 启动的 server.js
+  // 孤儿会攥住 _npx 缓存目录致后续 npx EBUSY——托管运行时落地后这些
+  // 残留进程只剩害处，激活时静默清一遍。
+  void sweepLegacyOrphans(bridgeChannel);
 
   // 状态栏图标 — 常驻可见，一键唤起聊天面板。
   statusBarItem = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Right,
     100,
   );
-  statusBarItem.text = "$(comment-discussion) pi for IDE";
-  statusBarItem.tooltip = "pi for IDE — 点击打开聊天面板";
+  statusBarItem.text = "$(comment-discussion) Pi for IDE";
+  statusBarItem.tooltip = "Pi for IDE — click to open the chat panel";
   statusBarItem.command = "piIde.open";
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
@@ -77,24 +74,31 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     server = PiIdeServer.ensureStarted(context).then((s) => {
       setRunningContext(!!s);
       if (s) {
-        statusBarItem.text = "$(comment-discussion) pi for IDE";
+        statusBarItem.text = "$(comment-discussion) Pi for IDE";
         statusBarItem.backgroundColor = undefined;
-        statusBarItem.tooltip = `pi for IDE — 运行中，地址 ${s.origin}`;
+        statusBarItem.tooltip = `Pi for IDE — running at ${s.origin}`;
       }
       return s;
     }).catch((error) => {
-      console.error("[pi-web] 启动服务器失败:", error);
+      console.error("[pi-web] server start failed:", error);
       setRunningContext(false);
       return undefined;
     });
     return server;
   };
 
+  // 可选预热："Pi for IDE.autoStart" 开着就在激活时后台拉起服务器，
+  // 首次点面板不用等启动；默认关——用不到的用户不为常驻进程买单。
+  if (vscode.workspace.getConfiguration("Pi for IDE").get<boolean>("autoStart")) {
+    void ensureServer();
+  }
+
   provider = new PiWebWebviewPanel(
     context.extensionUri,
     () => server,
     () => ensureServer(),
     bridge,
+    context.extension.packageJSON.version as string,
   );
 
   context.subscriptions.push(provider);
@@ -107,7 +111,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("piIde.start", async () => {
       const s = await ensureServer();
       if (s) {
-        vscode.window.showInformationMessage(`pi for IDE 服务器已启动，地址 ${s.origin}`);
+        vscode.window.showInformationMessage(`Pi for IDE server started at ${s.origin}`);
       }
     }),
   );
@@ -118,7 +122,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (s) {
         await s.stop();
         setRunningContext(false);
-        vscode.window.showInformationMessage("pi for IDE 服务器已停止。");
+        vscode.window.showInformationMessage("Pi for IDE server stopped.");
       }
     }),
   );
@@ -127,7 +131,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // （Beside）展示面板。
   context.subscriptions.push(
     vscode.commands.registerCommand("piIde.open", async () => {
-      const config = vscode.workspace.getConfiguration("piIde");
+      const config = vscode.workspace.getConfiguration("Pi for IDE");
       const openBeside = config.get<boolean>("openBeside", true);
       const viewColumn = openBeside
         ? vscode.ViewColumn.Beside
@@ -143,13 +147,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           canSelectFiles: false,
           canSelectFolders: true,
           canSelectMany: false,
-          title: "pi for IDE：选择项目目录",
+          title: "Pi for IDE: Select project directory",
         });
         if (!picked || picked.length === 0) return;
         cwd = picked[0].fsPath;
       }
 
-      await ensureServer();
+      // 先踢启动再 reveal——reveal 内部 refresh 会等共享的 server promise，
+      // 面板立刻出现「正在启动」页而不是等服务起好才现身（首击无反应的来源）。
+      void ensureServer();
       await provider!.reveal(cwd, viewColumn);
     }),
   );
@@ -161,14 +167,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
   );
 
-  // 在系统默认浏览器中打开 pi for IDE（面板工具条按钮 / 命令面板 / 面板标题栏）。
+  // 在系统默认浏览器中打开 Pi for IDE（面板工具条按钮 / 命令面板 / 面板标题栏）。
   context.subscriptions.push(
     vscode.commands.registerCommand("piIde.openInBrowser", async () => {
       const s = await server;
       if (s?.resolvedOrigin) {
         await vscode.env.openExternal(vscode.Uri.parse(s.resolvedOrigin));
       } else {
-        vscode.window.showWarningMessage("pi for IDE 服务器尚未启动，无法在浏览器中打开。");
+        vscode.window.showWarningMessage("Pi for IDE server is not running; cannot open in browser.");
       }
     }),
   );
@@ -198,7 +204,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     selectedText?: string;
   }): Promise<void> {
     // 面板可能还没打开；先确保服务器就绪，再 reveal（用当前 cwd）。
-    const config = vscode.workspace.getConfiguration("piIde");
+    const config = vscode.workspace.getConfiguration("Pi for IDE");
     const openBeside = config.get<boolean>("openBeside", true);
     const viewColumn = openBeside
       ? vscode.ViewColumn.Beside
@@ -207,7 +213,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!cwd) cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "";
     if (!cwd) return; // 没有 cwd 时 pi-web 没法挂载会话，直接退出。
 
-    await ensureServer();
+    void ensureServer();
     await provider!.reveal(cwd, viewColumn);
     await provider!.pushMention(payload);
   }
@@ -217,7 +223,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("piIde.mentionFile", async (uri: vscode.Uri) => {
       const relativePath = relativePathFor(uri);
       if (!relativePath) {
-        vscode.window.showWarningMessage("pi for IDE：无法获取该文件相对工作区的路径。");
+        vscode.window.showWarningMessage("Pi for IDE: cannot resolve this file's workspace-relative path.");
         return;
       }
       await triggerMention({ relativePath });
@@ -232,7 +238,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const uri = editor.document.uri;
       const relativePath = relativePathFor(uri);
       if (!relativePath) {
-        vscode.window.showWarningMessage("pi for IDE：无法获取该文件相对工作区的路径。");
+        vscode.window.showWarningMessage("Pi for IDE: cannot resolve this file's workspace-relative path.");
         return;
       }
       const selection = editor.selection;
@@ -292,32 +298,47 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
   );
 
-  // -------------------------------------------------------------------------
-  // pi-web 发行包升级检查（后台、一次、静默失败）
-  // -------------------------------------------------------------------------
-  // 仅覆盖"全局安装"解析路径：executablePath/npx 方式定位不到本地副本时跳过。
-  setTimeout(() => {
-    void (async () => {
+  // 升级命令：检查→确认→安装→重启本窗口服务器。托管运行时走版本目录
+  // （不碰运行中的旧目录）；全局安装走包管理器原地升级。
+  context.subscriptions.push(
+    vscode.commands.registerCommand("piIde.upgrade", async () => {
       const pkg =
-        (vscode.workspace.getConfiguration("piIde").get<string>("package") ?? "").trim() ||
+        (vscode.workspace.getConfiguration("Pi for IDE").get<string>("package") ?? "").trim() ||
         "@william_stone/pi-web-for-ide";
-      const info = await checkPiWebUpdate(pkg);
-      if (!info || !isNewerVersion(info.latest, info.current)) return;
+      const info = await checkPiWebUpdate(pkg, context);
+      if (!info) {
+        void vscode.window.showInformationMessage("Pi for IDE: no installed pi-web package found.");
+        return;
+      }
+      if (info.needsExtensionUpgrade) {
+        void vscode.window.showWarningMessage(
+          `pi-web ${info.latest} (level ${info.latestLevel})requires a newer Pi for IDE extension. Please upgrade the extension from the marketplace first.`,
+        );
+        return;
+      }
+      if (!info.best || !isNewerVersion(info.best, info.current)) {
+        void vscode.window.showInformationMessage(`pi-web is already at the latest compatible version (${info.current}).`);
+        return;
+      }
       const pick = await vscode.window.showInformationMessage(
-        `pi-web 有新版本 ${info.latest}（当前 ${info.current}）。`,
-        "立即升级",
-        "稍后",
+        `pi-web ${info.best} is available (current: ${info.current}).${info.managed ? " Instances in other windows are unaffected and switch on restart." : ""}`,
+        "Upgrade Now",
+        "Later",
       );
-      if (pick !== "立即升级") return;
-      const installChannel = vscode.window.createOutputChannel("pi for IDE 安装");
+      if (pick !== "Upgrade Now") return;
+      const installChannel = outputChannel();
       const ok = await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: `正在升级 ${pkg}…` },
-        () => installPiWebPackage(installChannel, pkg, "latest"),
+        { location: vscode.ProgressLocation.Notification, title: `Upgrading ${pkg}…` },
+        (progress) =>
+          info.managed
+            ? installManagedPackage(installChannel, context, pkg, info.best, (msg) =>
+                progress.report({ message: msg }),
+              )
+            : installPiWebPackage(installChannel, pkg, info.best),
       );
-      installChannel.dispose();
       if (!ok) {
         void vscode.window.showErrorMessage(
-          `${pkg} 升级失败，详情请见输出面板（pi for IDE 安装）。`,
+          `${pkg} upgrade failed — see the Pi for IDE output panel for details.`,
         );
         return;
       }
@@ -325,15 +346,85 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const running = await server;
       if (running && !running.disposed) {
         const r = await vscode.window.showInformationMessage(
-          `${pkg} 已升级到 ${info.latest}，重启服务器生效。`,
-          "重启服务器",
-          "稍后",
+          `${pkg} upgraded to ${info.best}. Restart the server to apply.`,
+          "Restart Server",
+          "Later",
         );
-        if (r === "重启服务器") {
+        if (r === "Restart Server") {
           await running.stop();
           await ensureServer();
         }
       }
+    }),
+  );
+
+  // 管理服务器版本（兜底）：列出已装托管版本（级别/兼容性标注），
+  // 支持切换 marker（含降级）与清理非当前版本。
+  context.subscriptions.push(
+    vscode.commands.registerCommand("piIde.versions", async () => {
+      const pkg =
+        (vscode.workspace.getConfiguration("Pi for IDE").get<string>("package") ?? "").trim() ||
+        "@william_stone/pi-web-for-ide";
+      const versions = listManagedVersions(context, pkg);
+      type Item = vscode.QuickPickItem & { action: "switch" | "cleanup"; version?: string };
+      const items: Item[] = versions.map((v) => ({
+        label: `${v.current ? "$(star-full) " : ""}${v.version}`,
+        description:
+          `level ${v.level ?? "unknown"}${levelSupported(v.level) ? "" : " (unsupported by this extension)"}` +
+          `${v.ready ? "" : " (bin missing)"}${v.current ? " · current" : ""}`,
+        detail: v.dir,
+        action: "switch",
+        version: v.version,
+      }));
+      items.push({ label: "$(trash) Clean up non-current versions", action: "cleanup" });
+      const pick = await vscode.window.showQuickPick(items, {
+        placeHolder: "Managed server versions — switching takes effect after restart (cleanup only removes versions below the current one)",
+      });
+      if (!pick) return;
+      if (pick.action === "cleanup") {
+        await sweepManagedVersions(context, outputChannel());
+        void vscode.window.showInformationMessage("Pi for IDE: old versions cleaned up (directories in use were skipped).");
+        return;
+      }
+      if (!pick.version) return;
+      setManagedMarker(context, pick.version);
+      const r = await vscode.window.showInformationMessage(
+        `Switched to ${pick.version}. Restart the server to apply.`,
+        "Restart Server",
+        "Later",
+      );
+      if (r === "Restart Server") {
+        const running = await server;
+        await running?.stop();
+        await ensureServer();
+      }
+    }),
+  );
+
+  // -------------------------------------------------------------------------
+  // pi-web 发行包升级检查（后台、一次、静默失败）
+  // -------------------------------------------------------------------------
+  // 通知只告知有新版本；按钮统一走 piIde.upgrade 命令（同一条编排路径）。
+  setTimeout(() => {
+    void (async () => {
+      const pkg =
+        (vscode.workspace.getConfiguration("Pi for IDE").get<string>("package") ?? "").trim() ||
+        "@william_stone/pi-web-for-ide";
+      const info = await checkPiWebUpdate(pkg, context);
+      if (!info) return;
+      if (info.needsExtensionUpgrade) {
+        void vscode.window.showInformationMessage(
+          `pi-web ${info.latest} requires a newer Pi for IDE extension — please upgrade the extension from the marketplace first.`,
+        );
+        return;
+      }
+      if (!info.best || !isNewerVersion(info.best, info.current)) return;
+      const pick = await vscode.window.showInformationMessage(
+        `pi-web ${info.best} is available (current: ${info.current}).`,
+        "Upgrade Now",
+        "Later",
+      );
+      if (pick === "Upgrade Now") void vscode.commands.executeCommand("piIde.upgrade");
     })();
   }, 8000);
 }

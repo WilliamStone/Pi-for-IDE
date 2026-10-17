@@ -8,7 +8,7 @@ const DISMISS_KEY = "pi-web.ideHintDismissedVersion";
 const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0";
 
 /**
- * 独立运行模式下顶栏的 ⓘ 呼吸灯：提示 Pi Web+ 也能以 pi for IDE
+ * 独立运行模式下顶栏的 ⓘ 呼吸灯：提示 Pi Web+ 也能以 Pi for IDE
  * 扩展形态嵌进 VSCode/VSCodium。点击弹小卡片；勾选"下版本前不再提示"
  * 后按版本号记入 localStorage，升级后恢复提示。
  */

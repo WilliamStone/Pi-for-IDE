@@ -29,9 +29,9 @@ export const embedEnMessages: Record<string, string> = {
   "chat.activeFileTitle": "This file is open in the host editor — the AI will prioritize modifying it directly",
   "system.ideHintTip": "Pi Web+ tip",
   "system.ideHintTitle": "Pi Web+ works best inside an IDE",
-  "system.ideHintBody": "It also runs inside VSCode / VSCodium as the pi for IDE extension — @-mentions, file review cards, active-file context and one-click turn revert included.",
+  "system.ideHintBody": "It also runs inside VSCode / VSCodium as the Pi for IDE extension — @-mentions, file review cards, active-file context and one-click turn revert included.",
   "system.ideHintHow": "Use it inside an IDE:",
-  "system.ideHintHowVSCode": "Install the pi for IDE extension from the Marketplace or Open VSX, then click pi for IDE in the status bar.",
+  "system.ideHintHowVSCode": "Install the Pi for IDE extension from the Marketplace or Open VSX, then click Pi for IDE in the status bar.",
   "system.ideHintDontShow": "Don't show again until next version",
 };
 
@@ -63,9 +63,9 @@ export const embedZhTWMessages: Record<string, string> = {
   "chat.activeFileTitle": "宿主編輯器正在開啟此檔案——AI 會優先考慮直接修改它",
   "system.ideHintTip": "Pi Web+ 提示",
   "system.ideHintTitle": "Pi Web+ 在 IDE 裡體驗更好",
-  "system.ideHintBody": "它也能以 pi for IDE 擴充功能的形式執行於 VSCode / VSCodium 中——含 @ 提及、檔案審查卡片、活動檔案感知與一鍵回退。",
+  "system.ideHintBody": "它也能以 Pi for IDE 擴充功能的形式執行於 VSCode / VSCodium 中——含 @ 提及、檔案審查卡片、活動檔案感知與一鍵回退。",
   "system.ideHintHow": "在 IDE 中使用：",
-  "system.ideHintHowVSCode": "在 Marketplace 或 Open VSX 搜尋 pi for IDE 擴充功能，安裝後點狀態列的 pi for IDE 按鈕。",
+  "system.ideHintHowVSCode": "在 Marketplace 或 Open VSX 搜尋 Pi for IDE 擴充功能，安裝後點狀態列的 Pi for IDE 按鈕。",
   "system.ideHintDontShow": "下個版本前不再提示",
 };
 
@@ -97,8 +97,8 @@ export const embedZhCNMessages: Record<string, string> = {
   "chat.activeFileTitle": "宿主编辑器正在打开此文件——AI 会优先考虑直接修改它",
   "system.ideHintTip": "Pi Web+ 提示",
   "system.ideHintTitle": "Pi Web+ 在 IDE 里体验更好",
-  "system.ideHintBody": "它也能以 pi for IDE 扩展的形式运行在 VSCode / VSCodium 中——含 @ 提及、文件审查卡片、活动文件感知与一键回退。",
+  "system.ideHintBody": "它也能以 Pi for IDE 扩展的形式运行在 VSCode / VSCodium 中——含 @ 提及、文件审查卡片、活动文件感知与一键回退。",
   "system.ideHintHow": "在 IDE 中使用：",
-  "system.ideHintHowVSCode": "在 Marketplace 或 Open VSX 搜索 pi for IDE 扩展，安装后点状态栏的 pi for IDE 按钮。",
+  "system.ideHintHowVSCode": "在 Marketplace 或 Open VSX 搜索 Pi for IDE 扩展，安装后点状态栏的 Pi for IDE 按钮。",
   "system.ideHintDontShow": "下个版本前不再提示",
 };

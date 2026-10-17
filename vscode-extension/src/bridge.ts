@@ -99,7 +99,7 @@ export class Bridge {
         preview: canPreview,
       });
     } catch (error) {
-      this.logger(`openFile 失败: ${error}`);
+      this.logger(`openFile failed: ${error}`);
     }
   }
 
@@ -114,8 +114,8 @@ export class Bridge {
 
     this.logger(
       `completeAt: cwd=${cwd}, query=${JSON.stringify(req.query)}, ` +
-        `workspaceFolders=${workspace.map((f) => f.uri.fsPath).join("; ") || "(空)"}, ` +
-        `targetFolder=${targetFolder?.uri.fsPath ?? "(无)"}`,
+        `workspaceFolders=${workspace.map((f) => f.uri.fsPath).join("; ") || "(none)"}, ` +
+        `targetFolder=${targetFolder?.uri.fsPath ?? "(none)"}`,
     );
 
     if (targetFolder) {
@@ -124,7 +124,7 @@ export class Bridge {
       files = await listFilesInPath(cwd, req.query, this.logger);
     }
 
-    this.logger(`completeAt: 返回 ${files.length} 个文件`);
+    this.logger(`completeAt: ${files.length} files`);
 
     // Cap the response size — the page's @-menu renders all results.
     const cap = 50;
@@ -163,14 +163,14 @@ export class Bridge {
       const parsed = new URL(req.url);
       const host = parsed.hostname;
       if (host !== "127.0.0.1" && host !== "localhost") {
-        this.logger(`openInBrowser 拒绝非本机地址: ${host}`);
+        this.logger(`openInBrowser rejected non-local host: ${host}`);
         return;
       }
       const origin = parsed.origin;
-      this.logger(`openInBrowser: 打开 ${origin}`);
+      this.logger(`openInBrowser: opening ${origin}`);
       await vscode.env.openExternal(vscode.Uri.parse(origin));
     } catch (error) {
-      this.logger(`openInBrowser 失败: ${error}`);
+      this.logger(`openInBrowser failed: ${error}`);
     }
   }
 
@@ -235,7 +235,7 @@ export class Bridge {
       this.logger(`captureSnapshot: turn=${turnId}, git=${inGit}, dirtyFiles=${dirtyFiles.length}`);
       return { kind: "captureSnapshot", success: true };
     } catch (error) {
-      this.logger(`captureSnapshot 失败: ${error}`);
+      this.logger(`captureSnapshot failed: ${error}`);
       return { kind: "captureSnapshot", success: false, message: String(error) };
     }
   }
@@ -265,7 +265,7 @@ export class Bridge {
       }
       return { kind: "getBeforeContent", content: null };
     } catch (error) {
-      this.logger(`getBeforeContent 失败: ${error}`);
+      this.logger(`getBeforeContent failed: ${error}`);
       return { kind: "getBeforeContent", content: null };
     }
   }
@@ -285,10 +285,10 @@ export class Bridge {
       const afterUri = vscode.Uri.file(`${tmpDir}/${baseName}.${tag}.after`);
       await vscode.workspace.fs.writeFile(beforeUri, Buffer.from(before, "utf8"));
       await vscode.workspace.fs.writeFile(afterUri, Buffer.from(after, "utf8"));
-      const label = title || `${baseName} (本轮改动)`;
+      const label = title || `${baseName} (this turn)`;
       await vscode.commands.executeCommand("vscode.diff", beforeUri, afterUri, label);
     } catch (error) {
-      this.logger(`showDiff 失败: ${error}`);
+      this.logger(`showDiff failed: ${error}`);
     }
   }
 
@@ -302,7 +302,7 @@ export class Bridge {
       const list = this.snapshots.get(cwd);
       const snap = list?.find((s) => s.turnId === turnId);
       if (!snap) {
-        return { kind: "revertFiles", success: false, message: "快照不存在或已过期" };
+        return { kind: "revertFiles", success: false, message: "snapshot missing or expired" };
       }
       let reverted = 0;
       const errors: string[] = [];
@@ -332,11 +332,11 @@ export class Bridge {
             } else {
               // git HEAD 无此文件（本轮前就不在 git 里）。不安全地删文件会
               // 误删——可能只是快照采集遗漏。宁可报错，也不删。
-              errors.push(`${filePath}: 无快照且 git HEAD 无此文件，无法安全回退`);
+              errors.push(`${filePath}: no snapshot and file absent from git HEAD; cannot revert safely`);
             }
           } else {
             // 非 git 且快照无 → 无法回退
-            errors.push(`${filePath}: 无快照且非 git`);
+            errors.push(`${filePath}: no snapshot and not a git repo`);
           }
         } catch (error) {
           errors.push(`${filePath}: ${error}`);
@@ -349,7 +349,7 @@ export class Bridge {
         message: errors.length ? errors.join("; ") : undefined,
       };
     } catch (error) {
-      this.logger(`revertFiles 失败: ${error}`);
+      this.logger(`revertFiles failed: ${error}`);
       return { kind: "revertFiles", success: false, message: String(error) };
     }
   }
@@ -372,7 +372,7 @@ export class Bridge {
           return {
             kind: "revertEdit",
             success: false,
-            message: `第 ${i + 1} 处改动的新内容在文件中找不到，可能文件已被其他方式修改`,
+            message: `hunk ${i + 1}: new content not found in the file; it may have been modified externally`,
           };
         }
         content = content.replace(newText, oldText);
@@ -381,10 +381,10 @@ export class Bridge {
         vscode.Uri.file(abs),
         Buffer.from(content, "utf8"),
       );
-      this.logger(`revertEdit: ${filePath}, 反向 apply ${edits.length} 处`);
+      this.logger(`revertEdit: ${filePath}, reverse-applying ${edits.length} edits`);
       return { kind: "revertEdit", success: true };
     } catch (error) {
-      this.logger(`revertEdit 失败: ${error}`);
+      this.logger(`revertEdit failed: ${error}`);
       return { kind: "revertEdit", success: false, message: String(error) };
     }
   }
@@ -519,7 +519,7 @@ async function listFilesInFolder(
     return uris.map((u) => vscode.workspace.asRelativePath(u, false));
   } catch (error) {
     logger(
-      `listFilesInFolder 失败 (folder=${folder.uri.fsPath}, ` +
+      `listFilesInFolder failed (folder=${folder.uri.fsPath}, ` +
         `query=${JSON.stringify(query)}): ${error}`,
     );
     return [];
@@ -545,7 +545,7 @@ async function listFilesInPath(
     return uris.map((u) => u.fsPath);
   } catch (error) {
     logger(
-      `listFilesInPath 失败 (cwd=${cwd}, query=${JSON.stringify(query)}): ${error}`,
+      `listFilesInPath failed (cwd=${cwd}, query=${JSON.stringify(query)}): ${error}`,
     );
     return [];
   }

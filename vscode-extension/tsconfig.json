@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "module": "commonjs",
+    "module": "node16",
     "target": "es2020",
     "lib": ["es2020"],
     "outDir": "out",
@@ -10,8 +10,7 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "moduleResolution": "node",
-    "ignoreDeprecations": "5.0"
+    "moduleResolution": "node16"
   },
   "include": ["src"],
   "exclude": ["node_modules", ".vscode-test"]

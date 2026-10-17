@@ -243,6 +243,12 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = fa
 export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, newSessionContextBar, initialNewSessionChoices, onNewSessionChoicesChange, onAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onOpenSettings, onContextUsageChange, onOpenFile, onFilesUploaded, onOpenSubagent, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio, holdAudio }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
+  // embed 模式下宿主扩展经 ?extVer= 传入扩展版本——欢迎页品牌区按三行排版
+  // （pi for IDE <ext> / web for IDE <pkg> / pi v<x> · pi-web v<base>）。
+  const [extVersion, setExtVersion] = useState<string | null>(null);
+  useEffect(() => {
+    setExtVersion(new URLSearchParams(window.location.search).get("extVer"));
+  }, []);
   const completionNotificationsEnabled = session?.relation?.kind !== "subagent";
 
   // Wrap onAgentEnd to play the completion sound. This is more reliable than
@@ -1484,15 +1490,28 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
           <div className="new-session-hero" style={{ paddingLeft: 16, paddingRight: isMobile ? 16 : 52 }}>
             <div className="new-session-hero-inner" style={{ maxWidth: "var(--chat-content-max-width, 820px)" }}>
               <div className="new-session-brand">
-                <Image src="/icons/apple-touch-icon.png" width={40} height={40} alt="" priority className="new-session-logo" />
+                <Image src={extVersion ? "/icons/ide-logo.png" : "/icons/apple-touch-icon.png"} width={40} height={40} alt="" priority className="new-session-logo" />
                 <div className="new-session-brand-text">
-                  <span className="new-session-brand-name">{appDisplayName()}</span>
-                  <span className="new-session-meta">
-                    <span>web for IDE v{process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}</span>
-                    <NewSessionUpdateLink label={(version) => t("appUpdate.releaseNotes", { version })} />
-                    <span aria-hidden="true">·</span>
-                    <span className="new-session-meta-pi">pi v{process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}</span>
+                  <span className="new-session-brand-name">
+                    {appDisplayName()}
+                    {extVersion && <span className="new-session-brand-ext">{extVersion}</span>}
                   </span>
+                  {extVersion ? (
+                    <span className="new-session-meta new-session-meta-stack">
+                      <span>
+                        web for IDE {process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}
+                        <NewSessionUpdateLink label={(version) => t("appUpdate.releaseNotes", { version })} />
+                      </span>
+                      <span>pi v{process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"} · pi-web v{(process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0").split("-")[0]}</span>
+                    </span>
+                  ) : (
+                    <span className="new-session-meta">
+                      <span>web for IDE v{process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}</span>
+                      <NewSessionUpdateLink label={(version) => t("appUpdate.releaseNotes", { version })} />
+                      <span aria-hidden="true">·</span>
+                      <span className="new-session-meta-pi">pi v{process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}</span>
+                    </span>
+                  )}
                 </div>
               </div>
               {newSessionContextBar}
