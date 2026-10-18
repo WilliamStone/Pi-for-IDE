@@ -2,6 +2,19 @@
 
 Syncs are merge-based (`scripts/sync-upstream.sh <tag>`); never rebase/rewrite upstream history. Read this before starting a sync.
 
+## Upstream relationships
+
+There are two "upstreams"; only one is a sync target:
+
+- **`agegr/pi-web`** — the live upstream we sync from (this document's subject).
+- **`wangjinxin613/pi-code`** — the ancestor we forked from, not a sync target.
+  We inherited it wholesale and have since diverged far beyond it (decoupled
+  external web package + thin extension + embed protocol + managed runtime).
+  Upstreaming fixes back to it is meaningless: its bugs are treated as our
+  own and fixed in-place — the same applies to anything we inherited (e.g. the
+  Windows path assumptions in the revert/file-review chain, fixed in the
+  bridge normalization pass).
+
 ## Product identity — always keep OURS
 
 When conflicts touch these, resolve in favor of the product file, not upstream:
@@ -52,6 +65,22 @@ Upstream tests assume a POSIX dev box. On Windows these fail predictably — pat
 Locale: `defaultLocale` is `"en"` (SSR default; browser detection still applies post-hydration). Rendering tests assert English — do not revert it.
 
 Known remaining: `lib/subagent-mcp.integration.test.mjs` takes ~233s per mcp test on Windows (SDK-side connect wait, still passes). Suspect antivirus interception of child spawns or proxy env vars — verify by retesting with Defender off / unset `HTTP(S)_PROXY`.
+
+## Upstream-contributable candidates (not yet sent)
+
+Upstream CI is Ubuntu-only, so frame these as *correctness/portability* PRs (more correct tests, not "fix Windows"); acceptance is principled, not CI-visible. Split per topic, never one bulk diff.
+
+**Two-class rule for what to send**: push only items that are *strictly better even on Linux* (e.g. `pathToFileURL` over bare-path `import`, `node -e` fixtures over `!command` — they remove a POSIX dependency rather than accommodate Windows). Pure Windows accommodations (win32 skips, delimiter/`file:///C:` variants) give upstream zero perceivable benefit — keep those in-fork via the playbook instead of proposing them upstream.
+
+| Candidate | Shape |
+|---|---|
+| `pathToFileURL` for `import(absPath)` in tests | strictly more correct, helps Linux too |
+| `!command` fixtures → `node -e` | more reliable even on POSIX (no shell builtin dependency) |
+| `HOME`+`USERPROFILE` both set in homedir-stubbing tests | portability |
+| `rm` EBUSY retries (`maxRetries`/`retryDelay`) | Windows file-lock tolerance |
+| win32 skips for POSIX-permission/read-only-dir asserts | portability |
+| CRLF-tolerant slicing, `file:///C:/` URLs, delimiter hardcode | portability |
+| **Build portability** (2025-12, from our pack work): `build` script uses `env -u TURBOPACK` — POSIX-only, fails on Windows outright. Fix = a Node wrapper script (see our `scripts/build.cjs`). Deeper issue: `@vercel/nft` evaluates `HOME`/`USERPROFILE` env literals in fs-call arg chains (e.g. `lib/directory-browser.ts` `homedir()`→`readdir`), so a "dirty" user dir (model libraries, protected Temp files) gets emitted into the whole standalone trace → minutes-long builds → heap OOM → `readlink EPERM` on filter-driver-protected files. Worth an upstream **issue** first (the tracing sensitivity is Next/nft-side; the `env -u` script fix is a clean PR). |
 
 ## Authoritative test env: docker155 (Linux)
 
