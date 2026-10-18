@@ -14,5 +14,8 @@
   "config.openBeside": "将 Pi for IDE 面板打开在右侧（相邻分栏），而不是当前活动分栏。",
   "config.port": "Pi for IDE 服务器起始端口（默认 3030）。该端口被占用时自动 +1 查找下一个空闲端口。",
   "config.autoStart": "扩展激活时自动启动本地 pi-web 服务器（不等首次打开面板）。打开面板更顺手但常驻占资源；不需要时请保持关闭。",
-  "description": "Pi for IDE — 为 pi 编程智能体打造的 VSCode 原生编辑器体验：完整 pi-web 图形界面（会话、模型/MCP 配置、主题等），加上深度 IDE 集成：@ 文件提及、右键提及、活动文件上下文、逐轮文件审查卡片（内联 diff、一键回退）、剪贴板桥接等。"
+  "description": "Pi for IDE — 为 pi 编程智能体打造的 VSCode 原生编辑器体验：完整 pi-web 图形界面（会话、模型/MCP 配置、主题等），加上深度 IDE 集成：@ 文件提及、右键提及、活动文件上下文、逐轮文件审查卡片（内联 diff、一键回退）、剪贴板桥接等。",
+  "config.autoStop": "允许由扩展拉起的 pi-web 服务器在所有窗口/客户端断开后自行退出（服务端看门狗）。没有任何心跳或打开页面后即关闭。独立启动的 Pi Web+ 服务不受此开关影响。",
+  "config.autoStopAfterSec": "扩展拉起的服务器在完全静默（无心跳、无打开客户端）多少秒后自行退出。仅在 autoStop 开启时生效。最小 90——后台浏览器页约每分钟才能轮询一次。",
+  "config.checkForUpdates": "激活后向 npm registry 检查一次 pi-web 更新版本并提供升级。"
 }
