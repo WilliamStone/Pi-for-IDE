@@ -9,10 +9,12 @@ import * as path from "path";
 import * as vscode from "vscode";
 import {
   binLevel,
+  binVersion,
   installManagedPackage,
   isSafePkgSpec,
   levelSupported,
   managedPackageBin,
+  pickNewestSupported,
   queryRegistryCompat,
 } from "./managedRuntime";
 import { emitServerStatus } from "./server-status";
@@ -185,8 +187,16 @@ export async function checkPiWebUpdate(
   | undefined
 > {
   const managedBin = context ? managedPackageBin(context, pkg) : undefined;
-  const binPath =
-    (await resolveGlobalPackageBin(pkg)) ?? (await resolvePathShimBin(pkg)) ?? managedBin;
+  // 与 resolveServerTarget 同池择优——报告的 current 必须是实际会跑的那份。
+  const binPath = pickNewestSupported(
+    [
+      await resolveGlobalPackageBin(pkg),
+      await resolvePathShimBin(pkg),
+      managedBin,
+    ].filter((b): b is string => !!b),
+    binVersion,
+    binLevel,
+  );
   const managed = !!managedBin && binPath === managedBin;
   if (!binPath) return undefined;
   const pkgJson = path.join(path.dirname(path.dirname(binPath)), "package.json");
@@ -241,39 +251,32 @@ export async function resolveServerTarget(
     return { mode: "script", path: bundled };
   }
 
-  // 级别校验：bin 所在包声明的桥接级别须在支持区间内，否则跳过该腿。
-  const levelOk = (binPath: string, leg: string): boolean => {
-    if (levelSupported(binLevel(binPath))) return true;
-    channel.appendLine(
-      `${leg} package level ${binLevel(binPath) ?? "unknown"} is outside the supported range, skipped.`,
-    );
-    return false;
-  };
-
-  // 3) 全局 npm 安装的发行包。
-  const globalBin = await resolveGlobalPackageBin(pkg);
-  if (globalBin && levelOk(globalBin, "global install")) {
-    channel.appendLine(`pi-web entry (global install): ${globalBin}`);
-    return { mode: "bin", path: globalBin };
+  // 3-5) 已装副本池：全局包 / PATH shim / 托管运行时——同一池内取最高
+  // 兼容版本。腿序不是优先级：历史全局安装不该永久影子化托管升级
+  // （曾踩"升级后仍跑旧版"的坑）；要钉版本走 executablePath 配置。
+  // 同版本多副本按池顺序取先者（global > shim > managed），结果确定。
+  const candidates = [
+    { bin: await resolveGlobalPackageBin(pkg), leg: "global install" },
+    { bin: await resolvePathShimBin(pkg, (l) => channel.appendLine(l)), leg: "PATH shim" },
+    { bin: managedPackageBin(context, pkg, (l) => channel.appendLine(l)), leg: "managed runtime" },
+  ].filter((c): c is { bin: string; leg: string } => !!c.bin);
+  for (const c of candidates) {
+    const lv = binLevel(c.bin);
+    if (!levelSupported(lv)) {
+      channel.appendLine(
+        `${c.leg} package level ${lv ?? "unknown"} is outside the supported range, skipped.`,
+      );
+    }
   }
-
-  // 4) PATH 上的 pi-web shim（pnpm/yarn/bun 全局安装都会落这里；
-  //    shim 脚本内含真实 bin/pi-web.js 路径，解析后仍走 node 直启，
-  //    避免经 .cmd 外壳导致 stop 杀不死内层服务进程）。
-  const shimBin = await resolvePathShimBin(pkg, (l) => channel.appendLine(l));
-  if (shimBin && levelOk(shimBin, "PATH shim")) {
-    channel.appendLine(`pi-web entry (PATH shim): ${shimBin}`);
-    return { mode: "bin", path: shimBin };
-  }
-
-  // 5) 托管运行时：版本化目录 + marker 选择（见 managedRuntime.ts）；
-  //    无兼容已装副本则现场安装最高兼容版本。
-  const managedBin = managedPackageBin(context, pkg, (l) => channel.appendLine(l));
-  if (managedBin) {
-    channel.appendLine(`pi-web entry (managed runtime): ${managedBin}`);
+  const best = pickNewestSupported(candidates, (c) => binVersion(c.bin), (c) => binLevel(c.bin));
+  if (best) {
+    const extra = candidates.length > 1 ? ` (newest of ${candidates.length} installed copies)` : "";
+    channel.appendLine(`pi-web entry (${best.leg}): ${best.bin}${extra}`);
     emitServerStatus("Starting local server…");
-    return { mode: "bin", path: managedBin };
+    return { mode: "bin", path: best.bin };
   }
+
+  // 无兼容已装副本→现场安装最高兼容版本（managed 腿兜底）。
   emitServerStatus("Downloading and installing the server component (~540MB on disk, slower on first run)…");
   channel.appendLine(`managed runtime missing; running npm --prefix install…`);
   const installed = await vscode.window.withProgress(

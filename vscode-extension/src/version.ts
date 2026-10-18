@@ -35,6 +35,18 @@ export function binLevel(binPath: string): number | undefined {
   return packageLevel(path.dirname(path.dirname(binPath)));
 }
 
+/** bin/pi-web.js → 所在包目录 → 其 version。读不到按 "0.0.0"（垫底候选）。 */
+export function binVersion(binPath: string): string {
+  try {
+    const v = JSON.parse(
+      readFileSync(path.join(path.dirname(path.dirname(binPath)), "package.json"), "utf8"),
+    )?.version;
+    return typeof v === "string" && v ? v : "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
+
 /** a>b→1, a=b→0, a<b→-1。预发版 `X.Y.Z-N` 的 N 参与比较。 */
 export function compareVersions(a: string, b: string): number {
   const pa = a.split(/[.-]/).map((x) => Number(x) || 0);
@@ -49,6 +61,21 @@ export function compareVersions(a: string, b: string): number {
 
 export function isNewerVersion(candidate: string, current: string): boolean {
   return compareVersions(candidate, current) > 0;
+}
+
+/**
+ * 已装副本池择优：过滤级别不支持的候选后按版本取最高；
+ * 版本并列时保留池内顺序先者（调用方按偏好排池序）。
+ */
+export function pickNewestSupported<T>(
+  items: T[],
+  versionOf: (item: T) => string,
+  levelOf: (item: T) => number | undefined,
+): T | undefined {
+  const supported = items.filter((i) => levelSupported(levelOf(i)));
+  return supported.length
+    ? supported.reduce((a, b) => (compareVersions(versionOf(a), versionOf(b)) >= 0 ? a : b))
+    : undefined;
 }
 
 /** 包名/版本 spec 的 shell 安全校验：配置值原样进 shell 会注入。 */

@@ -69,17 +69,20 @@
   未知 kind）不构成级别提升。级别与版本号的对应关系只在文档
   层面维护，不作为机制。
 
-## 3. 解析链（维持顺序，语义不变）
+## 3. 解析链
 
 ```
-piIde.executablePath → 内置 resources（过渡残留）
-→ npm root -g 全局包 → PATH shim（pi-web-for-ide，校验包名）
-→ 托管运行时（§4，缺则现场装）→ npx（过渡兜底，待移除）
+piIde.executablePath（显式 pin，最高优先）→ 内置 resources（过渡残留）
+→ 已装副本池：npm root -g 全局包 / PATH shim / 托管运行时
+  ——同池取最高 piIde.level 兼容版本（同版本按池序取先者）
+→ 无兼容副本：托管运行时现场安装（§4-5）
 ```
 
-任何腿解析出的 bin，其包 `package.json.piIde.embedProtocol`
-超出支持区间时：记日志 + 跳过该腿继续向下（托管腿按 §5 的规则
-从已装版本里另选），不静默启动不兼容副本。
+池内版本比较而非腿序优先的原因：全局安装不应永久影子化托管升级——
+扩展自己的 "Install" 引导按钮就会 `pnpm i -g` 留下全局包，腿序语义下
+它会让后续所有托管升级失效（装了新版仍跑旧版）。要钉版本请用
+executablePath。包的 `package.json.piIde.embedProtocol` 超出支持
+区间的候选：记日志 + 跳过，不静默启动不兼容副本。
 
 ## 4. 目录布局与版本选择
 

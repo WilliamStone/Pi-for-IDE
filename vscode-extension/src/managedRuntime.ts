@@ -28,6 +28,7 @@ import * as vscode from "vscode";
 // 级别阶梯与版本比较抽到 ./version（纯模块，可单测）。
 export {
   binLevel,
+  binVersion,
   compareVersions,
   EMBED_PROTOCOL_SUPPORTED,
   isNewerVersion,
@@ -35,6 +36,7 @@ export {
   levelSupported,
   MIN_PKG_LEVEL,
   packageLevel,
+  pickNewestSupported,
 } from "./version";
 import {
   compareVersions,
