@@ -1,5 +1,6 @@
 import { configureHttpDispatcher, readHttpIdleTimeoutMs } from "@/lib/http-dispatcher";
 import { closeAllAgentEventStreams } from "@/lib/agent-event-stream";
+import { onEmbedShutdown, startEmbedWatchdog } from "@/lib/embed/lifecycle";
 
 export function registerNodeInstrumentation(): void {
   // The pi CLI applies settings' `httpIdleTimeoutMs` to the same undici
@@ -14,6 +15,11 @@ export function registerNodeInstrumentation(): void {
   const shutdownStreams = () => closeAllAgentEventStreams();
   process.on("SIGINT", shutdownStreams);
   process.on("SIGTERM", shutdownStreams);
+
+  // Embed watchdog（仅 PI_WEB_EMBED_WATCHDOG=1 时武装）：关机时同样先收
+  // SSE，保证 exit 前不拖悬挂连接。
+  onEmbedShutdown(shutdownStreams);
+  startEmbedWatchdog();
 
   // Next evaluates a route's code on its first request, so the first
   // /api/sessions used to pay for importing the whole pi SDK, seconds on

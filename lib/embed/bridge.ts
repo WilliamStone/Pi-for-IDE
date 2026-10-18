@@ -118,6 +118,8 @@ export interface EmbedRevertFilesRequest {
   kind: "revertFiles";
   turnId: string;
   files: string[];
+  /** 本轮 write 新建的文件——快照与 HEAD 都查无时宿主据此删除回退。 */
+  created?: string[];
   cwd: string;
 }
 
@@ -494,10 +496,15 @@ export async function showDiffViaHost(filePath: string, before: string, after: s
 /**
  * 回退：把指定文件恢复到本轮快照内容。返回是否成功。
  */
-export async function revertFilesViaHost(turnId: string, files: string[], cwd: string): Promise<{ success: boolean; message?: string }> {
+export async function revertFilesViaHost(
+  turnId: string,
+  files: string[],
+  cwd: string,
+  created?: string[],
+): Promise<{ success: boolean; message?: string }> {
   try {
     const res = await sendEmbedRequest<EmbedRevertFilesResponse>(
-      { kind: "revertFiles", turnId, files, cwd },
+      { kind: "revertFiles", turnId, files, cwd, created },
       10000,
     );
     return { success: res?.success ?? false, message: res?.message };

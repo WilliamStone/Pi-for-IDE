@@ -300,6 +300,8 @@ type ArchiveDeleteScope = "all" | "old";
 const UNREAD_SESSIONS_STORAGE_KEY = "pi-web:unread-session-ids";
 const LAST_CUSTOM_CWD_STORAGE_KEY = "pi-web:last-custom-cwd";
 const RUNNING_SESSIONS_POLL_MS = 2500;
+// 后台页的续命轮询间隔——受浏览器后台定时器限流，实际可能拉长到 ~60s。
+const RUNNING_SESSIONS_HIDDEN_POLL_MS = 30_000;
 const SESSION_DETAILS_HYDRATION_DELAY_MS = 750;
 /** "Archive sessions older than 7 days" in a project's menu. */
 const ARCHIVE_OLDER_THAN_MS = 7 * 24 * 60 * 60 * 1000;
@@ -885,14 +887,18 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       timer = null;
     };
 
+    // 后台页降频续命：embed 语义是"开着就算 presence"（agent/running 轮询
+    // 记 clientActivity），隐藏页也要以更低频保持——浏览器对后台页定时器
+    // 限流到 ~60s，watchdog 下限须保证 ≥90s 才不吃亏（扩展侧已 clamp）。
     const schedule = () => {
       clearTimer();
-      if (stopped || document.visibilityState !== "visible") return;
-      timer = setTimeout(() => void poll(), RUNNING_SESSIONS_POLL_MS);
+      if (stopped) return;
+      const hidden = document.visibilityState !== "visible";
+      timer = setTimeout(() => void poll(), hidden ? RUNNING_SESSIONS_HIDDEN_POLL_MS : RUNNING_SESSIONS_POLL_MS);
     };
 
     const poll = async () => {
-      if (stopped || document.visibilityState !== "visible") return;
+      if (stopped) return;
       const current = new AbortController();
       controller?.abort();
       controller = current;
@@ -935,9 +941,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         void poll();
         return;
       }
-      clearTimer();
+      // 后台继续低频轮询（presence 保活）；中止在途请求即可。
       controller?.abort();
       controller = null;
+      schedule();
     };
 
     void poll();

@@ -4,6 +4,9 @@ import {
   type AgentEventLike,
 } from "./agent-event-wire";
 import { acquireSessionLivenessLease } from "./session-liveness";
+// 相对路径而非 @/ 别名：本文件被 lib/agent-event-stream.test.mjs 经 jiti
+// 直引，@/ 在测试加载链下不解析。
+import { embedClientConnected, embedClientDisconnected } from "./embed/lifecycle";
 
 export interface AgentEventStreamSession {
   readonly isStreaming: boolean;
@@ -128,6 +131,7 @@ export function createAgentEventStream(
 
   return new ReadableStream<Uint8Array>({
     start(controller) {
+      embedClientConnected();
       const encoder = new TextEncoder();
       let closed = false;
       let heartbeat: ReturnType<typeof setInterval> | null = null;
@@ -148,6 +152,7 @@ export function createAgentEventStream(
       const cleanup = (closeController: boolean | "error", reason?: Error) => {
         if (closed) return;
         closed = true;
+        embedClientDisconnected();
         releaseLease();
         releaseLease = () => {};
         activeStreamClosers.delete(cleanup);

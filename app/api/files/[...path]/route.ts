@@ -32,6 +32,7 @@ import { parseFormDataWithinLimit, RequestBodyTooLargeError } from "@/lib/bounde
 import { filePathFromApiSegments, samePath } from "@/lib/paths";
 import { hasParentDirectorySegment } from "@/lib/path-security";
 import { readTextPreviewChunk } from "@/lib/text-preview";
+import { embedClientConnected, embedClientDisconnected } from "@/lib/embed/lifecycle";
 
 const FILE_REQUEST_TYPES = ["list", "read", "download", "meta", "preview", "watch"] as const;
 type FileRequestType = typeof FILE_REQUEST_TYPES[number];
@@ -599,6 +600,7 @@ export async function GET(
       let lastExists = stat !== undefined;
       const stream = new ReadableStream({
         start(controller) {
+          embedClientConnected();
           const send = (eventName: string, data: Record<string, unknown>) => {
             const payload = `event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`;
             try {
@@ -640,6 +642,7 @@ export async function GET(
             watcher.on("error", () => {
               try { watcher?.close(); } catch { /* ignore */ }
               watcher = null;
+              embedClientDisconnected();
               try { controller.close(); } catch { /* ignore */ }
             });
             // The client snapshots only after this event, so emit it after the
@@ -647,10 +650,12 @@ export async function GET(
             send("connected", { filePath });
           } catch {
             send("error", { message: "Failed to watch file" });
+            embedClientDisconnected();
             controller.close();
           }
         },
         cancel() {
+          embedClientDisconnected();
           try { watcher?.close(); } catch { /* ignore */ }
         },
       });

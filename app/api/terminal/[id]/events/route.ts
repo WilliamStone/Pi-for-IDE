@@ -1,4 +1,5 @@
 import { hasTerminal, subscribeTerminal, type TerminalEvent } from "@/lib/terminal-manager";
+import { embedClientConnected, embedClientDisconnected } from "@/lib/embed/lifecycle";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -16,6 +17,7 @@ export async function GET(
   let closeStream: (closeController: boolean) => void = () => {};
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
+      embedClientConnected();
       const encoder = new TextEncoder();
       let closed = false;
       let heartbeat: ReturnType<typeof setInterval> | null = null;
@@ -23,6 +25,7 @@ export async function GET(
       const cleanup = (closeController: boolean) => {
         if (closed) return;
         closed = true;
+        embedClientDisconnected();
         if (heartbeat) clearInterval(heartbeat);
         unsubscribe?.();
         req.signal.removeEventListener("abort", abort);
