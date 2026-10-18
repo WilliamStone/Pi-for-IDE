@@ -83,15 +83,25 @@ function getDiffFromResult(result: ToolResultMessage): string | undefined {
   return undefined;
 }
 
+/**
+ * 跨平台路径规范化：工具的 input.path 在 Windows 上是 `S:\x` 反斜杠绝对
+ * 路径，cwd 也可能是反斜杠——统一成正斜杠再比较，否则去重键与相对化
+ * 都静默错位。
+ */
+export function normalizeChangePath(p: string): string {
+  return p.trim().replace(/\\/g, "/").replace(/\/+$/, "");
+}
+
 /** 把绝对路径转成相对 cwd 的路径（用于显示）。 */
 function toRelativePath(absPath: string, cwd: string | undefined): string {
   if (!cwd) return absPath;
-  // 规范化 cwd 末尾斜杠，避免 /a/b vs /a/b/ 比较失败
-  const normCwd = cwd.endsWith("/") ? cwd.slice(0, -1) : cwd;
-  if (absPath.startsWith(normCwd + "/")) {
-    return absPath.slice(normCwd.length + 1);
+  const p = normalizeChangePath(absPath);
+  const root = normalizeChangePath(cwd);
+  const cmp = (s: string) => s.toLowerCase(); // cwd 多来自 Windows 会话
+  if (cmp(p).startsWith(cmp(root) + "/")) {
+    return p.slice(root.length + 1);
   }
-  return absPath;
+  return p;
 }
 
 /**
@@ -123,7 +133,7 @@ function getToolCallBlocks(msg: AssistantMessage): ToolCallContent[] {
  *
  * @param messages  本轮 turn 范围内的所有消息（含 user、assistant、toolResult）
  * @param cwd       session 的工作目录，用于把绝对路径转相对路径
- * @returns         去重后的 FileChange 列表（同一文件被多次改取最后一次的有效信息）
+ * @returns         去重后的 FileChange 列表（同一文件的连续 edit 聚合全部 edits）
  *
  * 注：bash 工具无法静态确定改了哪些文件，会产出一个 path 为空的「untracked」
  * 条目，前端据此渲染提示而非具体文件。
@@ -159,8 +169,9 @@ export function extractFileChanges(
       const input = tc.input;
 
       if (isEditToolName(toolName)) {
-        const path = typeof input.path === "string" ? input.path : "";
-        if (!path) continue;
+        const rawPath = typeof input.path === "string" ? input.path : "";
+        if (!rawPath) continue;
+        const path = normalizeChangePath(rawPath);
         const diffText = result ? getDiffFromResult(result) : undefined;
         // 提取原始 edits（oldText/newText 对），用于回退时反向 apply
         const rawEdits = Array.isArray(input.edits) ? input.edits : [];
@@ -168,6 +179,14 @@ export function extractFileChanges(
           .filter((e: unknown): e is Record<string, string> =>
             !!e && typeof e === "object" && typeof (e as { oldText?: unknown }).oldText === "string" && typeof (e as { newText?: unknown }).newText === "string")
           .map((e) => ({ oldText: e.oldText, newText: e.newText }));
+        const prev = byPath.get(path);
+        if (prev && prev.kind === "edit") {
+          // 同文件多笔 edit：聚合全部 edits（按调用顺序），回退才能全反放。
+          prev.edits = [...(prev.edits ?? []), ...edits];
+          prev.diffText = diffText ?? prev.diffText;
+          prev.toolCallId = tc.toolCallId;
+          continue;
+        }
         const change: FileChange = {
           path,
           relativePath: toRelativePath(path, cwd),
@@ -182,8 +201,9 @@ export function extractFileChanges(
         if (!byPath.has(path)) orderedPaths.push(path);
         byPath.set(path, change);
       } else if (isWriteToolName(toolName)) {
-        const path = typeof input.path === "string" ? input.path : "";
-        if (!path) continue;
+        const rawPath = typeof input.path === "string" ? input.path : "";
+        if (!rawPath) continue;
+        const path = normalizeChangePath(rawPath);
         const content = typeof input.content === "string" ? input.content : "";
         const change: FileChange = {
           path,

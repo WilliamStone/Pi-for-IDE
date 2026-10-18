@@ -4,7 +4,7 @@ import { memo, useState, useCallback, useMemo } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { getFileIcon } from "../FileIcons";
 import { SplitPatchView, PatchTextView } from "../MessageView";
-import { isEmbedMode, showDiffViaHost, getBeforeContentViaHost } from "@/lib/embed/bridge";
+import { isEmbedMode, showDiffViaHost, getBeforeContentViaHost, notifyEmbedHost } from "@/lib/embed/bridge";
 import { encodeFilePathForApi } from "@/lib/file-paths";
 import type { FileChange } from "@/lib/file-changes";
 
@@ -64,15 +64,24 @@ function FileReviewCardImpl({ turnId, changes, cwd, onOpenFile }: Props) {
           after = data.content ?? "";
         }
       } catch {}
-      before = (await getBeforeContentViaHost(turnId, change.path, cwd)) ?? "";
+      const snapBefore = await getBeforeContentViaHost(turnId, change.path, cwd);
+      if (snapBefore === null) {
+        // 无 before：edit 文件全绿伪 diff 会误导——提示而非静默放行。
+        notifyEmbedHost({ kind: "notify", message: t("chat.fileReviewNoSnapshot"), level: "warning" });
+      }
+      before = snapBefore ?? "";
     } else if (change.kind === "write") {
       after = change.newContent ?? "";
       before = (await getBeforeContentViaHost(turnId, change.path, cwd)) ?? "";
     } else {
       return;
     }
-    await showDiffViaHost(change.path, before, after, `${change.relativePath} (本轮改动)`);
-  }, [inEmbed, turnId, cwd]);
+    if (!after && !before) {
+      notifyEmbedHost({ kind: "notify", message: t("chat.fileReviewDiffFailed"), level: "warning" });
+      return;
+    }
+    await showDiffViaHost(change.path, before, after, t("chat.fileReviewTurnDiff", { path: change.relativePath }));
+  }, [inEmbed, turnId, cwd, t]);
 
   // Web 模式：点击「在文件查看器打开」按钮
   const handleOpenInViewer = useCallback((change: FileChange, e: React.MouseEvent) => {
@@ -159,6 +168,7 @@ const FileReviewRow = memo(function FileReviewRow({
   onOpenInEditor?: (e: React.MouseEvent) => void;
   onOpenInViewer?: (e: React.MouseEvent) => void;
 }) {
+  const { t } = useI18n();
   const iconName = getFileIcon(change.relativePath || change.path, 13);
   const kindLabel = change.kind === "edit" ? "edit"
     : change.kind === "write" ? "write"
@@ -204,7 +214,7 @@ const FileReviewRow = memo(function FileReviewRow({
           <span
             role="button"
             onClick={onOpenInEditor}
-            title="在编辑器 diff 中打开"
+            title={t("chat.fileReviewOpenDiff")}
             style={{
               flexShrink: 0, fontSize: 10, color: "var(--accent)",
               padding: "1px 5px", borderRadius: 3,
@@ -216,7 +226,7 @@ const FileReviewRow = memo(function FileReviewRow({
           <span
             role="button"
             onClick={onOpenInViewer}
-            title="在文件查看器打开"
+            title={t("chat.fileReviewOpenFile")}
             style={{
               flexShrink: 0, fontSize: 10, color: "var(--accent)",
               padding: "1px 5px", borderRadius: 3,

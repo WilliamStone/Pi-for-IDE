@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
-import { readFileSync, writeFileSync } from "fs";
+import { readFileSync } from "fs";
 import {
   resolveSessionPath,
   invalidateSessionPathCache,
   invalidateSessionListCache,
 } from "@/lib/session-reader";
 import { getRpcSession } from "@/lib/rpc-manager";
+import { writePrivateFileAtomicSync } from "@/lib/atomic-file";
+import { revertTurnEntries, type SessionEntryLike } from "@/lib/turn-revert";
 
 /**
  * POST /api/sessions/[id]/revert-turn  body: { entryIds: string[] }
@@ -33,46 +35,32 @@ export async function POST(
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
+    // wrapper 运行中会并发 append——读改写窗口内新 entry 会被静默覆盖，
+    // 直接拒绝；页面侧回退按钮本就以 sessionBusy 门控。
+    if (getRpcSession(id)?.isRunning()) {
+      return NextResponse.json({ error: "Session is busy" }, { status: 409 });
+    }
+
     const content = readFileSync(filePath, "utf8");
     const lines = content.split("\n").filter((l) => l.trim().length > 0);
-    type SessionEntry = { id?: string; parentId?: string | null; type?: string };
     const entries = lines.map((l) => {
-      try { return JSON.parse(l) as SessionEntry; }
+      try { return JSON.parse(l) as SessionEntryLike; }
       catch { return null; }
-    }).filter((e): e is SessionEntry => !!e && typeof e.id === "string");
+    }).filter((e): e is SessionEntryLike => !!e && typeof e.id === "string");
 
-    // 找到该轮用户消息（第一个被删 entry）的 parentId，用于重连 children
-    const firstEntry = entries.find((e) => deleted.has(e.id!));
-    const prevParentId = firstEntry?.parentId ?? null;
-
-    // 判断被删集合里是否有 session header —— 不允许删 header
-    const headerIdx = entries.findIndex((e) => e.type === "session");
-    if (headerIdx >= 0 && entries[headerIdx].id && deleted.has(entries[headerIdx].id)) {
-      return NextResponse.json({ error: "Cannot delete session header" }, { status: 400 });
+    const result = revertTurnEntries(entries, deleted);
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error }, { status: 400 });
     }
 
-    const kept = entries
-      .filter((e) => e.id && !deleted.has(e.id))
-      .map((e) => {
-        // children 重连到被删轮之前的父节点
-        if (e.parentId && deleted.has(e.parentId)) {
-          return { ...e, parentId: prevParentId };
-        }
-        return e;
-      });
-
-    if (kept.length === 0) {
-      return NextResponse.json({ error: "Cannot delete all entries" }, { status: 400 });
-    }
-
-    writeFileSync(filePath, kept.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    writePrivateFileAtomicSync(filePath, result.kept.map((e) => JSON.stringify(e)).join("\n") + "\n");
 
     // 服务端 wrapper 持有旧状态 → destroy，下次请求重新加载
     getRpcSession(id)?.destroy();
     invalidateSessionPathCache(id);
     invalidateSessionListCache();
 
-    return NextResponse.json({ ok: true, kept: kept.length });
+    return NextResponse.json({ ok: true, kept: result.kept.length });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }

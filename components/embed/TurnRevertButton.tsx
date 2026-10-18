@@ -10,11 +10,14 @@ import { useI18n } from "@/hooks/useI18n";
 export function TurnRevertButton({
   entryId,
   reverting,
+  disabledReason,
   onRevert,
   hovered,
 }: {
   entryId: string;
   reverting?: boolean;
+  /** 确定不可用的原因（禁用按钮 + tooltip）；否则 undefined。 */
+  disabledReason?: string;
   onRevert: (entryId: string) => void;
   hovered: boolean;
 }) {
@@ -63,17 +66,18 @@ export function TurnRevertButton({
         </>
       ) : (
         <button
-          onClick={() => setConfirming(true)}
-          title={t("chat.revertTurnTitle")}
+          onClick={() => { if (!disabledReason) setConfirming(true); }}
+          disabled={!!disabledReason}
+          title={disabledReason ?? t("chat.revertTurnTitle")}
           style={{
             display: "flex", alignItems: "center", gap: 4,
             padding: "3px 8px", height: 22,
             background: "none", border: "none",
             borderRadius: 5,
             color: "var(--text-dim)",
-            cursor: "pointer", fontSize: 11, fontWeight: 400,
+            cursor: disabledReason ? "not-allowed" : "pointer", fontSize: 11, fontWeight: 400,
             whiteSpace: "nowrap",
-            opacity: hovered ? 1 : 0,
+            opacity: disabledReason ? 0.5 : hovered ? 1 : 0,
             transition: "opacity 0.12s",
           }}
           onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent)"; }}

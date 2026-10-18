@@ -5,7 +5,7 @@ import { randomUUID } from "crypto";
 import { existsSync, realpathSync, writeFileSync } from "fs";
 import { resolve } from "path";
 import { validateAgentImages } from "./image-attachments";
-import { applyActiveFilesHint, stripActiveFilesHint } from "./embed/active-files";
+import { createActiveFilesExtension, stripActiveFilesHint } from "./embed/active-files";
 import { invalidateModelsCache } from "./models-cache";
 import { invalidateModelRuntimeWithExtensions } from "./model-runtime";
 import { resolveVisibleModels, selectInitialModelScope } from "./model-scope";
@@ -128,6 +128,8 @@ type ExtensionCommandContextActionsLike = {
 
 type AgentSessionWrapperOptions = {
   exactSystemPrompt?: () => string;
+  /** embed 活动文件注入的轮级载体：prompt 时写入，before_agent_start 时读出。 */
+  activeFilesRef?: { current?: string[] };
   chatOnly?: boolean;
   onAgentRunComplete?: AgentRunCompleteListener;
   suppressCompletionNotifications?: boolean;
@@ -323,6 +325,7 @@ export class AgentSessionWrapper {
   private extensionBindingPromise: Promise<void> | null = null;
   private extensionBindingError: unknown = null;
   private readonly exactSystemPrompt?: () => string;
+  private readonly activeFilesRef?: { current?: string[] };
   private readonly chatOnly: boolean;
   private readonly onAgentRunComplete?: AgentRunCompleteListener;
   private readonly suppressCompletionNotifications: boolean;
@@ -351,6 +354,7 @@ export class AgentSessionWrapper {
     options: AgentSessionWrapperOptions = {},
   ) {
     this.exactSystemPrompt = options.exactSystemPrompt;
+    this.activeFilesRef = options.activeFilesRef;
     this.chatOnly = options.chatOnly ?? false;
     this.onAgentRunComplete = options.onAgentRunComplete;
     this.suppressCompletionNotifications = options.suppressCompletionNotifications ?? false;
@@ -919,9 +923,11 @@ export class AgentSessionWrapper {
               if (this.mcpPromptWait === wait) this.mcpPromptWait = null;
             }
           }
-          // embed 模式：把宿主当前活动编辑器文件注入 system prompt（隐藏提示词，
-          // 经 lib/embed/active-files.ts 触碰 pi SDK 内部字段）。
-          applyActiveFilesHint(this.inner, command.activeFiles as string[] | undefined);
+          // embed 模式：记下宿主当前活动编辑器文件——本轮 before_agent_start
+          // 挂钩读它注入 system prompt 投影（lib/embed/active-files.ts）。
+          if (this.activeFilesRef) {
+            this.activeFilesRef.current = command.activeFiles as string[] | undefined;
+          }
 
           let prompt: Promise<void>;
           try {
@@ -2535,6 +2541,10 @@ export async function startRpcSession(
     // after the session is created, so the getter is filled in below.
     const exactSystemPromptRef: { current?: () => string } = {};
     const exactSystemPromptExtension = createExactSystemPromptExtension(() => exactSystemPromptRef.current?.());
+    // embed 活动文件注入：prompt 时 wrapper 写 ref，before_agent_start 时扩展读——
+    // 替代旧实现直写 SDK 私有字段的做法（see lib/embed/active-files.ts）。
+    const activeFilesRef: { current?: string[] } = {};
+    const activeFilesExtension = createActiveFilesExtension(() => activeFilesRef.current);
     // codemode, tool-search, and mcp, as the pi CLI loads them, and the host that decides
     // which MCP servers the session connects (ADR 0006).
     const builtins = subagentResources || chatOnly
@@ -2593,6 +2603,7 @@ export async function startRpcSession(
         : {
             extensionFactories: [
               ...(builtins?.extensions ?? []),
+              activeFilesExtension,
               createReadOnlyMcpPolicyExtension(),
               createProjectCommandBashExtension({
                 cwd: sessionCwd,
@@ -2724,6 +2735,7 @@ export async function startRpcSession(
     const mcpHost = builtins?.mcpHost ?? subagentMcp?.mcpHost;
     const wrapper = new AgentSessionWrapper(inner, {
       exactSystemPrompt,
+      activeFilesRef,
       chatOnly,
       onAgentRunComplete: (completedSessionId, sessionName) => {
         void notifySessionComplete(completedSessionId, sessionName).catch((error) => {

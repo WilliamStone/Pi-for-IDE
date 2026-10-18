@@ -221,6 +221,8 @@ interface Props {
   compactError?: string | null;
   /** 该轮是否有文件改动可回退（决定回退按钮是否显示）。 */
   canRevertTurn?: boolean;
+  /** 有改动但确定不可用时的原因（禁用按钮 + tooltip）。 */
+  revertUnavailableReason?: string;
   /** 回退该轮：恢复代码 + 删除该轮会话记录。 */
   onRevertTurn?: (entryId: string) => void;
   /** 回退进行中（禁用按钮）。 */
@@ -292,9 +294,9 @@ function haveSameRelevantToolResults(
   return true;
 }
 
-export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, onOpenSubagent, entryId, searchBlock, onFork, forking, onEditContent, onCancelEdit, isEditing, showTimestamp, prevTimestamp, sessionId, writtenFiles, turnDurationMs, onCompact, isCompacting, compactError, canRevertTurn, onRevertTurn, revertingTurn }: Props) {
+export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, onOpenSubagent, entryId, searchBlock, onFork, forking, onEditContent, onCancelEdit, isEditing, showTimestamp, prevTimestamp, sessionId, writtenFiles, turnDurationMs, onCompact, isCompacting, compactError, canRevertTurn, revertUnavailableReason, onRevertTurn, revertingTurn }: Props) {
   if (message.role === "user") {
-    return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onEditContent={onEditContent} onCancelEdit={onCancelEdit} isEditing={isEditing} canRevertTurn={canRevertTurn} onRevertTurn={onRevertTurn} revertingTurn={revertingTurn} />;
+    return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onEditContent={onEditContent} onCancelEdit={onCancelEdit} isEditing={isEditing} canRevertTurn={canRevertTurn} revertUnavailableReason={revertUnavailableReason} onRevertTurn={onRevertTurn} revertingTurn={revertingTurn} />;
   }
   if (message.role === "assistant") {
     return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} searchBlock={searchBlock} writtenFiles={writtenFiles} turnDurationMs={turnDurationMs} onCompact={onCompact} isCompacting={isCompacting} compactError={compactError} />;
@@ -337,11 +339,12 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     && prev.isCompacting === next.isCompacting
     && prev.compactError === next.compactError
     && prev.canRevertTurn === next.canRevertTurn
+    && prev.revertUnavailableReason === next.revertUnavailableReason
     && prev.onRevertTurn === next.onRevertTurn
     && prev.revertingTurn === next.revertingTurn;
 });
 
-function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, onEditContent, onCancelEdit, isEditing, canRevertTurn, onRevertTurn, revertingTurn }: {
+function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, onEditContent, onCancelEdit, isEditing, canRevertTurn, revertUnavailableReason, onRevertTurn, revertingTurn }: {
   message: UserMessage;
   cwd?: string;
   onOpenFile?: (filePath: string, page?: number) => void;
@@ -352,6 +355,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
   onCancelEdit?: () => void;
   isEditing?: boolean;
   canRevertTurn?: boolean;
+  revertUnavailableReason?: string;
   onRevertTurn?: (entryId: string) => void;
   revertingTurn?: boolean;
 }) {
@@ -436,7 +440,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
       <div style={{ display: "flex", alignItems: "flex-end", gap: 6, maxWidth: "85%" }}>
         {/* 左侧：回退按钮（embed 模式；hover 显示，固定宽度占位避免布局跳动） */}
         {canRevertTurn && onRevertTurn && entryId && (
-          <TurnRevertButton entryId={entryId} reverting={revertingTurn} onRevert={onRevertTurn} hovered={hovered} />
+          <TurnRevertButton entryId={entryId} reverting={revertingTurn} disabledReason={revertUnavailableReason} onRevert={onRevertTurn} hovered={hovered} />
         )}
         <div
           style={{

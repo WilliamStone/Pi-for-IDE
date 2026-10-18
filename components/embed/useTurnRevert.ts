@@ -10,6 +10,8 @@ import type { NoticeType } from "@/hooks/useAgentSession";
 
 export interface TurnRevertInfo {
   canRevert: boolean;
+  /** 有改动但明确不可用时的原因（渲染禁用按钮 + tooltip）；否则 undefined。 */
+  unavailableReason?: string;
   onRevert: (entryId: string) => void;
   reverting: boolean;
 }
@@ -44,7 +46,7 @@ export function useTurnRevert(opts: {
     if (revertingTurnId) return;
     const sid = sessionId;
     if (!sid || !cwd) {
-      addNotice?.({ type: "error", message: t("chat.revertFailed", { message: "缺少 session 或 cwd" }) });
+      addNotice?.({ type: "error", message: t("chat.revertNoContext") });
       return;
     }
     // 找该轮：entryIds 与 messages 平行，定位用户消息索引
@@ -70,13 +72,13 @@ export function useTurnRevert(opts: {
         if (change.kind === "edit" && change.edits && change.edits.length > 0) {
           const r = await revertEditViaHost(change.path, cwd, change.edits);
           if (r.success) okCount++;
-          else errs.push(`${change.relativePath}: ${r.message ?? "失败"}`);
+          else errs.push(`${change.relativePath}: ${r.message ?? t("chat.revertOpFailed")}`);
         } else if (change.kind === "write") {
-          const r = await revertFilesViaHost(turnId, [change.path], cwd);
+          const r = await revertFilesViaHost(turnId, [change.path], cwd, [change.path]);
           if (r.success) okCount++;
-          else errs.push(`${change.relativePath}: ${r.message ?? "失败"}`);
+          else errs.push(`${change.relativePath}: ${r.message ?? t("chat.revertOpFailed")}`);
         } else {
-          errs.push(`${change.relativePath}: 该类型不支持回退`);
+          errs.push(`${change.relativePath}: ${t("chat.revertKindUnsupported")}`);
         }
       }
       // 2) 删除该轮会话记录
@@ -85,9 +87,9 @@ export function useTurnRevert(opts: {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ entryIds: turnEntryIds }),
       });
-      const delData = await delRes.json().catch(() => ({ error: "无法解析响应" })) as { error?: string };
+      const delData = await delRes.json().catch(() => ({ error: t("chat.revertBadResponse") })) as { error?: string };
       if (!delRes.ok || delData.error) {
-        errs.push(`删除会话记录失败：${delData.error ?? `HTTP ${delRes.status}`}`);
+        errs.push(t("chat.revertDeleteFailed", { message: delData.error ?? `HTTP ${delRes.status}` }));
       }
 
       if (errs.length === 0) {
@@ -110,14 +112,22 @@ export function useTurnRevert(opts: {
       const userEntryId = entryIds[userIdx];
       const turnChanges = extractFileChanges(messages.slice(userIdx, endIdx), cwd);
       const hasChanges = turnChanges.some((c) => c.kind === "edit" || c.kind === "write");
+      // write 文件回退依赖宿主快照：本轮无 turnId 配对（reload 前或快照已
+      // 淘汰）时该文件必然报错——按钮禁用而非放行失败。纯 edit 轮不需要
+      // 快照（revertEdit 只靠文件当前内容与 edits）。
+      const needsSnapshot = turnChanges.some((c) => c.kind === "write");
+      const hasSnapshot = !!userEntryId && turnSnapshots.hasSnapshotFor(userEntryId);
       const canRevert = !!userEntryId && hasChanges && !sessionBusy;
       return {
         canRevert,
-        onRevert: canRevert ? (entryId: string) => void handleRevertTurn(entryId) : () => {},
+        unavailableReason: needsSnapshot && !hasSnapshot ? t("chat.revertUnavailable") : undefined,
+        onRevert: canRevert && !(needsSnapshot && !hasSnapshot)
+          ? (entryId: string) => void handleRevertTurn(entryId)
+          : () => {},
         reverting: userEntryId === revertingTurnId,
       };
     },
-    [entryIds, messages, cwd, sessionBusy, handleRevertTurn, revertingTurnId],
+    [entryIds, messages, cwd, sessionBusy, handleRevertTurn, revertingTurnId, turnSnapshots, t],
   );
 
   return { revertingTurnId, handleRevertTurn, buildRevertInfo };

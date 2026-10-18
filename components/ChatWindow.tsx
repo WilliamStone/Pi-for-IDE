@@ -1142,7 +1142,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 if (idx === lastUserIdx) { (lastUserMsgRef as { current: HTMLDivElement | null }).current = el; }
               };
 
-              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; writtenFiles?: WrittenFile[]; recoverTruncation?: boolean; turnDurationMs?: number; withNotices?: boolean; revertInfo?: { canRevert: boolean; onRevert: (entryId: string) => void; reverting: boolean } } = {}): ReactNode => {
+              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; writtenFiles?: WrittenFile[]; recoverTruncation?: boolean; turnDurationMs?: number; withNotices?: boolean; revertInfo?: { canRevert: boolean; unavailableReason?: string; onRevert: (entryId: string) => void; reverting: boolean } } = {}): ReactNode => {
                 const msg = options.messageOverride ?? messages[idx];
                 if (isHiddenCustomMessage(msg)) return null;
                 // pi's showCacheMissNotices (#1265): read from the stored message, not a turn view's copy.
@@ -1192,6 +1192,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                     isCompacting={options.recoverTruncation ? isCompacting : undefined}
                     compactError={options.recoverTruncation ? compactError : undefined}
                     canRevertTurn={options.revertInfo?.canRevert && msg.role === "user"}
+                    revertUnavailableReason={options.revertInfo?.unavailableReason}
                     onRevertTurn={msg.role === "user" ? options.revertInfo?.onRevert : undefined}
                     revertingTurn={options.revertInfo?.reverting}
                   />
