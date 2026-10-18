@@ -16,6 +16,8 @@
 
 # next.js
 /.next/
+# build-time tmpdir redirect (next.config.ts)
+/.build-tmp/
 /out/
 
 # production
