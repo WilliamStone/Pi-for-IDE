@@ -3,6 +3,8 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
+import { baseName, isWithinCwd, normalizeAbsPath, toGitRelPath } from "./paths";
+import { applyEditsReversed } from "./revert";
 
 // ---------------------------------------------------------------------
 // 活动编辑器缓存：用户切到 pi-web 面板时编辑器会失焦（activeTextEditor
@@ -110,7 +112,12 @@ export class Bridge {
     const cwd = req.cwd;
     // Find the workspace folder that matches the requested cwd. If the cwd is
     // outside any workspace, fall back to the first workspace folder.
-    const targetFolder = workspace.find((f) => cwd.startsWith(f.uri.fsPath)) ?? workspace[0];
+    // 边界匹配：`C:\proj` 不得命中 folder `C:\pro`。
+    const normCwd = cwd.trim().replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+    const targetFolder = workspace.find((f) => {
+      const root = f.uri.fsPath.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+      return normCwd === root || normCwd.startsWith(root + "/");
+    }) ?? workspace[0];
 
     this.logger(
       `completeAt: cwd=${cwd}, query=${JSON.stringify(req.query)}, ` +
@@ -220,11 +227,12 @@ export class Bridge {
       if (inGit) {
         dirtyFiles = await this.gitDiffNameOnly(cwd);
       }
-      // 3. 读这些文件的磁盘内容（本轮前的未提交改动）
+      // 3. 读这些文件的磁盘内容（本轮前的未提交改动）。单文件 >2MB 跳过
+      // （快照留空，回退走 HEAD 兜底）——脏区巨大的仓库不该全量读进内存。
       const files = new Map<string, string>();
       for (const p of dirtyFiles) {
-        const abs = this.resolveAbsPath(p, cwd);
-        const content = await this.readFileText(abs);
+        const abs = this.normalizePath(p, cwd);
+        const content = await this.readFileText(abs, 2 * 1024 * 1024);
         if (content !== null) files.set(abs, content);
       }
       // 4. 存内存表，超出3轮淘汰最老
@@ -252,13 +260,13 @@ export class Bridge {
       const list = this.snapshots.get(cwd);
       const snap = list?.find((s) => s.turnId === turnId);
       if (snap) {
-        const abs = this.resolveAbsPath(filePath, cwd);
+        const abs = this.normalizePath(filePath, cwd);
         if (snap.files.has(abs)) {
           return { kind: "getBeforeContent", content: snap.files.get(abs)! };
         }
         // 快照无此文件且 git 可用 → 试 git show HEAD:path
         if (snap.inGit) {
-          const rel = this.toGitRel(filePath, cwd);
+          const rel = toGitRelPath(filePath, cwd);
           const content = await this.gitShowHead(cwd, rel);
           return { kind: "getBeforeContent", content };
         }
@@ -277,15 +285,15 @@ export class Bridge {
   private async showDiff(req: ShowDiffRequest): Promise<void> {
     const { filePath, before, after, title } = req;
     try {
-      const baseName = filePath.split("/").pop() || "file";
+      const base = baseName(filePath);
       const tmpDir = await this.ensureDiffCacheDir();
       // 文名加 hash 后缀避免并发冲突
       const tag = Buffer.from(filePath).toString("hex").slice(0, 12);
-      const beforeUri = vscode.Uri.file(`${tmpDir}/${baseName}.${tag}.before`);
-      const afterUri = vscode.Uri.file(`${tmpDir}/${baseName}.${tag}.after`);
+      const beforeUri = vscode.Uri.file(`${tmpDir}/${base}.${tag}.before`);
+      const afterUri = vscode.Uri.file(`${tmpDir}/${base}.${tag}.after`);
       await vscode.workspace.fs.writeFile(beforeUri, Buffer.from(before, "utf8"));
       await vscode.workspace.fs.writeFile(afterUri, Buffer.from(after, "utf8"));
-      const label = title || `${baseName} (this turn)`;
+      const label = title || `${base} (this turn)`;
       await vscode.commands.executeCommand("vscode.diff", beforeUri, afterUri, label);
     } catch (error) {
       this.logger(`showDiff failed: ${error}`);
@@ -294,21 +302,27 @@ export class Bridge {
 
   /**
    * 回退：把指定文件恢复到本轮快照的内容。直接 fs.writeFile，不碰 git
-   * index/对象库。before 为空（新文件）则 fs.unlink 删掉。
+   * index/对象库。created 里列出的文件（页面声称本轮 write 新建）在快照
+   * 与 HEAD 都没有时删除——快照漏采与"本来就存在"已被二者共同排除。
    */
   private async revertFiles(req: RevertFilesRequest): Promise<RevertFilesResponse> {
-    const { turnId, files, cwd } = req;
+    const { turnId, files, cwd, created } = req;
     try {
       const list = this.snapshots.get(cwd);
       const snap = list?.find((s) => s.turnId === turnId);
       if (!snap) {
         return { kind: "revertFiles", success: false, message: "snapshot missing or expired" };
       }
+      const createdSet = new Set((created ?? []).map((p) => this.normalizePath(p, cwd)));
       let reverted = 0;
       const errors: string[] = [];
       for (const filePath of files) {
-        const abs = this.resolveAbsPath(filePath, cwd);
+        const abs = this.normalizePath(filePath, cwd);
         try {
+          if (!isWithinCwd(abs, cwd)) {
+            errors.push(`${filePath}: outside session cwd`);
+            continue;
+          }
           if (snap.files.has(abs)) {
             // 本轮前有未提交改动 → 恢复成那个内容
             await vscode.workspace.fs.writeFile(
@@ -320,7 +334,7 @@ export class Bridge {
             // 快照无此文件。可能：本轮前已存在但快照采集遗漏（路径不匹配 /
             // gitDiffNameOnly 未列出），或本轮新建。
             // 用 git show HEAD:path 兴许能取到本轮前内容（= HEAD 版本）。
-            const rel = this.toGitRel(filePath, cwd);
+            const rel = toGitRelPath(filePath, cwd);
             const content = await this.gitShowHead(cwd, rel);
             if (content !== null) {
               // git HEAD 有此文件 → 恢复成 HEAD 版本
@@ -329,11 +343,21 @@ export class Bridge {
                 Buffer.from(content, "utf8"),
               );
               reverted++;
+            } else if (createdSet.has(abs)) {
+              // 快照没有 + HEAD 没有 + 页面记录为本轮新建 → 删除即回退。
+              // 快照采集过的"已存在文件"进不了这个分支（dirty 清单含
+              // 未追踪文件，存在即入快照），误删空间只剩页面假报。
+              await vscode.workspace.fs.delete(vscode.Uri.file(abs));
+              reverted++;
             } else {
-              // git HEAD 无此文件（本轮前就不在 git 里）。不安全地删文件会
-              // 误删——可能只是快照采集遗漏。宁可报错，也不删。
+              // git HEAD 无此文件且页面未声明本轮新建（本轮前就不在 git 里）。
+              // 不安全地删文件会误删——可能只是快照采集遗漏。宁可报错，也不删。
               errors.push(`${filePath}: no snapshot and file absent from git HEAD; cannot revert safely`);
             }
+          } else if (createdSet.has(abs)) {
+            // 非 git：快照无 + 页面声明本轮新建 → 删。
+            await vscode.workspace.fs.delete(vscode.Uri.file(abs));
+            reverted++;
           } else {
             // 非 git 且快照无 → 无法回退
             errors.push(`${filePath}: no snapshot and not a git repo`);
@@ -362,24 +386,25 @@ export class Bridge {
   private async revertEdit(req: RevertEditRequest): Promise<RevertEditResponse> {
     const { filePath, cwd, edits } = req;
     try {
-      const abs = this.resolveAbsPath(filePath, cwd);
+      const abs = this.normalizePath(filePath, cwd);
+      if (!isWithinCwd(abs, cwd)) {
+        return {
+          kind: "revertEdit",
+          success: false,
+          message: `path outside session cwd: ${filePath}`,
+        };
+      }
       const bytes = await vscode.workspace.fs.readFile(vscode.Uri.file(abs));
-      let content = Buffer.from(bytes).toString("utf8");
+      const content = Buffer.from(bytes).toString("utf8");
       // 反序 apply：后改的先换回，避免前面的 replace 污染后面的上下文
-      for (let i = edits.length - 1; i >= 0; i--) {
-        const { oldText, newText } = edits[i];
-        if (!content.includes(newText)) {
-          return {
-            kind: "revertEdit",
-            success: false,
-            message: `hunk ${i + 1}: new content not found in the file; it may have been modified externally`,
-          };
-        }
-        content = content.replace(newText, oldText);
+      // （次数校验与 $ 模式防护在纯模块 revert.ts 里）
+      const applied = applyEditsReversed(content, edits);
+      if (!applied.ok) {
+        return { kind: "revertEdit", success: false, message: applied.reason };
       }
       await vscode.workspace.fs.writeFile(
         vscode.Uri.file(abs),
-        Buffer.from(content, "utf8"),
+        Buffer.from(applied.content, "utf8"),
       );
       this.logger(`revertEdit: ${filePath}, reverse-applying ${edits.length} edits`);
       return { kind: "revertEdit", success: true };
@@ -454,9 +479,13 @@ export class Bridge {
     });
   }
 
-  /** 读文件文本，不存在返回 null。 */
-  private async readFileText(absPath: string): Promise<string | null> {
+  /** 读文件文本，不存在或超过 maxBytes 返回 null。 */
+  private async readFileText(absPath: string, maxBytes?: number): Promise<string | null> {
     try {
+      if (maxBytes !== undefined) {
+        const st = await vscode.workspace.fs.stat(vscode.Uri.file(absPath));
+        if (st.size > maxBytes) return null;
+      }
       const bytes = await vscode.workspace.fs.readFile(vscode.Uri.file(absPath));
       return Buffer.from(bytes).toString("utf8");
     } catch {
@@ -464,20 +493,9 @@ export class Bridge {
     }
   }
 
-  /** 把路径解析成绝对路径（相对 cwd）。规范掉尾斜杠，保证存/查 key 一致。 */
-  private resolveAbsPath(p: string, cwd: string): string {
-    if (p.startsWith("/")) return p.replace(/\/+$/, "");
-    return `${cwd.replace(/\/+$/, "")}/${p}`;
-  }
-
-  /** 把绝对路径转成相对 git 仓库根的路径（用于 git show HEAD:path）。 */
-  private toGitRel(absPath: string, cwd: string): string {
-    const normCwd = cwd.replace(/\/+$/, "");
-    if (absPath.startsWith(normCwd + "/")) {
-      return absPath.slice(normCwd.length + 1);
-    }
-    if (absPath === normCwd) return ".";
-    return absPath;
+  /** 统一路径规范化入口：跨平台绝对/相对/混合分隔符 → 正斜杠绝对路径。 */
+  private normalizePath(p: string, cwd: string): string {
+    return normalizeAbsPath(p, cwd);
   }
 
   private diffCacheDir: string | undefined;
@@ -699,6 +717,8 @@ interface RevertFilesRequest {
   kind: "revertFiles";
   turnId: string;
   files: string[];
+  /** 页面声称本轮新建的文件（快照与 HEAD 都查无时允许删除回退）。 */
+  created?: string[];
   cwd: string;
 }
 

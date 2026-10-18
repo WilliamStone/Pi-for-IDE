@@ -16,13 +16,10 @@
  */
 
 import * as vscode from "vscode";
-import {
-  PiIdeServer,
-  checkPiWebUpdate,
-  installPiWebPackage,
-  outputChannel,
-  sweepLegacyOrphans,
-} from "./piIdeServer";
+import { PiIdeServer } from "./piIdeServer";
+import { sweepLegacyOrphans } from "./port-scan";
+import { checkPiWebUpdate, installPiWebPackage } from "./server-resolve";
+import { outputChannel } from "./server-status";
 import {
   installManagedPackage,
   isNewerVersion,
@@ -80,7 +77,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       return s;
     }).catch((error) => {
-      console.error("[pi-web] server start failed:", error);
+      outputChannel().appendLine(`[pi-web] server start failed: ${error}`);
       setRunningContext(false);
       return undefined;
     });
@@ -128,20 +125,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   // 主入口 — 在状态栏和命令面板中可见。按需启动服务器，并在右侧
+  /** 会话 cwd/栏位共享解析：workspaceRoot 配置 > 首个工作区文件夹。 */
+  const resolveConfiguredCwd = (): string => {
+    const config = vscode.workspace.getConfiguration("Pi for IDE");
+    return (
+      config.get<string>("workspaceRoot", "").trim() ||
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ||
+      ""
+    );
+  };
+  const openViewColumn = (): vscode.ViewColumn =>
+    vscode.workspace.getConfiguration("Pi for IDE").get<boolean>("openBeside", true)
+      ? vscode.ViewColumn.Beside
+      : vscode.ViewColumn.Active;
+
   // （Beside）展示面板。
   context.subscriptions.push(
     vscode.commands.registerCommand("piIde.open", async () => {
-      const config = vscode.workspace.getConfiguration("Pi for IDE");
-      const openBeside = config.get<boolean>("openBeside", true);
-      const viewColumn = openBeside
-        ? vscode.ViewColumn.Beside
-        : vscode.ViewColumn.Active;
+      const viewColumn = openViewColumn();
 
       // 解析 cwd：显式设置 > 工作区文件夹 > 弹窗选择。
-      let cwd = config.get<string>("workspaceRoot", "").trim();
-      if (!cwd) {
-        cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "";
-      }
+      let cwd = resolveConfiguredCwd();
       if (!cwd) {
         const picked = await vscode.window.showOpenDialog({
           canSelectFiles: false,
@@ -204,13 +208,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     selectedText?: string;
   }): Promise<void> {
     // 面板可能还没打开；先确保服务器就绪，再 reveal（用当前 cwd）。
-    const config = vscode.workspace.getConfiguration("Pi for IDE");
-    const openBeside = config.get<boolean>("openBeside", true);
-    const viewColumn = openBeside
-      ? vscode.ViewColumn.Beside
-      : vscode.ViewColumn.Active;
-    let cwd = config.get<string>("workspaceRoot", "").trim();
-    if (!cwd) cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "";
+    const viewColumn = openViewColumn();
+    const cwd = resolveConfiguredCwd();
     if (!cwd) return; // 没有 cwd 时 pi-web 没法挂载会话，直接退出。
 
     void ensureServer();
@@ -312,7 +311,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       if (info.needsExtensionUpgrade) {
         void vscode.window.showWarningMessage(
-          `pi-web ${info.latest} (level ${info.latestLevel})requires a newer Pi for IDE extension. Please upgrade the extension from the marketplace first.`,
+          `pi-web ${info.latest} (level ${info.latestLevel}) requires a newer Pi for IDE extension. Please upgrade the extension from the marketplace first.`,
         );
         return;
       }
@@ -405,6 +404,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // pi-web 发行包升级检查（后台、一次、静默失败）
   // -------------------------------------------------------------------------
   // 通知只告知有新版本；按钮统一走 piIde.upgrade 命令（同一条编排路径）。
+  if (!vscode.workspace.getConfiguration("Pi for IDE").get<boolean>("checkForUpdates", true)) {
+    return;
+  }
   setTimeout(() => {
     void (async () => {
       const pkg =
@@ -430,5 +432,5 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 }
 
 export function deactivate(): void {
-  void server?.then((s) => s?.stop());
+  void server?.then((s) => s?.release());
 }

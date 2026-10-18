@@ -25,53 +25,26 @@ import * as vscode from "vscode";
 // 兼容级别（特性阶梯整数，两侧共享）
 // ---------------------------------------------------------------------------
 
-/** 扩展当前实现的桥接级别（只增）。包级别更高 → 需升级扩展。 */
-export const EMBED_PROTOCOL_SUPPORTED = 1;
-
-/** 仍被支持的最低包级别——下线历史桥接特性时抬高它（硬底线）。 */
-export const MIN_PKG_LEVEL = 1;
-
-/** 包 package.json 声明的级别字段：piIde.level。 */
-function packageLevel(pkgDir: string): number | undefined {
-  try {
-    const v = JSON.parse(readFileSync(path.join(pkgDir, "package.json"), "utf8"))
-      ?.piIde?.level;
-    return typeof v === "number" && v >= 1 ? v : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/** 级别判定：缺失按 1 计（历史包均无字段且实现 v1）。 */
-export function levelSupported(level: number | undefined): boolean {
-  const lv = level ?? 1;
-  return lv >= MIN_PKG_LEVEL && lv <= EMBED_PROTOCOL_SUPPORTED;
-}
-
-/** bin/pi-web.js → 所在包目录 → 其声明的级别。 */
-export function binLevel(binPath: string): number | undefined {
-  return packageLevel(path.dirname(path.dirname(binPath)));
-}
-
-// ---------------------------------------------------------------------------
-// 版本比较（X.Y.Z[-N]，预发版后缀感知）
-// ---------------------------------------------------------------------------
-
-/** a>b→1, a=b→0, a<b→-1。预发版 `X.Y.Z-N` 的 N 参与比较。 */
-export function compareVersions(a: string, b: string): number {
-  const pa = a.split(/[.-]/).map((x) => Number(x) || 0);
-  const pb = b.split(/[.-]/).map((x) => Number(x) || 0);
-  for (let i = 0; i < 4; i++) {
-    const x = pa[i] ?? 0;
-    const y = pb[i] ?? 0;
-    if (x !== y) return x > y ? 1 : -1;
-  }
-  return 0;
-}
-
-export function isNewerVersion(candidate: string, current: string): boolean {
-  return compareVersions(candidate, current) > 0;
-}
+// 级别阶梯与版本比较抽到 ./version（纯模块，可单测）。
+export {
+  binLevel,
+  compareVersions,
+  EMBED_PROTOCOL_SUPPORTED,
+  isNewerVersion,
+  isSafePkgSpec,
+  levelSupported,
+  MIN_PKG_LEVEL,
+  packageLevel,
+} from "./version";
+import {
+  compareVersions,
+  EMBED_PROTOCOL_SUPPORTED,
+  getRegistryBase,
+  isSafePkgSpec,
+  levelSupported,
+  MIN_PKG_LEVEL,
+  packageLevel,
+} from "./version";
 
 // ---------------------------------------------------------------------------
 // 布局与 marker
@@ -187,7 +160,7 @@ export interface RegistryCompat {
 export async function queryRegistryCompat(pkg: string): Promise<RegistryCompat> {
   try {
     const res = await fetch(
-      `https://registry.npmjs.org/${pkg.replace("/", "%2F")}`,
+      `${await getRegistryBase()}/${pkg.replace("/", "%2F")}`,
       { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(10_000) },
     );
     const doc = (await res.json()) as {
@@ -330,8 +303,13 @@ export async function installManagedPackage(
   };
 
   const versionRoot = managedVersionDir(context, targetVersion);
-  const cmd = `npm i --prefix "${versionRoot}" ${pkg}@${targetVersion} --ignore-scripts --no-audit --no-fund`;
-  channel.appendLine(`managed install (version dir ${targetVersion}): ${cmd}`);
+  const spec = `${pkg}@${targetVersion}`;
+  if (!isSafePkgSpec(spec)) {
+    channel.appendLine(`refusing to install suspicious package spec: ${spec}`);
+    release();
+    return false;
+  }
+  channel.appendLine(`managed install (version dir ${targetVersion}): npm i --prefix "${versionRoot}" ${spec} --ignore-scripts --no-audit --no-fund`);
   channel.show(true);
   const startedAt = Date.now();
   const timer = setInterval(() => {
@@ -339,7 +317,11 @@ export async function installManagedPackage(
     onProgress?.(`downloaded ~${dirSizeMB(path.join(versionRoot, "node_modules"))} MB (${secs}s)`);
   }, 2000);
   return new Promise((resolve) => {
-    const child = cp.spawn(cmd, { shell: true });
+    const child = cp.spawn(
+      "npm",
+      ["i", "--prefix", versionRoot, spec, "--ignore-scripts", "--no-audit", "--no-fund"],
+      { shell: true },
+    );
     child.stdout?.on("data", (d: Buffer) => channel.append(d.toString()));
     child.stderr?.on("data", (d: Buffer) => channel.append(d.toString()));
     const done = (ok: boolean, extra?: string) => {

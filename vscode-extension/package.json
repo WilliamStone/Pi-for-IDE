@@ -2,7 +2,7 @@
   "name": "pi-for-ide",
   "displayName": "Pi for IDE",
   "description": "%description%",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "publisher": "WilliamStone",
   "license": "MIT",
   "icon": "resources/icons/icon-128.png",
@@ -125,6 +125,22 @@
           "type": "boolean",
           "default": false,
           "description": "%config.autoStart%"
+        },
+        "Pi for IDE.autoStop": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.autoStop%"
+        },
+        "Pi for IDE.autoStopAfterSec": {
+          "type": "number",
+          "default": 90,
+          "minimum": 90,
+          "description": "%config.autoStopAfterSec%"
+        },
+        "Pi for IDE.checkForUpdates": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.checkForUpdates%"
         }
       }
     },
@@ -196,7 +212,8 @@
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "lint": "eslint src --ext ts",
+    "lint": "eslint src",
+    "test": "node --experimental-strip-types --test \"src/**/*.test.mjs\"",
     "package:pi-web": "node scripts/package-pi-web.js",
     "package": "node scripts/sync-readme.js && vsce package --no-yarn --no-dependencies --skip-license"
   },

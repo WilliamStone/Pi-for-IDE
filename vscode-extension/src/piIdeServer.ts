@@ -1,16 +1,15 @@
 import * as cp from "child_process";
-import { existsSync, readdirSync, readFileSync, statSync } from "fs";
-import * as net from "net";
-import * as path from "path";
 import * as vscode from "vscode";
+import { EMBED_PROTOCOL_SUPPORTED } from "./managedRuntime";
+import { DEFAULT_PACKAGE } from "./occupier";
+import { reportStartupFailure } from "./diagnostics";
+import { findFreePort, reportPortOccupiers, scanPortOccupiers } from "./port-scan";
 import {
-  EMBED_PROTOCOL_SUPPORTED,
-  binLevel,
-  installManagedPackage,
-  levelSupported,
-  managedPackageBin,
-  queryRegistryCompat,
-} from "./managedRuntime";
+  installPiWebPackage,
+  resolveServerTarget,
+  SpawnTarget,
+} from "./server-resolve";
+import { logLifecycle, outputChannel } from "./server-status";
 
 /**
  * 管理 pi-web 服务器的生命周期（独立进程）。
@@ -35,430 +34,10 @@ import {
 /** 默认起始端口：3030，被占用时自动 +1。 */
 export const DEFAULT_PORT = 3030;
 
-/**
- * 默认查询/安装的 npm 包名（含 embed 桥补丁的 pi-web 发行包）。
- * 可用 `"Pi for IDE.package"` 配置覆盖；置空则跳过全局安装兜底。
- */
-const DEFAULT_PACKAGE = "@william_stone/pi-web-for-ide";
-
-type SpawnTarget =
-  /** node <server.js>——standalone 产物，只认 PORT/HOSTNAME 环境变量。 */
-  | { mode: "script"; path: string }
-  /** node <bin/pi-web.js>——npm 包入口，接受 --port/--hostname/--no-open。 */
-  | { mode: "bin"; path: string };
-
-/**
- * 探测从 startPort 开始的第一个空闲 TCP 端口（每次 +1，最多尝试 200 个）。
- */
-/** 303x 端口占位者身份分类——决定诊断文案与是否可自动清理。 */
-type OccupierKind = "legacy-npx" | "unscoped" | "upstream" | "ours" | "unknown";
-
-interface PortOccupier {
-  port: number;
-  pid: number;
-  cmdline: string;
-  kind: OccupierKind;
-}
-
-/** 按命令行分类占位进程：_npx 残留 / 旧 unscoped 包 / 上游 pi-web / 本扩展系。 */
-function classifyOccupier(cmd: string): OccupierKind {
-  if (!/pi-web|standalone\\?server\.js/i.test(cmd)) return "unknown";
-  if (/_npx[\\/]/i.test(cmd)) return "legacy-npx";
-  if (/pi-web-for-ide/i.test(cmd)) {
-    // 本扩展系：scoped 全局安装（路径含 william_stone）或托管运行时。
-    if (/william_?stone|runtime[\\/]node_modules/i.test(cmd)) return "ours";
-    return "unscoped";
-  }
-  return "upstream";
-}
-
-/**
- * 扫描 303x 端口上的监听者，解析 PID→命令行并分类。
- * 用途：启动时识别"另一个编辑器实例的旧包/上游/孤儿 pi-web 进程"——
- * 这类占位会导致新实例换端口、攥住 npx 缓存或让用户连到旧代码。
- */
-async function scanPortOccupiers(from = 3030, to = 3039): Promise<PortOccupier[]> {
-  const exec = (cmd: string, timeout = 10_000): Promise<string> =>
-    new Promise((r) => cp.exec(cmd, { timeout }, (_e, out) => r(out)));
-  // 1) 拿 303x 监听者的 port→pid 表。
-  const listeners: { port: number; pid: number }[] = [];
-  if (process.platform === "win32") {
-    const out = await exec('netstat -ano | findstr "LISTENING" | findstr ":303"');
-    for (const m of out.matchAll(/:(\d+)\s+[\d.:*]+\s+LISTENING\s+(\d+)/g)) {
-      const port = Number(m[1]);
-      if (port >= from && port <= to) listeners.push({ port, pid: Number(m[2]) });
-    }
-  } else {
-    const out = await exec(
-      `ss -tln 2>/dev/null | grep -oE ':30[0-9]{2} ' | tr -d ' :' | while read p; do
-         fuser "$p"/tcp 2>/dev/null | xargs -r -n1 echo "$p"; done`,
-    );
-    for (const m of out.matchAll(/^(\d+)\s+(\d+)$/gm)) {
-      listeners.push({ port: Number(m[1]), pid: Number(m[2]) });
-    }
-  }
-  if (!listeners.length) return [];
-  // 2) 批量取这些 pid 的命令行。
-  const pids = [...new Set(listeners.map((l) => l.pid))];
-  const cmdlines = new Map<number, string>();
-  if (process.platform === "win32") {
-    const ps = pids.map((p) => `,${p}`).join("");
-    const out = await exec(
-      `powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { @( ${ps.slice(1)} ) -contains $_.ProcessId } | ForEach-Object { $_.ProcessId.ToString() + '|' + $_.CommandLine }"`,
-      15_000,
-    );
-    for (const line of out.split(/\r?\n/)) {
-      const i = line.indexOf("|");
-      if (i > 0) cmdlines.set(Number(line.slice(0, i).trim()), line.slice(i + 1).trim());
-    }
-  } else {
-    const out = await exec(`ps -o pid= -o command= -p ${pids.join(",")}`);
-    for (const line of out.split(/\r?\n/)) {
-      const m = line.trim().match(/^(\d+)\s+(.*)$/);
-      if (m) cmdlines.set(Number(m[1]), m[2]);
-    }
-  }
-  return listeners.map((l) => {
-    const cmdline = cmdlines.get(l.pid) ?? "";
-    return { port: l.port, pid: l.pid, cmdline, kind: classifyOccupier(cmdline) };
-  });
-}
-
-/** 启动时顺扫 303x：写生命周期/诊断日志；对可疑占位者（旧包/上游）给提示——
- *  不自动杀：那可能是用户有意运行的独立 pi-web 实例。 */
-async function reportPortOccupiers(channel: vscode.OutputChannel): Promise<void> {
-  try {
-    const occupiers = await scanPortOccupiers();
-    const suspicious = occupiers.filter((o) => o.kind === "unscoped" || o.kind === "upstream");
-    for (const o of occupiers) {
-      const short = o.cmdline.length > 140 ? "…" + o.cmdline.slice(-140) : o.cmdline;
-      channel.appendLine(`port ${o.port} occupied by PID ${o.pid} [${o.kind}] ${short || "(no cmdline)"}`);
-      logLifecycle(`port ${o.port} occupied by PID ${o.pid} [${o.kind}]`);
-    }
-    if (suspicious.length) {
-      const list = suspicious.map((o) => `PID ${o.pid} (${o.kind === "unscoped" ? "legacy unscoped package" : "upstream pi-web"}, port ${o.port})`).join(", ");
-      void vscode.window.showWarningMessage(
-        `Pi for IDE: a likely stale pi-web process is running in another window/editor instance — ${list} (not this window). This instance switched to another port automatically. If it misbehaves, run "Pi for IDE: Stop Server" in that window, or kill it (taskkill /PID <pid> /T /F).`,
-      );
-    }
-  } catch {
-    // 扫描失败不阻断启动。
-  }
-}
-
-function findFreePort(startPort: number): Promise<number> {
-  return new Promise((resolve) => {
-    const tryPort = (port: number, attempts = 0): void => {
-      if (attempts >= 200) {
-        // 兜底：让 OS 分配端口，避免无限探测。
-        resolve(0);
-        return;
-      }
-      const tester = net.createServer();
-      tester.unref();
-      tester.once("error", () => {
-        try {
-          tester.close();
-        } catch {
-          // 未监听，忽略。
-        }
-        tryPort(port + 1, attempts + 1);
-      });
-      tester.listen(port, "127.0.0.1", () => {
-        tester.close(() => resolve(port));
-      });
-    };
-    tryPort(startPort);
-  });
-}
-
-/**
- * 用 `npm root -g` 找全局 node_modules，返回其中 `<pkg>/bin/pi-web.js`
- * 的绝对路径（不存在则 undefined）。npm 不在 PATH（如 nvm 未生效）时安静返回 undefined。
- */
-function resolveGlobalPackageBin(pkg: string): Promise<string | undefined> {
-  return new Promise((resolve) => {
-    cp.exec("npm root -g", { timeout: 10_000 }, (err, stdout) => {
-      if (err) {
-        resolve(undefined);
-        return;
-      }
-      const binPath = path.join(stdout.trim(), pkg, "bin", "pi-web.js");
-      resolve(existsSync(binPath) ? binPath : undefined);
-    });
-  });
-}
-
-/**
- * 在 PATH 上找 `pi-web` shim（`where`/`which`），从 shim 内容里提取它实际
- * 调用的 bin/pi-web.js 路径。npm/pnpm/yarn/bun 的全局 shim 都会内嵌真实
- * 入口（`%~dp0\..\...\bin\pi-web.js` 或 `$basedir/...`），各包管理器通用。
- *
- * shim 只按命令名匹配，背后可能挂着旧 unscoped 包（pi-web-for-ide）或
- * 上游原版 @agegr/pi-web——因此还要读目标包的 package.json，name 与
- * expectedPkg 不一致时跳过该 shim（交给后续 npx 兜底拿到正确发行包）。
- * 找不到或解析失败时安静返回 undefined。
- */
-async function resolvePathShimBin(
-  expectedPkg: string,
-  log?: (line: string) => void,
-): Promise<string | undefined> {
-  // 只认本包专属命令名 pi-web-for-ide——上游 pi-web 同名 shim 不做
-  // 回退探测：本包不在就直接走 npx/安装流程，杜绝误拉原版。
-  return resolveSingleShimBin("pi-web-for-ide", expectedPkg, log);
-}
-
-function resolveSingleShimBin(
-  binName: string,
-  expectedPkg: string,
-  log?: (line: string) => void,
-): Promise<string | undefined> {
-  const cmd = process.platform === "win32" ? `where ${binName}` : `which ${binName}`;
-  return new Promise((resolve) => {
-    cp.exec(cmd, { timeout: 10_000 }, (err, stdout) => {
-      if (err) {
-        resolve(undefined);
-        return;
-      }
-      const shimDirOf = (line: string) => path.dirname(line);
-      for (const line of stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)) {
-        // 只要脚本 shim（.cmd 或无扩展名）；.ps1/.exe 不经此通道。
-        if (/\.(ps1|exe|bat)$/i.test(line)) continue;
-        let content: string;
-        try {
-          content = readFileSync(line, "utf8");
-        } catch {
-          continue;
-        }
-        // pnpm 等 shim 尾部带 `# cmd-shim-target=<绝对路径>` 注解，最可靠。
-        let target: string | undefined;
-        const tagged = content.match(/^#?\s*cmd-shim-target=(\S+)/m);
-        if (tagged) target = tagged[1];
-        // 兜底：取第一个引号包裹的 …/bin/<binName>.js，把开头的 %~dp0 /
-        // $basedir / $basedir_win 等"shim 目录变量"归一化成相对路径。
-        if (!target || !existsSync(target)) {
-          const m = content.match(new RegExp(`["']([^"']*bin[/\\\\]${binName}\\.js)["']`));
-          if (!m) continue;
-          target = path.resolve(
-            shimDirOf(line),
-            m[1].replace(/^(%~dp0[\\/]?|\$[A-Za-z_][A-Za-z0-9_]*[\\/]?)/, "./"),
-          );
-        }
-        if (existsSync(target)) {
-          // 校验 shim 背后真实包的 name——名字不符说明挂的是别的包。
-          let actualName: string | undefined;
-          try {
-            actualName = JSON.parse(
-              readFileSync(path.join(path.dirname(path.dirname(target)), "package.json"), "utf8"),
-            ).name;
-          } catch {
-            // 读不到 package.json 视为身份不明，同样跳过。
-          }
-          if (actualName !== expectedPkg) {
-            log?.(
-              `PATH shim ${line} points to ${actualName ?? "unknown package"} (expected ${expectedPkg}), skipped.`,
-            );
-            continue;
-          }
-          resolve(target);
-          return;
-        }
-      }
-      resolve(undefined);
-    });
-  });
-}
-
-
-/** 过渡兜底：杀掉 _npx 缓存里残留的 pi-web 服务进程（下几个版本后移除）。
- * 历史版本 stop 只杀进程顶层，server.js 孤儿会攥住 _npx 缓存目录致后续
- * npx EBUSY——托管路径已不再用该缓存，这里只做存量清理。 */
-export async function sweepLegacyOrphans(channel: vscode.OutputChannel): Promise<void> {
-  const kill = (pid: number): void => {
-    const cmd =
-      process.platform === "win32"
-        ? `taskkill /PID ${pid} /T /F`
-        : `kill -TERM ${pid}`;
-    cp.exec(cmd, { timeout: 10_000 }, (e, out) => {
-      const merged = `${out}`;
-      // 进程已退出/正被另一窗口终止是良性结果，不刷屏。
-      if (!e || /cannot be|not found|不存在|不受支持|being terminated/i.test(merged + e.message)) {
-        channel.appendLine(`orphan cleanup ${pid}: already exited or terminating${e ? " (benign)" : ""}`);
-        return;
-      }
-      // 兜底：不经树杀，直接强杀该 PID。
-      const fallback =
-        process.platform === "win32"
-          ? `powershell -NoProfile -Command "Stop-Process -Id ${pid} -Force"`
-          : `kill -9 ${pid}`;
-      cp.exec(fallback, { timeout: 10_000 }, (e2) => {
-        channel.appendLine(`orphan cleanup ${pid}: ${e2 ? "failed " + e2.message : "terminated"}`);
-      });
-    });
-  };
-  if (process.platform === "win32") {
-    // 注意：整条命令被 cmd 包在双引号里执行，内部只能用单引号——嵌双引号
-    // 会被 cmd 截断致 PowerShell 静默失败（曾致清扫空跑）。
-    const ps =
-      "Get-CimInstance Win32_Process " +
-      "| Where-Object { $_.Name -eq 'node.exe' -and $_.CommandLine -match '_npx' -and $_.CommandLine -match 'pi-web|standalone' } " +
-      "| Select-Object -ExpandProperty ProcessId";
-    cp.exec(
-      `powershell -NoProfile -Command "${ps}"`,
-      { timeout: 15_000 },
-      (e, out) => {
-        if (e) return;
-        for (const line of out.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)) {
-          const pid = Number(line);
-          if (pid > 0) kill(pid);
-        }
-      },
-    );
-    return;
-  }
-  cp.exec(
-    `pgrep -f "npm-cache/_npx.*(pi-web|server\\.js)|_npx/.*/standalone/server\\.js"`,
-    { timeout: 10_000 },
-    (e, out) => {
-      if (e) return;
-      for (const line of out.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)) {
-        const pid = Number(line);
-        if (pid > 0) kill(pid);
-      }
-    },
-  );
-}
-
-// ---------------------------------------------------------------------------
-// 生命周期时间轴日志：关键事件带绝对时间戳写入"Pi for IDE 生命周期"频道，
-// 便于把 UI 上看到的"空白→等待页→连接页→加载完成"与扩展内部时序对齐。
-// ---------------------------------------------------------------------------
-/** 统一输出频道：生命周期时间轴、spawn 日志、桥接日志都进这里——
- *  时间戳前缀天然按时间排序，单频道就能看到完整事件流。 */
-let sharedChannel: vscode.OutputChannel | undefined;
-
-export function outputChannel(): vscode.OutputChannel {
-  sharedChannel ??= vscode.window.createOutputChannel("Pi for IDE");
-  return sharedChannel;
-}
-
-export function logLifecycle(msg: string): void {
-  const d = new Date();
-  const t =
-    `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:` +
-    `${String(d.getSeconds()).padStart(2, "0")}.${String(d.getMilliseconds()).padStart(3, "0")}`;
-  outputChannel().appendLine(`[${t}] ${msg}`);
-}
-
-// ---------------------------------------------------------------------------
-// 服务器阶段状态广播：解析链走到哪条腿，等待页/门页实时显示"正在下载/启动"
-// ——静态文案分不清这两种路径，会导致"没下载却提示在下载"的误导。
-// ---------------------------------------------------------------------------
-let lastServerStatus = "Starting local server…";
-const statusListeners = new Set<(text: string) => void>();
-
-/** 当前阶段文案（等待页渲染初值；之后靠 onServerStatus 推送更新）。 */
-export function currentServerStatus(): string {
-  return lastServerStatus;
-}
-
-/** 订阅阶段状态变化；返回退订函数。 */
-export function onServerStatus(cb: (text: string) => void): () => void {
-  statusListeners.add(cb);
-  return () => statusListeners.delete(cb);
-}
-
-function emitServerStatus(text: string): void {
-  lastServerStatus = text;
-  logLifecycle(`stage: ${text}`);
-  for (const cb of statusListeners) cb(text);
-}
-
-/** 探测可用的包管理器：优先 pnpm（默认执行装包脚本），其次 npm。 */
-function detectPackageManager(): Promise<"pnpm" | "npm" | undefined> {
-  const tryCmd = (cmd: string): Promise<boolean> =>
-    new Promise((r) => cp.exec(`${cmd} --version`, { timeout: 8_000 }, (e) => r(!e)));
-  return tryCmd("pnpm").then((ok) => (ok ? "pnpm" : tryCmd("npm").then((ok2) => (ok2 ? "npm" : undefined))));
-}
-
-/**
- * 全局安装 pi-web 发行包（流式输出到扩展的输出通道）。返回是否成功。
- * 由"找不到服务器"的引导按钮和升级流程共用。
- */
-export async function installPiWebPackage(
-  channel: vscode.OutputChannel,
-  pkg: string,
-  version?: string,
-): Promise<boolean> {
-  const pm = await detectPackageManager();
-  if (!pm) {
-    channel.appendLine("pnpm/npm not found; cannot install automatically.");
-    return false;
-  }
-  const spec = version ? `${pkg}@${version}` : pkg;
-  const cmd = `${pm} i -g ${spec}`;
-  channel.appendLine(`run: ${cmd}`);
-  channel.show(true);
-  return new Promise((resolve) => {
-    const child = cp.spawn(cmd, { shell: true });
-    child.stdout?.on("data", (d: Buffer) => channel.append(d.toString()));
-    child.stderr?.on("data", (d: Buffer) => channel.append(d.toString()));
-    child.on("error", (e) => {
-      channel.appendLine(`install process failed to start: ${e.message}`);
-      resolve(false);
-    });
-    child.on("exit", (code) => {
-      channel.appendLine(`install process exited with code ${code}`);
-      resolve(code === 0);
-    });
-  });
-}
-
-/**
- * 发行包升级检查：解析当前在用副本 + 查 registry 最高兼容版本。
- * 返回 {current, managed, best, latest, needsExtensionUpgrade, none}；
- * 未安装/检查失败返回 undefined。详见 docs/agents/managed-runtime.md §5。
- */
-export async function checkPiWebUpdate(
-  pkg: string,
-  context?: vscode.ExtensionContext,
-): Promise<
-  | {
-      current: string;
-      managed: boolean;
-      best?: string;
-      latest?: string;
-      latestLevel?: number;
-      needsExtensionUpgrade: boolean;
-      none: boolean;
-    }
-  | undefined
-> {
-  const managedBin = context ? managedPackageBin(context, pkg) : undefined;
-  const binPath =
-    (await resolveGlobalPackageBin(pkg)) ?? (await resolvePathShimBin(pkg)) ?? managedBin;
-  const managed = !!managedBin && binPath === managedBin;
-  if (!binPath) return undefined;
-  const pkgJson = path.join(path.dirname(path.dirname(binPath)), "package.json");
-  let current: string;
-  try {
-    current = JSON.parse(readFileSync(pkgJson, "utf8")).version;
-  } catch {
-    return undefined;
-  }
-  if (!current) return undefined;
-  const compat = await queryRegistryCompat(pkg);
-  if (!compat.latest) return undefined;
-  return {
-    current,
-    managed,
-    best: compat.best?.version,
-    latest: compat.latest.version,
-    latestLevel: compat.latest.level,
-    needsExtensionUpgrade: compat.needsExtensionUpgrade,
-    none: compat.none,
-  };
-}
+// 默认 npm 包名 DEFAULT_PACKAGE 与端口占位者分类在 ./occupier（纯模块）。
+// 包名可用 `"Pi for IDE.package"` 配置覆盖。
+// 端口扫描/孤儿清扫在 ./port-scan；解析链/包操作在 ./server-resolve；
+// 启动体检在 ./diagnostics；输出频道与阶段状态总线在 ./server-status。
 
 export class PiIdeServer {
   context: vscode.ExtensionContext;
@@ -467,6 +46,9 @@ export class PiIdeServer {
   resolvedOrigin?: string;
   channel: vscode.OutputChannel;
   disposed = false;
+  /** 握手拿到的服务端可选特性表（capabilities map，见 embed-protocol.md）。 */
+  embedCapabilities: Record<string, unknown> = {};
+  heartbeatTimer?: ReturnType<typeof setInterval>;
 
   static ensureStarted(context: vscode.ExtensionContext): Promise<PiIdeServer | undefined> {
     const existing = (globalThis as Record<string, unknown>).__piIdeServer as PiIdeServer | undefined;
@@ -509,8 +91,24 @@ export class PiIdeServer {
     if (this.disposed) return;
     this.disposed = true;
     this.clearGlobalIfSelf();
+    this.stopHeartbeat();
     const child = this.child;
-    if (!child || child.exitCode !== null || child.pid === undefined) return;
+    if (!child || child.exitCode !== null || child.pid === undefined) {
+      // 接入来的服务器不持有进程句柄；声明 lifecycle.shutdown 时让服务端
+      // 自行优雅退出（共享服务器的正确关法），老服务器则无法停。
+      if (this.resolvedOrigin && this.embedCapabilities["lifecycle.shutdown"]) {
+        try {
+          await fetch(`${this.resolvedOrigin}/api/embed/shutdown`, {
+            method: "POST",
+            signal: AbortSignal.timeout(5_000),
+          });
+          this.channel.appendLine("asked the shared server to shut down (lifecycle.shutdown).");
+        } catch {
+          // 已经不在了。
+        }
+      }
+      return;
+    }
     // 杀整棵进程树，不是只杀顶层：npx/shell 包装链会留下孙进程
     // （server.js 孤儿继续监听端口并攥住缓存目录，曾致 npx EBUSY）。
     if (process.platform === "win32") {
@@ -531,12 +129,64 @@ export class PiIdeServer {
     }
   }
 
+  /**
+   * 扩展宿主退出路径（deactivate）：停心跳=离场，一律不杀进程——服务器
+   * 主权在 web 侧（watchdog 收割静默），老服务器没 watchdog 就留作孤儿：
+   * 下个窗口的 attach 会复用它（放不下也比"误杀共享服务器"安全——另一
+   * 窗口可能正接着它跑）。要关停走 "Pi for IDE: Stop Server" 显式命令。
+   */
+  release(): void {
+    this.stopHeartbeat();
+    this.disposed = true;
+    this.clearGlobalIfSelf();
+  }
+
+  /** 服务器声明 lifecycle.heartbeat 时每 15s 报存在；失败静默重试，
+   *  只在首次失败记一条日志（服务器忙/重启中不该刷屏）。 */
+  private startHeartbeat(): void {
+    if (!this.embedCapabilities["lifecycle.heartbeat"] || this.heartbeatTimer) return;
+    let failures = 0;
+    this.heartbeatTimer = setInterval(() => {
+      const origin = this.resolvedOrigin;
+      if (!origin) return;
+      fetch(`${origin}/api/embed/heartbeat`, {
+        method: "POST",
+        signal: AbortSignal.timeout(5_000),
+      })
+        .then(() => {
+          failures = 0;
+        })
+        .catch(() => {
+          if (++failures === 1) {
+            this.channel.appendLine("embed heartbeat failed — will keep retrying silently.");
+          }
+        });
+    }, 15_000);
+    (this.heartbeatTimer as NodeJS.Timeout).unref?.();
+    this.channel.appendLine("embed heartbeat armed (15s interval).");
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = undefined;
+    }
+  }
+
   // ------------------------------------------------------------------
   // 启动
   // ------------------------------------------------------------------
   /** 解析并启动 pi-web 服务器，返回解析后的 origin。 */
   private async startProcess(): Promise<string | undefined> {
-    let target = await this.resolveServerTarget();
+    // 先扫 ours 端口再进解析：另一窗口/扩展宿主重启留下的孤儿在跑时直接
+    // 接入，省掉整条解析链（尤其 managed 腿缺失时那一次 ~540MB 的安装）。
+    const attached = await this.attachToRunningServer(3_000);
+    if (attached) {
+      await this.verifyEmbedSupport(attached);
+      this.startHeartbeat();
+      return attached;
+    }
+    let target = await resolveServerTarget(this.context, this.channel, this.packageName());
     logLifecycle(target ? `resolved target: mode=${target.mode}` : "resolved target: all legs failed");
     // 阶段状态由 resolveServerTarget 各腿自报（managed 腿在 724/742 发
     // "Starting local server…"；下载腿先发 "Downloading…"再发 Starting）。
@@ -561,7 +211,7 @@ export class PiIdeServer {
         );
         return undefined;
       }
-      target = await this.resolveServerTarget();
+      target = await resolveServerTarget(this.context, this.channel, this.packageName());
       if (!target) {
         void vscode.window.showErrorMessage(
           `${pkg} installed but the entry still cannot be resolved; check the output log.`,
@@ -569,93 +219,15 @@ export class PiIdeServer {
         return undefined;
       }
     }
-    const origin = await this.spawn(target);
-    if (origin) await this.verifyEmbedSupport(origin);
-    if (!origin) await this.reportStartupFailure(target);
+    // spawn 失败也可能就是撞口竞态：对方在 probe→spawn 间隙绑定。给 30s
+    // 窗口再扫一次，仍接入而非报错。
+    const origin = (await this.spawn(target)) ?? (await this.attachToRunningServer(30_000));
+    if (origin) {
+      await this.verifyEmbedSupport(origin);
+      this.startHeartbeat();
+    }
+    if (!origin) await reportStartupFailure(this.channel, this.context, this.packageName(), target);
     return origin;
-  }
-
-  /** 启动失败体检：把解析链各环节、环境、端口占用、npm 日志尾部写入
-   *  输出面板并给出可操作的修复建议；最后弹"重试"按钮。 */
-  private async reportStartupFailure(target: SpawnTarget): Promise<void> {
-    const pkg = this.packageName();
-    this.channel.appendLine("—— startup failure diagnostics ——");
-    const tryCmd = (cmd: string): Promise<string> =>
-      new Promise((r) =>
-        cp.exec(cmd, { timeout: 8000 }, (e, out) =>
-          r(e ? "unavailable" : out.trim().split("\n")[0] || "?"),
-        ),
-      );
-    this.channel.appendLine(`node@PATH: ${await tryCmd("node -v")} (requires ≥ 22.19)`);
-    this.channel.appendLine(`npm@PATH: ${await tryCmd("npm -v")}`);
-    this.channel.appendLine(`pnpm@PATH: ${await tryCmd("pnpm -v")}`);
-
-    // 解析链各环节现状——指出哪条腿能用、哪条断了。
-    const configured = vscode.workspace
-      .getConfiguration("Pi for IDE")
-      .get<string>("executablePath")
-      ?.trim();
-    this.channel.appendLine(
-      `resolve chain: executablePath=${configured ? (existsSync(configured) ? "exists" : "missing!") : "unset"}; ` +
-        `global package=${(await resolveGlobalPackageBin(pkg)) ?? "not installed"}; ` +
-        `shim=${(await resolvePathShimBin(pkg)) ?? "none"}; ` +
-        `managed runtime=${managedPackageBin(this.context, pkg) ?? "missing"}; ` +
-        `mode=${target.mode}`,
-    );
-
-    // 端口占用：3030-3039 谁在监听（含 PID/命令行/身份分类）。
-    const occupiers = await scanPortOccupiers();
-    if (!occupiers.length) {
-      this.channel.appendLine("port 303x occupants: none");
-    } else {
-      for (const o of occupiers) {
-        this.channel.appendLine(
-          `port ${o.port}: PID ${o.pid} [${o.kind}] ${o.cmdline.slice(-140) || "(no cmdline)"}`,
-        );
-      }
-    }
-
-    // 最近一次 npm 日志尾部（npx/托管安装的 EBUSY 等真因都在里面）。
-    const logsDir =
-      process.platform === "win32"
-        ? path.join(process.env.LOCALAPPDATA ?? "", "npm-cache", "_logs")
-        : path.join(process.env.HOME ?? "", ".npm", "_logs");
-    try {
-      const latest = readdirSync(logsDir)
-        .filter((f) => f.endsWith(".log"))
-        .map((f) => ({ f, t: statSync(path.join(logsDir, f)).mtimeMs }))
-        .sort((a, b) => b.t - a.t)[0];
-      if (latest && Date.now() - latest.t < 30 * 60_000) {
-        const tail = readFileSync(path.join(logsDir, latest.f), "utf8")
-          .split("\n")
-          .filter((l) => /error|EBUSY|EPERM|EACCES|ENOENT/i.test(l))
-          .slice(-15);
-        if (tail.length) {
-          this.channel.appendLine(`npm log ${latest.f} tail:\n  ${tail.join("\n  ")}`);
-        }
-      }
-    } catch {
-      // 无日志目录就算了。
-    }
-
-    this.channel.appendLine(
-      "Suggestions: 1) read the log above for the root cause; 2) run \"Pi for IDE: Stop Server\" and retry; " +
-        "3) install the package globally to skip the runtime download: pnpm add -g " + pkg + "@latest.",
-    );
-
-    const pick = await vscode.window.showErrorMessage(
-      "Pi for IDE server failed to start; diagnostics were written to the output panel (Pi for IDE).",
-      "View Output",
-      "Stop && Retry",
-      "Close",
-    );
-    if (pick === "View Output") this.channel.show(true);
-    if (pick === "Stop && Retry") {
-      // stop 标记 disposed → ensureStarted 会另起全新实例；走完整 open
-      // 命令顺带把面板 refresh 到新地址。
-      await this.stop();
-      void vscode.commands.executeCommand("piIde.open");
-    }
   }
 
   private packageName(): string {
@@ -664,85 +236,40 @@ export class PiIdeServer {
   }
 
   /**
-   * 按优先级解析服务器入口：
-   *   executablePath → 内置 resources/pi-web/server.js → 全局 npm 包 → npx 兜底。
+   * 接入 303x 上已在跑的本扩展系服务器（kind==="ours" 的 managed/global
+   * 安装进程——另一窗口或扩展宿主重启留下的孤儿）。逐端口试 embed 握手；
+   * graceMs 内它还在启动（尚未监听）就轮询等到其就绪或超时。
+   * 是"接入"不是"接管"：服务器主权归它自己（watchdog 判生死），本侧只是
+   * 注册存在；this.child 保持 undefined，stop() 不杀非本实例拉起的进程。
    */
-  private async resolveServerTarget(): Promise<SpawnTarget | undefined> {
-    const config = vscode.workspace.getConfiguration("Pi for IDE");
-
-    // 1) 显式配置：接受 standalone server.js 或包内 bin/pi-web.js。
-    const configured = config.get<string>("executablePath")?.trim();
-    if (configured) {
-      if (existsSync(configured)) {
-        const target: SpawnTarget = path.basename(configured) === "server.js"
-          ? { mode: "script", path: configured }
-          : { mode: "bin", path: configured };
-        this.channel.appendLine(`pi-web entry (configured): ${configured} [${target.mode}]`);
-        return target;
+  private async attachToRunningServer(graceMs: number): Promise<string | undefined> {
+    const deadline = Date.now() + graceMs;
+    let waitLogged = false;
+    do {
+      const ours = (await scanPortOccupiers(undefined, undefined, this.packageName())).filter((o) => o.kind === "ours");
+      if (!ours.length && !waitLogged) return undefined;
+      for (const o of ours) {
+        const origin = `http://127.0.0.1:${o.port}`;
+        try {
+          const res = await fetch(`${origin}/api/embed`, { signal: AbortSignal.timeout(4_000) });
+          if (!res.ok) continue;
+          this.channel.appendLine(
+            `attached to running Pi Web server on :${o.port} (PID ${o.pid}) — skipping duplicate spawn.`,
+          );
+          logLifecycle(`attached ours: origin=${origin}, pid=${o.pid}`);
+          return origin;
+        } catch {
+          // 还在启动：下一轮再试。
+        }
       }
-      this.channel.appendLine(`"Pi for IDE.executablePath" does not exist, ignored: ${configured}`);
-    }
-
-    // 2) 过渡期兼容：扩展内置的 standalone 产物（停止打包后该文件自然不存在）。
-    const bundled = path.join(this.context.extensionPath, "resources", "pi-web", "server.js");
-    if (existsSync(bundled)) {
-      this.channel.appendLine(`pi-web entry (bundled): ${bundled}`);
-      return { mode: "script", path: bundled };
-    }
-
-    // 级别校验：bin 所在包声明的桥接级别须在支持区间内，否则跳过该腿。
-    const levelOk = (binPath: string, leg: string): boolean => {
-      if (levelSupported(binLevel(binPath))) return true;
-      this.channel.appendLine(
-        `${leg} package level ${binLevel(binPath) ?? "unknown"} is outside the supported range, skipped.`,
-      );
-      return false;
-    };
-
-    // 3) 全局 npm 安装的发行包。
-    const pkg = this.packageName();
-    const globalBin = await resolveGlobalPackageBin(pkg);
-    if (globalBin && levelOk(globalBin, "global install")) {
-      this.channel.appendLine(`pi-web entry (global install): ${globalBin}`);
-      return { mode: "bin", path: globalBin };
-    }
-
-    // 4) PATH 上的 pi-web shim（pnpm/yarn/bun 全局安装都会落这里；
-    //    shim 脚本内含真实 bin/pi-web.js 路径，解析后仍走 node 直启，
-    //    避免经 .cmd 外壳导致 stop 杀不死内层服务进程）。
-    const shimBin = await resolvePathShimBin(pkg, (l) => this.channel.appendLine(l));
-    if (shimBin && levelOk(shimBin, "PATH shim")) {
-      this.channel.appendLine(`pi-web entry (PATH shim): ${shimBin}`);
-      return { mode: "bin", path: shimBin };
-    }
-
-    // 5) 托管运行时：版本化目录 + marker 选择（见 managedRuntime.ts）；
-    //    无兼容已装副本则现场安装最高兼容版本。
-    const managedBin = managedPackageBin(this.context, pkg, (l) => this.channel.appendLine(l));
-    if (managedBin) {
-      this.channel.appendLine(`pi-web entry (managed runtime): ${managedBin}`);
-      emitServerStatus("Starting local server…");
-      return { mode: "bin", path: managedBin };
-    }
-    emitServerStatus("Downloading and installing the server component (~540MB on disk, slower on first run)…");
-    this.channel.appendLine(`managed runtime missing; running npm --prefix install…`);
-    const installed = await vscode.window.withProgress(
-      {
-        location: vscode.ProgressLocation.Notification,
-        title: "First run: downloading the Pi for IDE server runtime…",
-      },
-      (progress) =>
-        installManagedPackage(this.channel, this.context, pkg, undefined, (msg) =>
-          progress.report({ message: msg }),
-        ),
-    );
-    const managedBinAfter = managedPackageBin(this.context, pkg, (l) => this.channel.appendLine(l));
-    if (installed && managedBinAfter) {
-      this.channel.appendLine(`pi-web entry (managed runtime): ${managedBinAfter}`);
-      emitServerStatus("Starting local server…");
-      return { mode: "bin", path: managedBinAfter };
-    }
-    this.channel.appendLine(`managed install failed (installed=${installed}) — no usable server entry.`);
+      if (ours.length && !waitLogged) {
+        waitLogged = true;
+        this.channel.appendLine(
+          `our pi-web on :${ours.map((o) => o.port).join("/")} is still starting — waiting to attach…`,
+        );
+      }
+      if (Date.now() < deadline) await new Promise((r) => setTimeout(r, 2_000));
+    } while (Date.now() < deadline);
     return undefined;
   }
 
@@ -755,7 +282,7 @@ export class PiIdeServer {
         ? config.get<number>("port", DEFAULT_PORT)
         : DEFAULT_PORT;
     // 顺扫 303x 占位者：识别另一实例的旧包/上游/孤儿进程（日志+提示，不自动杀）。
-    await reportPortOccupiers(this.channel);
+    await reportPortOccupiers(this.channel, this.packageName());
 
     const port = await findFreePort(Math.max(1, preferred || DEFAULT_PORT));
     this.channel.appendLine(
@@ -773,6 +300,16 @@ export class PiIdeServer {
       PI_WEB_NO_OPEN: "1",
     };
     const launchArgs = ["--port", String(port), "--hostname", "127.0.0.1", "--no-open"];
+    // 生命周期主权在服务器侧：autoStop 开 → 注入 watchdog 旗标，服务器在
+    // 全静默（无心跳无开着的客户端）超时后自行退出。独立启动的实例无旗标。
+    const autoStop = config.get<boolean>("autoStop", true);
+    // 下限 90s：心跳 15s×6（丢几拍不误杀），也留足后台页轮询被浏览器
+    // 限流到 ~60s 的缺口——低于此值隐藏标签页可能保不住服务器。
+    const autoStopAfterSec = Math.max(90, config.get<number>("autoStopAfterSec", 90) || 90);
+    if (autoStop) {
+      env.PI_WEB_EMBED_WATCHDOG = "1";
+      env.PI_WEB_EMBED_WATCHDOG_TIMEOUT_SEC = String(autoStopAfterSec);
+    }
 
     let command: string;
     let args: string[];
@@ -868,11 +405,13 @@ export class PiIdeServer {
         gotHttpResponse = true;
         if (res.status >= 500) saw5xx = true;
         const data = (await res.json().catch(() => null)) as
-          | { embed?: { protocol?: number; version?: string } }
+          | { embed?: { protocol?: number; version?: string; capabilities?: Record<string, unknown> } }
           | null;
         if (res.ok && data?.embed?.protocol) {
+          this.embedCapabilities = data.embed.capabilities ?? {};
           this.channel.appendLine(
-            `embed handshake OK: protocol v${data.embed.protocol}, server version ${data.embed.version ?? "unknown"}`,
+            `embed handshake OK: protocol v${data.embed.protocol}, server version ${data.embed.version ?? "unknown"}` +
+              `, capabilities: ${Object.keys(this.embedCapabilities).join(", ") || "none"}`,
           );
           logLifecycle(`embed handshake OK: protocol v${data.embed.protocol}, version ${data.embed.version ?? "unknown"}`);
           this.checkProtocolCompat(data.embed.protocol, data.embed.version);
