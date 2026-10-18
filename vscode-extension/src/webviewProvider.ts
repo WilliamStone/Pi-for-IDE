@@ -31,6 +31,8 @@ export class PiWebWebviewPanel extends vscode.Disposable {
   /** 上次渲染 iframe 用的服务器实例与 URL——变了才重载 iframe。 */
   private lastServer: PiIdeServer | undefined;
   private lastUrl: string | undefined;
+  /** 最近一次发到 shell 的失败文案（重放用——shell 上线晚于事件时会丢推送）。 */
+  private lastShellError: string | undefined;
   /** shell 脚本已执行（"shell painted" 回执）——冷启动慢时给加载浮窗。 */
   private shellReady = false;
   private shellReadyWaiters: Array<() => void> = [];
@@ -38,6 +40,32 @@ export class PiWebWebviewPanel extends vscode.Disposable {
   private markShellReady(): void {
     this.shellReady = true;
     for (const r of this.shellReadyWaiters.splice(0)) r();
+    this.replayShellState();
+  }
+
+  /**
+   * shell.js 外置后脚本执行可能远晚于事件推送（webview.postMessage 在
+   * 页面脚本注册监听前到达会被丢弃）——shell 报到时把最新状态重放：
+   * error 最优先，其次就绪 URL，再次阶段文案。
+   */
+  private replayShellState(): void {
+    if (!this.panel) return;
+    if (this.lastShellError) {
+      this.panel.webview.postMessage({
+        source: "host",
+        payload: { kind: "serverError", text: this.lastShellError },
+      });
+    } else if (this.lastUrl && this.lastServer) {
+      this.panel.webview.postMessage({
+        source: "host",
+        payload: { kind: "serverReady", url: this.lastUrl, probe: this.lastServer.origin },
+      });
+    } else {
+      this.panel.webview.postMessage({
+        source: "host",
+        payload: { kind: "status", text: currentServerStatus() },
+      });
+    }
   }
 
   /** resolve 于 shell 上屏或面板销毁——给 withProgress 用（自动关浮窗）。 */
@@ -239,12 +267,11 @@ export class PiWebWebviewPanel extends vscode.Disposable {
     if (!server) {
       this.lastServer = undefined;
       this.lastUrl = undefined;
+      this.lastShellError =
+        "Pi for IDE server failed to start. See the output panel (View → Output → Pi for IDE).";
       this.panel.webview.postMessage({
         source: "host",
-        payload: {
-          kind: "serverError",
-          text: "Pi for IDE server failed to start. See the output panel (View → Output → Pi for IDE).",
-        },
+        payload: { kind: "serverError", text: this.lastShellError },
       });
       return;
     }
@@ -260,6 +287,7 @@ export class PiWebWebviewPanel extends vscode.Disposable {
     if (server === this.lastServer && urlStr === this.lastUrl) return;
     this.lastServer = server;
     this.lastUrl = urlStr;
+    this.lastShellError = undefined;
     this.panel.webview.postMessage({
       source: "host",
       payload: { kind: "serverReady", url: urlStr, probe: server.origin },
