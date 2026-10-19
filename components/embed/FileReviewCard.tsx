@@ -15,6 +15,8 @@ interface Props {
   changes: FileChange[];
   /** session 工作目录（绝对路径）。 */
   cwd?: string;
+  /** 会话 id——跨工作区会话的相对路径文件读取过 allowedRoots 需要它。 */
+  sessionId?: string;
   /** 打开文件查看器（Web 模式点击文件时调用）。 */
   onOpenFile?: (filePath: string) => void;
 }
@@ -32,7 +34,7 @@ interface Props {
  * 回退入口不在本卡片——在用户消息左侧（MessageView.UserMessageView），
  * 回退 = 恢复代码 + 删除该轮会话记录。
  */
-function FileReviewCardImpl({ turnId, changes, cwd, onOpenFile }: Props) {
+function FileReviewCardImpl({ turnId, changes, cwd, sessionId, onOpenFile }: Props) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(true);
   const [openDiffPath, setOpenDiffPath] = useState<string | null>(null);
@@ -57,8 +59,14 @@ function FileReviewCardImpl({ turnId, changes, cwd, onOpenFile }: Props) {
     let before = "";
     let after = "";
     if (change.kind === "edit") {
+      // 相对路径必须拼会话 cwd——/api/files 按服务器进程 cwd 解析相对
+      // 路径，查看别的工作区的旧会话时会 404；sessionId 过引用白名单。
+      const fetchPath = /^([a-zA-Z]:[\\/]|\/|\\\\)/.test(change.path.trim())
+        ? change.path
+        : `${cwd!.replace(/[\\/]+$/, "")}/${change.path}`;
       try {
-        const resp = await fetch(`/api/files/${encodeFilePathForApi(change.path)}?type=read`);
+        const sid = sessionId ? `&sessionId=${encodeURIComponent(sessionId)}` : "";
+        const resp = await fetch(`/api/files/${encodeFilePathForApi(fetchPath)}?type=read${sid}`);
         if (resp.ok) {
           const data = await resp.json() as { content?: string };
           after = data.content ?? "";

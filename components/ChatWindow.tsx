@@ -1349,6 +1349,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                     userEntryId={entryIds[userIdx]}
                     turnIdx={userIdx}
                     cwd={messageCwd}
+                    sessionId={session?.id}
                     turnSnapshots={turnSnapshots}
                     onOpenFile={onOpenFile}
                   />,

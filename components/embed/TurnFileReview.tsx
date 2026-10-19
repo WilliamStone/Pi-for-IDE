@@ -14,6 +14,7 @@ export function TurnFileReview({
   userEntryId,
   turnIdx,
   cwd,
+  sessionId,
   turnSnapshots,
   onOpenFile,
 }: {
@@ -23,6 +24,8 @@ export function TurnFileReview({
   /** 无 entryId 时的兜底 turnId 后缀。 */
   turnIdx: number;
   cwd: string | undefined;
+  /** 会话 id——/api/files 的 allowedRoots 按 session 引用放行 cwd 外文件需要它。 */
+  sessionId?: string;
   turnSnapshots: TurnSnapshotTracker;
   onOpenFile?: (filePath: string) => void;
 }) {
@@ -36,6 +39,7 @@ export function TurnFileReview({
       turnId={turnId}
       changes={turnChanges}
       cwd={cwd}
+      sessionId={sessionId}
       onOpenFile={onOpenFile}
     />
   );
