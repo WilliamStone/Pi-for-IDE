@@ -4,7 +4,7 @@ import { memo, useState, useCallback, useMemo } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { getFileIcon } from "../FileIcons";
 import { SplitPatchView, PatchTextView } from "../MessageView";
-import { isEmbedMode, showDiffViaHost, getBeforeContentViaHost, reconstructBeforeViaHost, notifyEmbedHost } from "@/lib/embed/bridge";
+import { isEmbedMode, showDiffViaHost, getBeforeContentViaHost, reconstructBeforeViaHost, openTextViaHost, notifyEmbedHost } from "@/lib/embed/bridge";
 import { encodeFilePathForApi } from "@/lib/file-paths";
 import type { FileChange } from "@/lib/file-changes";
 
@@ -34,6 +34,14 @@ interface Props {
  * 回退入口不在本卡片——在用户消息左侧（MessageView.UserMessageView），
  * 回退 = 恢复代码 + 删除该轮会话记录。
  */
+/** 跨平台绝对路径判定（盘符/POSIX/UNC）。 */
+const ABS_PATH_RE = /^([a-zA-Z]:[\\/]|\/|\\\\)/;
+
+/** 相对路径拼会话 cwd——工具记录的 path 常是相对 agent 工作目录的。 */
+function resolveChangePath(p: string, cwd: string): string {
+  return ABS_PATH_RE.test(p.trim()) ? p : `${cwd.replace(/[\\/]+$/, "")}/${p}`;
+}
+
 function FileReviewCardImpl({ turnId, changes, cwd, sessionId, onOpenFile }: Props) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(true);
@@ -61,9 +69,7 @@ function FileReviewCardImpl({ turnId, changes, cwd, sessionId, onOpenFile }: Pro
     if (change.kind === "edit") {
       // 相对路径必须拼会话 cwd——/api/files 按服务器进程 cwd 解析相对
       // 路径，查看别的工作区的旧会话时会 404；sessionId 过引用白名单。
-      const fetchPath = /^([a-zA-Z]:[\\/]|\/|\\\\)/.test(change.path.trim())
-        ? change.path
-        : `${cwd!.replace(/[\\/]+$/, "")}/${change.path}`;
+      const fetchPath = resolveChangePath(change.path, cwd!);
       try {
         const sid = sessionId ? `&sessionId=${encodeURIComponent(sessionId)}` : "";
         const resp = await fetch(`/api/files/${encodeFilePathForApi(fetchPath)}?type=read${sid}`);
@@ -81,7 +87,14 @@ function FileReviewCardImpl({ turnId, changes, cwd, sessionId, onOpenFile }: Pro
         snapBefore = await getBeforeContentViaHost(turnId, change.path, cwd);
       }
       if (snapBefore === null) {
-        // 无 before：edit 文件全绿伪 diff 会误导——提示而非静默放行。
+        if (change.diffText) {
+          // before 不可重建（漂移/无快照）时打开该轮记录的 unified patch——
+          // 与 pi-web 内嵌 diff 同源数据，好过左空误导性「全增」。
+          notifyEmbedHost({ kind: "notify", message: t("chat.fileReviewDrifted"), level: "warning" });
+          await openTextViaHost(change.diffText);
+          return;
+        }
+        // 无 before 也无 patch：edit 文件全绿伪 diff 会误导——提示而非静默放行。
         notifyEmbedHost({ kind: "notify", message: t("chat.fileReviewNoSnapshot"), level: "warning" });
       }
       before = snapBefore ?? "";
@@ -97,6 +110,13 @@ function FileReviewCardImpl({ turnId, changes, cwd, sessionId, onOpenFile }: Pro
     }
     await showDiffViaHost(change.path, before, after, t("chat.fileReviewTurnDiff", { path: change.relativePath }));
   }, [inEmbed, turnId, cwd, t]);
+
+  // embed 模式：在宿主编辑器中直接打开文件（不开 diff）。
+  const handleOpenInHost = useCallback((change: FileChange, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!inEmbed || !cwd) return;
+    notifyEmbedHost({ kind: "openFile", filePath: resolveChangePath(change.path, cwd), mode: "source" });
+  }, [inEmbed, cwd]);
 
   // Web 模式：点击「在文件查看器打开」按钮
   const handleOpenInViewer = useCallback((change: FileChange, e: React.MouseEvent) => {
@@ -150,6 +170,7 @@ function FileReviewCardImpl({ turnId, changes, cwd, sessionId, onOpenFile }: Pro
               isOpen={openDiffPath === change.path}
               onClick={() => handleFileClick(change)}
               onOpenInEditor={inEmbed ? (e) => void handleOpenInEditor(change, e) : undefined}
+              onOpenInHost={inEmbed ? (e) => handleOpenInHost(change, e) : undefined}
               onOpenInViewer={!inEmbed ? (e) => handleOpenInViewer(change, e) : undefined}
             />
           ))}
@@ -175,12 +196,14 @@ const FileReviewRow = memo(function FileReviewRow({
   isOpen,
   onClick,
   onOpenInEditor,
+  onOpenInHost,
   onOpenInViewer,
 }: {
   change: FileChange;
   isOpen: boolean;
   onClick: () => void;
   onOpenInEditor?: (e: React.MouseEvent) => void;
+  onOpenInHost?: (e: React.MouseEvent) => void;
   onOpenInViewer?: (e: React.MouseEvent) => void;
 }) {
   const { t } = useI18n();
@@ -236,6 +259,18 @@ const FileReviewRow = memo(function FileReviewRow({
               border: "1px solid var(--border)", cursor: "pointer",
             }}
           >↗</span>
+        )}
+        {onOpenInHost && (
+          <span
+            role="button"
+            onClick={onOpenInHost}
+            title={t("chat.fileReviewOpenInHost")}
+            style={{
+              flexShrink: 0, fontSize: 10, color: "var(--accent)",
+              padding: "1px 5px", borderRadius: 3,
+              border: "1px solid var(--border)", cursor: "pointer",
+            }}
+          >→</span>
         )}
         {onOpenInViewer && (
           <span
