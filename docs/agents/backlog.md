@@ -39,7 +39,10 @@ pi-web 单页可见所有项目/会话并可并发执行；宿主窗口有明确
 - `Pi for IDE start timed out (30s)`：standalone 首启时 `/api/embed`
   路由 JIT 编译超了 start() 的 30s 预算——embed 探针与 start 超时
   解耦或延长，否则慢机首启必报。
-- webview e2e 缺失：shell/iframe/桥三层的实跑验证目前全靠人工清单。
+- webview e2e 半覆盖：`shell.test.mjs`（jsdom 驱动 shell.js 状态机）+
+  `bridge.test.mjs`（vscode stub + 真 fs/git 跑 Bridge.handle）已落地；
+  未覆盖的是 CSP/webview 真渲染与跨层全链——需要 VSCodium CDP 爬进
+  webview iframe 或 Playwright 假宿主两档之一，重且脆，按需再上。
 - `runGit` `\"` 拼接：文件名含 `"` 会炸（边缘，已知）。
 - readFile/openFile/captureSnapshot 的 cwd 白名单（只读类，可收紧）。
 
