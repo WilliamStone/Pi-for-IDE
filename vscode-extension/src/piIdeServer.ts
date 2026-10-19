@@ -221,15 +221,38 @@ export class PiIdeServer {
         return undefined;
       }
     }
-    // spawn 失败也可能就是撞口竞态：对方在 probe→spawn 间隙绑定。给 30s
-    // 窗口再扫一次，仍接入而非报错。
-    const origin = (await this.spawn(target)) ?? (await this.attachToRunningServer(30_000));
+    // spawn 失败也可能就是撞口竞态：对方在 probe→spawn 间隙绑定。三级降级：
+    // ① attach 到赢家（30s 窗口等它就绪）② attach 也不行且赢家不是本系
+    // 实例（standalone/无关服务，永远无法服务我们）才换口重 spawn——
+    // ours 实例在跑时绝不复制第二份：两实例读写同一 ~/.pi 状态目录会互踩。
+    const origin = (await this.spawn(target))
+      ?? (await this.attachToRunningServer(30_000))
+      ?? (await this.spawnUnlessOursOccupier(target));
     if (origin) {
       await this.verifyEmbedSupport(origin);
       this.startHeartbeat();
     }
     if (!origin) await reportStartupFailure(this.channel, this.context, this.packageName(), target);
     return origin;
+  }
+
+  /**
+   * 撞口竞态的最后一腿：赢家不是本系实例（standalone/无关服务）才换口重
+   * spawn。若 303x 上已有 ours 实例（哪怕暂时没就绪——冷启 JIT 中），
+   * 就放弃让上层报启动失败：复制第二份 ours 实例既浪费内存，两个进程
+   * 读写同一 ~/.pi 状态目录更会互相踩（run-records/ui-state/快照）。
+   */
+  private async spawnUnlessOursOccupier(target: SpawnTarget): Promise<string | undefined> {
+    const ours = (await scanPortOccupiers(undefined, undefined, this.packageName()))
+      .filter((o) => o.kind === "ours");
+    if (ours.length) {
+      logLifecycle(
+        `port race lost to our instance on :${ours.map((o) => o.port).join("/")} — not spawning a duplicate; retry after it finishes starting.`,
+      );
+      return undefined;
+    }
+    logLifecycle("port race lost to a foreign occupier — retrying spawn on a fresh port");
+    return this.spawn(target);
   }
 
   private packageName(): string {
