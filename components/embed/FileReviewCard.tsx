@@ -4,7 +4,7 @@ import { memo, useState, useCallback, useMemo } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { getFileIcon } from "../FileIcons";
 import { SplitPatchView, PatchTextView } from "../MessageView";
-import { isEmbedMode, showDiffViaHost, getBeforeContentViaHost, notifyEmbedHost } from "@/lib/embed/bridge";
+import { isEmbedMode, showDiffViaHost, getBeforeContentViaHost, reconstructBeforeViaHost, notifyEmbedHost } from "@/lib/embed/bridge";
 import { encodeFilePathForApi } from "@/lib/file-paths";
 import type { FileChange } from "@/lib/file-changes";
 
@@ -64,7 +64,14 @@ function FileReviewCardImpl({ turnId, changes, cwd, onOpenFile }: Props) {
           after = data.content ?? "";
         }
       } catch {}
-      const snapBefore = await getBeforeContentViaHost(turnId, change.path, cwd);
+      // 首选反放重建（edits 自带 before 数据，任意历史轮可算，不受快照窗口
+      // 或 git HEAD 有无的限制）；文件此后被外部改动返回 null，再落快照链。
+      let snapBefore = change.edits?.length
+        ? await reconstructBeforeViaHost(change.path, cwd, change.edits)
+        : null;
+      if (snapBefore === null) {
+        snapBefore = await getBeforeContentViaHost(turnId, change.path, cwd);
+      }
       if (snapBefore === null) {
         // 无 before：edit 文件全绿伪 diff 会误导——提示而非静默放行。
         notifyEmbedHost({ kind: "notify", message: t("chat.fileReviewNoSnapshot"), level: "warning" });

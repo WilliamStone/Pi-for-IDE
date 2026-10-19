@@ -102,6 +102,17 @@ export interface EmbedGetBeforeContentRequest {
 }
 
 /**
+ * 反放重建 before：宿主读磁盘当前内容并反序撤销本轮 edits——不依赖
+ * 快照/git，任意历史轮可算。文件在该轮后被外部改动时返回 null。
+ */
+export interface EmbedReconstructBeforeRequest {
+  kind: "reconstructBefore";
+  filePath: string;
+  cwd: string;
+  edits: { oldText: string; newText: string }[];
+}
+
+/**
  * 用宿主原生 diff 视图显示某文件的 before/after 对比。
  * before/after 直接传完整内容，宿主写临时文件后调其 diff 能力。
  */
@@ -143,6 +154,7 @@ export type EmbedRequest =
   | EmbedGetActiveEditorRequest
   | EmbedCaptureSnapshotRequest
   | EmbedGetBeforeContentRequest
+  | EmbedReconstructBeforeRequest
   | EmbedShowDiffRequest
   | EmbedRevertFilesRequest
   | EmbedRevertEditRequest
@@ -183,6 +195,11 @@ export interface EmbedGetBeforeContentResponse {
   content: string | null;
 }
 
+export interface EmbedReconstructBeforeResponse {
+  kind: "reconstructBefore";
+  content: string | null;
+}
+
 export interface EmbedRevertFilesResponse {
   kind: "revertFiles";
   success: boolean;
@@ -211,6 +228,7 @@ export type EmbedResponse =
   | EmbedGetActiveEditorResponse
   | EmbedCaptureSnapshotResponse
   | EmbedGetBeforeContentResponse
+  | EmbedReconstructBeforeResponse
   | EmbedRevertFilesResponse
   | EmbedRevertEditResponse
   | EmbedGetCapabilitiesResponse;
@@ -470,6 +488,27 @@ export async function getBeforeContentViaHost(turnId: string, filePath: string, 
   try {
     const res = await sendEmbedRequest<EmbedGetBeforeContentResponse>(
       { kind: "getBeforeContent", turnId, filePath, cwd },
+      5000,
+    );
+    return res?.content ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 反放重建 before：宿主读当前文件内容并反序撤销 edits——快照/git 之外的
+ * 首选路径（edit 的 input.edits 自带数据，任意历史轮可算，无存储依赖）。
+ * 返回 null：文件不在/被外部改过/edits 失效。
+ */
+export async function reconstructBeforeViaHost(
+  filePath: string,
+  cwd: string,
+  edits: { oldText: string; newText: string }[],
+): Promise<string | null> {
+  try {
+    const res = await sendEmbedRequest<EmbedReconstructBeforeResponse>(
+      { kind: "reconstructBefore", filePath, cwd, edits },
       5000,
     );
     return res?.content ?? null;

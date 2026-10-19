@@ -79,6 +79,8 @@ export class Bridge {
         return await this.captureSnapshot(request);
       case "getBeforeContent":
         return await this.getBeforeContent(request);
+      case "reconstructBefore":
+        return await this.reconstructBefore(request);
       case "showDiff":
         await this.showDiff(request);
         return {};
@@ -278,6 +280,34 @@ export class Bridge {
     } catch (error) {
       this.logger(`getBeforeContent failed: ${error}`);
       return { kind: "getBeforeContent", content: null };
+    }
+  }
+
+  /**
+   * 反放重建 before：读磁盘当前内容，把该轮的 edits 反序换回 oldText——
+   * 不依赖快照/git，任意历史轮（旧版会话、快照淘汰后）都能给出 diff 左侧。
+   * 与 revertEdit 同一校验：文件后来被外部改动（newText 失踪/多现）→ null。
+   */
+  private async reconstructBefore(req: ReconstructBeforeRequest): Promise<ReconstructBeforeResponse> {
+    const { filePath, cwd, edits } = req;
+    try {
+      const abs = this.normalizePath(filePath, cwd);
+      if (!isWithinCwd(abs, cwd) || !edits?.length) {
+        return { kind: "reconstructBefore", content: null };
+      }
+      const current = await this.readFileText(abs);
+      if (current === null) {
+        return { kind: "reconstructBefore", content: null };
+      }
+      const applied = applyEditsReversed(current, edits);
+      if (!applied.ok) {
+        this.logger(`reconstructBefore: ${filePath} — ${applied.reason}`);
+        return { kind: "reconstructBefore", content: null };
+      }
+      return { kind: "reconstructBefore", content: applied.content };
+    } catch (error) {
+      this.logger(`reconstructBefore failed: ${error}`);
+      return { kind: "reconstructBefore", content: null };
     }
   }
 
@@ -629,6 +659,7 @@ type BridgeRequest =
   | GetActiveEditorRequest
   | CaptureSnapshotRequest
   | GetBeforeContentRequest
+  | ReconstructBeforeRequest
   | ShowDiffRequest
   | RevertFilesRequest
   | RevertEditRequest
@@ -651,6 +682,7 @@ const HOST_CAPABILITIES = [
   "getActiveEditor",
   "captureSnapshot",
   "getBeforeContent",
+  "reconstructBefore",
   "showDiff",
   "revertFiles",
   "revertEdit",
@@ -715,6 +747,13 @@ interface GetBeforeContentRequest {
   cwd: string;
 }
 
+interface ReconstructBeforeRequest {
+  kind: "reconstructBefore";
+  filePath: string;
+  cwd: string;
+  edits: { oldText: string; newText: string }[];
+}
+
 interface ShowDiffRequest {
   kind: "showDiff";
   filePath: string;
@@ -740,6 +779,11 @@ interface CaptureSnapshotResponse {
 
 interface GetBeforeContentResponse {
   kind: "getBeforeContent";
+  content: string | null;
+}
+
+interface ReconstructBeforeResponse {
+  kind: "reconstructBefore";
   content: string | null;
 }
 
