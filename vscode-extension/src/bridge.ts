@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
-import { baseName, isWithinCwd, normalizeAbsPath, toGitRelPath } from "./paths";
+import { baseName, isWithinCwd, normalizeAbsPath, pathKey, toGitRelPath } from "./paths";
 import { applyEditsReversed } from "./revert";
 
 // ---------------------------------------------------------------------
@@ -220,27 +220,29 @@ export class Bridge {
   private async captureSnapshot(req: CaptureSnapshotRequest): Promise<CaptureSnapshotResponse> {
     const { turnId, cwd } = req;
     try {
-      // 1. 检测是否 git 仓库
-      const inGit = await this.isInsideGitRepo(cwd);
-      // 2. 取相对 HEAD 有改动的文件清单（只读）
+      // 1. git 仓库根——diff/ls-files/show 的路径都相对 toplevel，cwd 在
+      //    子目录时按 cwd 拼会全错位；非仓库则 gitRoot=null。
+      const gitRoot = await this.gitToplevel(cwd);
+      // 2. 取相对 HEAD 有改动的文件清单（只读，repo-root 相对）
       let dirtyFiles: string[] = [];
-      if (inGit) {
-        dirtyFiles = await this.gitDiffNameOnly(cwd);
+      if (gitRoot) {
+        dirtyFiles = await this.gitDiffNameOnly(gitRoot);
       }
       // 3. 读这些文件的磁盘内容（本轮前的未提交改动）。单文件 >2MB 跳过
       // （快照留空，回退走 HEAD 兜底）——脏区巨大的仓库不该全量读进内存。
+      //    键用 pathKey：win32 下各来源的大小写不一致会让字符串键假 miss。
       const files = new Map<string, string>();
       for (const p of dirtyFiles) {
-        const abs = this.normalizePath(p, cwd);
+        const abs = this.normalizePath(p, gitRoot ?? cwd);
         const content = await this.readFileText(abs, 2 * 1024 * 1024);
-        if (content !== null) files.set(abs, content);
+        if (content !== null) files.set(pathKey(abs, cwd), content);
       }
       // 4. 存内存表，超出3轮淘汰最老
       let list = this.snapshots.get(cwd);
       if (!list) { list = []; this.snapshots.set(cwd, list); }
-      list.push({ turnId, inGit, files });
+      list.push({ turnId, gitRoot, files });
       while (list.length > Bridge.MAX_TURNS) list.shift();
-      this.logger(`captureSnapshot: turn=${turnId}, git=${inGit}, dirtyFiles=${dirtyFiles.length}`);
+      this.logger(`captureSnapshot: turn=${turnId}, git=${!!gitRoot}, dirtyFiles=${dirtyFiles.length}`);
       return { kind: "captureSnapshot", success: true };
     } catch (error) {
       this.logger(`captureSnapshot failed: ${error}`);
@@ -261,13 +263,14 @@ export class Bridge {
       const snap = list?.find((s) => s.turnId === turnId);
       if (snap) {
         const abs = this.normalizePath(filePath, cwd);
-        if (snap.files.has(abs)) {
-          return { kind: "getBeforeContent", content: snap.files.get(abs)! };
+        const key = pathKey(abs, cwd);
+        if (snap.files.has(key)) {
+          return { kind: "getBeforeContent", content: snap.files.get(key)! };
         }
-        // 快照无此文件且 git 可用 → 试 git show HEAD:path
-        if (snap.inGit) {
-          const rel = toGitRelPath(filePath, cwd);
-          const content = await this.gitShowHead(cwd, rel);
+        // 快照无此文件且 git 可用 → 试 git show HEAD:<repo-rel>
+        if (snap.gitRoot) {
+          const rel = toGitRelPath(abs, snap.gitRoot);
+          const content = await this.gitShowHead(snap.gitRoot, rel);
           return { kind: "getBeforeContent", content };
         }
       }
@@ -313,29 +316,30 @@ export class Bridge {
       if (!snap) {
         return { kind: "revertFiles", success: false, message: "snapshot missing or expired" };
       }
-      const createdSet = new Set((created ?? []).map((p) => this.normalizePath(p, cwd)));
+      const createdSet = new Set((created ?? []).map((p) => pathKey(p, cwd)));
       let reverted = 0;
       const errors: string[] = [];
       for (const filePath of files) {
         const abs = this.normalizePath(filePath, cwd);
+        const key = pathKey(abs, cwd);
         try {
           if (!isWithinCwd(abs, cwd)) {
             errors.push(`${filePath}: outside session cwd`);
             continue;
           }
-          if (snap.files.has(abs)) {
+          if (snap.files.has(key)) {
             // 本轮前有未提交改动 → 恢复成那个内容
             await vscode.workspace.fs.writeFile(
               vscode.Uri.file(abs),
-              Buffer.from(snap.files.get(abs)!, "utf8"),
+              Buffer.from(snap.files.get(key)!, "utf8"),
             );
             reverted++;
-          } else if (snap.inGit) {
+          } else if (snap.gitRoot) {
             // 快照无此文件。可能：本轮前已存在但快照采集遗漏（路径不匹配 /
             // gitDiffNameOnly 未列出），或本轮新建。
-            // 用 git show HEAD:path 兴许能取到本轮前内容（= HEAD 版本）。
-            const rel = toGitRelPath(filePath, cwd);
-            const content = await this.gitShowHead(cwd, rel);
+            // 用 git show HEAD:<repo-rel> 兴许能取到本轮前内容（= HEAD 版本）。
+            const rel = toGitRelPath(abs, snap.gitRoot);
+            const content = await this.gitShowHead(snap.gitRoot, rel);
             if (content !== null) {
               // git HEAD 有此文件 → 恢复成 HEAD 版本
               await vscode.workspace.fs.writeFile(
@@ -343,7 +347,7 @@ export class Bridge {
                 Buffer.from(content, "utf8"),
               );
               reverted++;
-            } else if (createdSet.has(abs)) {
+            } else if (createdSet.has(key)) {
               // 快照没有 + HEAD 没有 + 页面记录为本轮新建 → 删除即回退。
               // 快照采集过的"已存在文件"进不了这个分支（dirty 清单含
               // 未追踪文件，存在即入快照），误删空间只剩页面假报。
@@ -354,7 +358,7 @@ export class Bridge {
               // 不安全地删文件会误删——可能只是快照采集遗漏。宁可报错，也不删。
               errors.push(`${filePath}: no snapshot and file absent from git HEAD; cannot revert safely`);
             }
-          } else if (createdSet.has(abs)) {
+          } else if (createdSet.has(key)) {
             // 非 git：快照无 + 页面声明本轮新建 → 删。
             await vscode.workspace.fs.delete(vscode.Uri.file(abs));
             reverted++;
@@ -416,12 +420,18 @@ export class Bridge {
 
   // --- git / fs 辅助（均只读） ---
 
-  private async isInsideGitRepo(cwd: string): Promise<boolean> {
+  /**
+   * git 仓库根的规范化绝对路径；非仓库返回 null。
+   * diff/ls-files/show 的路径语义全部相对 toplevel——调用方一律拿这个
+   * 根，不能拿 session cwd 拼 git 相对路径。
+   */
+  private async gitToplevel(cwd: string): Promise<string | null> {
     try {
-      const { exitCode } = await this.runGit(cwd, ["rev-parse", "--is-inside-work-tree"]);
-      return exitCode === 0;
+      const { stdout, exitCode } = await this.runGit(cwd, ["rev-parse", "--show-toplevel"]);
+      const top = stdout.trim();
+      return exitCode === 0 && top ? this.normalizePath(top, cwd) : null;
     } catch {
-      return false;
+      return null;
     }
   }
 
@@ -755,8 +765,8 @@ interface RevertEditResponse {
 /** 单轮快照。files 仅存「相对 HEAD 有未提交改动」的文件内容。 */
 interface TurnSnapshot {
   turnId: string;
-  /** 该轮是否在 git 仓库内。 */
-  inGit: boolean;
-  /** absPath → 本轮前磁盘内容。 */
+  /** git 仓库根的规范化绝对路径；非仓库为 null（快照键与 git show 都以此为准）。 */
+  gitRoot: string | null;
+  /** pathKey → 本轮前磁盘内容。 */
   files: Map<string, string>;
 }

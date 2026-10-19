@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { baseName, isAbsolutePath, isWithinCwd, normalizeAbsPath, toGitRelPath } from "./paths.ts";
+import { baseName, isAbsolutePath, isWithinCwd, normalizeAbsPath, pathKey, toGitRelPath } from "./paths.ts";
 
 test("isAbsolutePath covers drive-letter, POSIX root and UNC", () => {
   assert.equal(isAbsolutePath("S:\\dir\\f.ts"), true);
@@ -48,4 +48,13 @@ test("baseName never returns a string containing ':'", () => {
   assert.equal(baseName("/p/f.ts"), "f.ts");
   assert.equal(baseName("f.ts"), "f.ts");
   assert.equal(baseName(""), "file");
+});
+
+test("pathKey gives a case-insensitive map key on win32, exact case elsewhere", () => {
+  const isWin = process.platform === "win32";
+  const a = pathKey("S:/DevSpace/Games/x.ts", "S:/DevSpace");
+  const b = pathKey("s:/devspace/games/x.ts", "S:/DevSpace");
+  assert.equal(a === b, isWin);
+  // 相对输入也归一到同一键。
+  assert.equal(pathKey("games\\x.ts", "S:/DevSpace") === a, isWin);
 });

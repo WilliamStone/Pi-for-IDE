@@ -26,6 +26,12 @@ function cmpKey(s: string): string {
   return process.platform === "win32" ? s.toLowerCase() : s;
 }
 
+/** map 键形态：规范化绝对路径；win32 再整体小写（git 输出/配置/页面来源的
+ *  盘符与目录大小写常不一致，字符串相等会假 miss）。 */
+export function pathKey(p: string, cwd: string): string {
+  return cmpKey(normalizeAbsPath(p, cwd));
+}
+
 /** abs 是否位于 cwd 子树内（含等于 cwd）。用于写类桥接请求的白名单。 */
 export function isWithinCwd(absPath: string, cwd: string): boolean {
   const a = cmpKey(normalizeAbsPath(absPath, cwd));
