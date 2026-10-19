@@ -48,7 +48,10 @@ export function clearActiveEditorCache(filePath: string): void {
  *   notify      → informational message (status / warning / error)
  */
 export class Bridge {
-  constructor(private readonly logger: (line: string) => void) {}
+  private readonly logger: (line: string) => void;
+  constructor(logger: (line: string) => void) {
+    this.logger = logger;
+  }
 
   /**
    * 处理单个请求并返回其负载（作为同样 id 的 source:"host" 消息发回页面）。
@@ -223,7 +226,8 @@ export class Bridge {
    * 任何 git 对象，不动 index/stash list。
    */
   private async captureSnapshot(req: CaptureSnapshotRequest): Promise<CaptureSnapshotResponse> {
-    const { turnId, cwd } = req;
+    const { turnId } = req;
+    const cwd = await this.canonicalCwd(req.cwd);
     try {
       // 1. git 仓库根——diff/ls-files/show 的路径都相对 toplevel，cwd 在
       //    子目录时按 cwd 拼会全错位；非仓库则 gitRoot=null。
@@ -262,12 +266,13 @@ export class Bridge {
    *   3. 都没有 → null（前端据此标「无快照」）
    */
   private async getBeforeContent(req: GetBeforeContentRequest): Promise<GetBeforeContentResponse> {
-    const { turnId, filePath, cwd } = req;
+    const { turnId, filePath } = req;
+    const cwd = await this.canonicalCwd(req.cwd);
+    const abs = await this.canonicalPath(this.normalizePath(filePath, cwd));
     try {
       const list = this.snapshots.get(cwd);
       const snap = list?.find((s) => s.turnId === turnId);
       if (snap) {
-        const abs = this.normalizePath(filePath, cwd);
         const key = pathKey(abs, cwd);
         if (snap.files.has(key)) {
           return { kind: "getBeforeContent", content: snap.files.get(key)! };
@@ -292,9 +297,10 @@ export class Bridge {
    * 与 revertEdit 同一校验：文件后来被外部改动（newText 失踪/多现）→ null。
    */
   private async reconstructBefore(req: ReconstructBeforeRequest): Promise<ReconstructBeforeResponse> {
-    const { filePath, cwd, edits } = req;
+    const { filePath, edits } = req;
+    const cwd = await this.canonicalCwd(req.cwd);
     try {
-      const abs = this.normalizePath(filePath, cwd);
+      const abs = await this.canonicalPath(this.normalizePath(filePath, cwd));
       if (!isWithinCwd(abs, cwd) || !edits?.length) {
         return { kind: "reconstructBefore", content: null };
       }
@@ -358,7 +364,8 @@ export class Bridge {
    * 与 HEAD 都没有时删除——快照漏采与"本来就存在"已被二者共同排除。
    */
   private async revertFiles(req: RevertFilesRequest): Promise<RevertFilesResponse> {
-    const { turnId, files, cwd, created } = req;
+    const { turnId, files, created } = req;
+    const cwd = await this.canonicalCwd(req.cwd);
     try {
       const list = this.snapshots.get(cwd);
       const snap = list?.find((s) => s.turnId === turnId);
@@ -369,7 +376,7 @@ export class Bridge {
       let reverted = 0;
       const errors: string[] = [];
       for (const filePath of files) {
-        const abs = this.normalizePath(filePath, cwd);
+        const abs = await this.canonicalPath(this.normalizePath(filePath, cwd));
         const key = pathKey(abs, cwd);
         try {
           if (!isWithinCwd(abs, cwd)) {
@@ -437,9 +444,10 @@ export class Bridge {
    * 反序遍历（后改的先换回）依次 replace 即可还原。
    */
   private async revertEdit(req: RevertEditRequest): Promise<RevertEditResponse> {
-    const { filePath, cwd, edits } = req;
+    const { filePath, edits } = req;
+    const cwd = await this.canonicalCwd(req.cwd);
     try {
-      const abs = this.normalizePath(filePath, cwd);
+      const abs = await this.canonicalPath(this.normalizePath(filePath, cwd));
       if (!isWithinCwd(abs, cwd)) {
         return {
           kind: "revertEdit",
@@ -478,7 +486,11 @@ export class Bridge {
     try {
       const { stdout, exitCode } = await this.runGit(cwd, ["rev-parse", "--show-toplevel"]);
       const top = stdout.trim();
-      return exitCode === 0 && top ? this.normalizePath(top, cwd) : null;
+      if (exitCode !== 0 || !top) return null;
+      // git 报的根可能与本侧 cwd 差一个符号链接/junction 解析——realpath
+      // 对齐，否则 toplevel 与 cwd 拼出的路径键互不相认。
+      const real = await fs.promises.realpath(top).catch(() => top);
+      return this.normalizePath(real, cwd);
     } catch {
       return null;
     }
@@ -555,6 +567,34 @@ export class Bridge {
   /** 统一路径规范化入口：跨平台绝对/相对/混合分隔符 → 正斜杠绝对路径。 */
   private normalizePath(p: string, cwd: string): string {
     return normalizeAbsPath(p, cwd);
+  }
+
+  /**
+   * cwd 入口规范化：realpath 解符号链接/junction——win32 上用户目录常是
+   * 映射别名（C:\Users\x ↔ G:\...），git toplevel 报解析后的路径，
+   * 页面给的 session cwd 则是显示串。所有按 cwd 拼路径/做 map 键的
+   * handler 先过它，否则同一棵树字符串键不同。
+   */
+  private async canonicalCwd(cwd: string): Promise<string> {
+    try {
+      return this.normalizePath(await fs.promises.realpath(cwd), cwd);
+    } catch {
+      return this.normalizePath(cwd, cwd);
+    }
+  }
+
+  /**
+   * 任意路径的 canonical 化：存在则 realpath；不存在（新建文件场景）
+   * 则 realpath 父目录再拼 basename。所有参与键/前缀检查（pathKey、
+   * isWithinCwd、toGitRelPath）的路径先过它——进入侧的 C:\ 别名与
+   * git 侧的 G:\ 解析路径在 win32 映射盘上是同一棵树。
+   */
+  private async canonicalPath(p: string): Promise<string> {
+    const real = await fs.promises.realpath(p).catch(() => null);
+    if (real) return this.normalizePath(real, p);
+    const realDir = await fs.promises.realpath(path.dirname(p)).catch(() => null);
+    if (realDir) return this.normalizePath(path.join(realDir, path.basename(p)), p);
+    return p;
   }
 
   private diffCacheDir: string | undefined;
