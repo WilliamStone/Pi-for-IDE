@@ -46,6 +46,13 @@ pi-web 单页可见所有项目/会话并可并发执行；宿主窗口有明确
 - `runGit` `\"` 拼接：文件名含 `"` 会炸（边缘，已知）。
 - readFile/openFile/captureSnapshot 的 cwd 白名单（只读类，可收紧）。
 
+## 发布渠道
+
+- **双商店分发**：MS Marketplace 走 `vsce publish`（vsce 4 已就位，
+  OIDC trusted publishing 是 PAT 退役后的新链）；Open VSX 走 `ovsx`
+  （独立 CLI，未装）——VSCodium 等用 Eclipse gallery 的宿主吃后者。
+  手工 vsix 分发继续保留。
+
 ## 会话区其他
 
 - 被回退轮的 subagent 会话文件残留（语义已注明，未实现清理）。
