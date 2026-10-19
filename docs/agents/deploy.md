@@ -21,6 +21,10 @@ PowerShell 旧版本不支持 `&&` 链——分两条跑。
 
 **全局安装 npm 包会被运行中的服务锁定文件**——先停再装。
 
+`bin/preinstall-guard.js` 已把这道坎前移：Windows 上检出在跑实例时
+`pnpm i -g` 会用人话中止（列出 pid/url + 停法），而不是装到一半炸
+`os error 32`。非 Windows 只警告不拦（POSIX 不锁在用文件）。
+
 按归属选停法：
 
 | 实例 | 停法 |
