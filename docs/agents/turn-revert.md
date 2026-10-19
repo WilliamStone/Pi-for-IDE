@@ -135,7 +135,8 @@ would be rewind / excise / cancel rather than a single combined action.
   toolCalls — declared tier only.
 - `revert-turn` route: deletes the turn's entries, rewires children to the
   turn's parent (mid-fork beheads the branch — the tree still forks; see
-  embed-protocol.md "Turn revert semantics").
+  embed-protocol.md "Turn revert semantics"). Entries produced by subagent
+  sessions are not removed — their own session files stay behind.
 - Extension `bridge.ts`: `revertEdit` (occurrence-checked reverse-apply),
   `revertFiles` (snapshot restore, HEAD fallback, unlink turn-created files),
   `captureSnapshot` (declared-path before-content).
