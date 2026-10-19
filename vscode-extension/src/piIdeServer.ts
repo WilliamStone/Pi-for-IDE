@@ -54,7 +54,9 @@ export class PiIdeServer {
     const existing = (globalThis as Record<string, unknown>).__piIdeServer as PiIdeServer | undefined;
     if (existing && !existing.disposed) {
       logLifecycle(`ensureStarted: reusing running instance ${existing.resolvedOrigin ?? "(not ready)"}`);
-      return Promise.resolve(existing);
+      // 必须 await ready：在途实例的 resolvedOrigin 还是 undefined，直接
+      // 返回会让 serverReady 带上哨兵 origin :0，shell 探到死。
+      return existing.start();
     }
     logLifecycle("ensureStarted: new server instance");
     const server = new PiIdeServer(context);
