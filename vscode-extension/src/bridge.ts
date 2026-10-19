@@ -84,6 +84,9 @@ export class Bridge {
       case "showDiff":
         await this.showDiff(request);
         return {};
+      case "openText":
+        await this.openText(request);
+        return {};
       case "revertFiles":
         return await this.revertFiles(request);
       case "revertEdit":
@@ -330,6 +333,22 @@ export class Bridge {
       await vscode.commands.executeCommand("vscode.diff", beforeUri, afterUri, label);
     } catch (error) {
       this.logger(`showDiff failed: ${error}`);
+    }
+  }
+
+  /**
+   * 打开一段文本为内存文档（不落盘）。漂移文件的 diff 降级路径：
+   * 展示 toolResult 里记录的 unified patch——与 pi-web 内嵌 diff 同源。
+   */
+  private async openText(req: OpenTextRequest): Promise<void> {
+    try {
+      const doc = await vscode.workspace.openTextDocument({
+        content: req.content,
+        language: req.language ?? "diff",
+      });
+      await vscode.window.showTextDocument(doc, { preview: true });
+    } catch (error) {
+      this.logger(`openText failed: ${error}`);
     }
   }
 
@@ -661,6 +680,7 @@ type BridgeRequest =
   | GetBeforeContentRequest
   | ReconstructBeforeRequest
   | ShowDiffRequest
+  | OpenTextRequest
   | RevertFilesRequest
   | RevertEditRequest
   | OpenInBrowserRequest
@@ -684,6 +704,7 @@ const HOST_CAPABILITIES = [
   "getBeforeContent",
   "reconstructBefore",
   "showDiff",
+  "openText",
   "revertFiles",
   "revertEdit",
   "mention",
@@ -760,6 +781,12 @@ interface ShowDiffRequest {
   before: string;
   after: string;
   title?: string;
+}
+
+interface OpenTextRequest {
+  kind: "openText";
+  content: string;
+  language?: string;
 }
 
 interface RevertFilesRequest {

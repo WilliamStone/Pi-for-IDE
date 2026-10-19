@@ -124,6 +124,16 @@ export interface EmbedShowDiffRequest {
   title?: string;
 }
 
+/**
+ * 打开一段文本为宿主内存文档——漂移文件的 diff 降级：展示 toolResult
+ * 记录的 unified patch（与 pi-web 内嵌 diff 同源数据）。
+ */
+export interface EmbedOpenTextRequest {
+  kind: "openText";
+  content: string;
+  language?: string;
+}
+
 /** 回退：把指定文件恢复到本轮快照的内容（宿主侧直接写文件，不碰 git）。 */
 export interface EmbedRevertFilesRequest {
   kind: "revertFiles";
@@ -155,6 +165,7 @@ export type EmbedRequest =
   | EmbedCaptureSnapshotRequest
   | EmbedGetBeforeContentRequest
   | EmbedReconstructBeforeRequest
+  | EmbedOpenTextRequest
   | EmbedShowDiffRequest
   | EmbedRevertFilesRequest
   | EmbedRevertEditRequest
@@ -529,6 +540,18 @@ export async function showDiffViaHost(filePath: string, before: string, after: s
     );
   } catch {
     // 跱底：失败时静默
+  }
+}
+
+/**
+ * 打开一段文本为宿主内存文档（不落盘）。漂移文件降级：整文件 before 无法
+ * 重建时，打开该轮记录在 toolResult.details.diff 里的 unified patch。
+ */
+export async function openTextViaHost(content: string, language = "diff"): Promise<void> {
+  try {
+    await sendEmbedRequest<unknown>({ kind: "openText", content, language }, 5000);
+  } catch {
+    // 宿主不支持时静默——调用方照常走原有失败路径
   }
 }
 
