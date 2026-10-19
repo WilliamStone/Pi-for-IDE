@@ -5,15 +5,18 @@ import { fileURLToPath } from "node:url";
 import {
   cleanElectronEnv, findVscodium, installVsix, latestVsix, makeFixture, waitForFrame,
 } from "./helpers.mjs";
+import { seedSession } from "./session-fixture.mjs";
 
 const extDir = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const { exe, cli } = findVscodium();
 const vsix = latestVsix(extDir);
 const fixture = makeFixture();
+// PI_E2E_SEED=1 → 预置 seed 会话（B 段场景）；否则纯面板场景
+const seed = process.env.PI_E2E_SEED === "1" ? seedSession(fixture.root, fixture.workspace) : null;
 installVsix(cli, vsix, fixture);
 const app = await electron.launch({
   executablePath: exe,
-  env: cleanElectronEnv(),
+  env: { ...cleanElectronEnv(), ...(seed ? { PI_CODING_AGENT_DIR: seed.agentDir } : {}) },
   args: ["--user-data-dir", fixture.userDataDir, "--extensions-dir", fixture.extensionsDir,
     "--disable-workspace-trust", "--skip-welcome", "--no-sandbox", fixture.workspace],
 });
@@ -96,6 +99,67 @@ try {
     fetchLog: window.__fetchLog,
   }));
   console.log("captured:", JSON.stringify(captured, null, 2));
+
+  // seed 模式下 dump pi-web iframe 首屏文本——看会话是否列出/自动进入
+  if (seed) {
+    const pi = await waitForFrame(fake, (u) => /^http:\/\/127\.0\.0\.1:\d+\//.test(u), 120000)
+      .catch((e) => { console.log("pi frame err:", String(e).slice(0, 150)); return null; });
+    if (pi) {
+      await pi.waitForSelector("body", { timeout: 60000 }).catch(() => {});
+      await new Promise((r) => setTimeout(r, 8000));
+      const text = await pi.evaluate(() => document.body?.innerText?.slice(0, 2000));
+      console.log("pi-web body text:", text);
+      const links = await pi.evaluate(() =>
+        [...document.querySelectorAll("a,button,[role='button']")]
+          .map((e) => (e.getAttribute("title") || e.textContent || "").trim().slice(0, 60))
+          .filter(Boolean).slice(0, 40));
+      console.log("pi-web clickables:", links);
+
+      // 点开 seed 会话，再 dump 一次——看 FileReviewCard 是否渲染
+      const anc = await pi.evaluate(() => {
+        const el = [...document.querySelectorAll(".session-tree-title")]
+          .find((x) => x.textContent.includes("e2e"));
+        if (!el) return null;
+        const out = [];
+        for (let p = el; p && out.length < 6; p = p.parentElement) {
+          out.push(`${p.tagName}.${String(p.className).slice(0, 60)} role=${p.getAttribute("role")}`);
+        }
+        return out;
+      });
+      console.log("seed ancestors:", anc);
+      const entry = pi.locator('a.session-tree-main:has-text("e2e seed turn")').first();
+      console.log("anchor href:", await entry.getAttribute("href").catch(() => "?"));
+      try {
+        await pi.evaluate(() => { window.location.search += "&session=e2e-seed-01"; });
+        await new Promise((r) => setTimeout(r, 6000));
+        console.log("pi url after click:", pi.url());
+        const chat = await pi.evaluate(() => document.body?.innerText?.slice(-2500));
+        console.log("after open session (tail):", chat);
+        const counts = await pi.evaluate(() => ({
+          toolCallish: document.querySelectorAll('[class*="tool"], [class*="message"], [class*="turn"]').length,
+          buttons: document.querySelectorAll("button").length,
+          txt: document.querySelectorAll('button[title*=".txt"]').length,
+        }));
+        console.log("dom counts:", counts);
+        const rows = await pi.evaluate(() =>
+          [...document.querySelectorAll("button[title]")]
+            .map((b) => b.getAttribute("title"))
+            .filter((x) => x && /\.txt/.test(x)));
+        console.log("file rows:", rows);
+        const html = await pi.evaluate(() =>
+          [...document.querySelectorAll('button[title*="edited.txt"]')]
+            .map((b) => b.outerHTML.slice(0, 900)));
+        console.log("edited rows html:", html);
+        const spans = await pi.evaluate(() =>
+          [...document.querySelectorAll("span[title]")]
+            .map((s) => s.getAttribute("title"))
+            .filter(Boolean).slice(0, 30));
+        console.log("span titles:", spans);
+      } catch (e) {
+        console.log("open seed err:", String(e).slice(0, 200));
+      }
+    }
+  }
 } finally {
   await app.close().catch(() => {});
 }

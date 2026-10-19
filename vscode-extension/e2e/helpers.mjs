@@ -11,7 +11,7 @@ export function cleanElectronEnv() {
   delete env.ELECTRON_RUN_AS_NODE;
   return env;
 }
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -43,18 +43,26 @@ export function latestVsix(extDir) {
   return files[0] ? path.join(extDir, files[0].f) : null;
 }
 
-/** 隔离 fixture：临时工作区 + 干净 user-data / extensions 目录。 */
+/**
+ * 隔离 fixture：临时工作区 + 干净 user-data / extensions 目录。
+ * 每 fixture 独占一个 39xxx 端口——attach 只扫 3030–3039，
+ * 独占口保证测试间不共享 server（env/fixture 隔离才成立），
+ * 也避免连上用户真身在跑的 3030 实例。
+ */
 export function makeFixture() {
   const root = mkdtempSync(path.join(tmpdir(), "pi-e2e-"));
   const workspace = path.join(root, "ws");
+  const port = 39000 + Math.floor(Math.random() * 900);
   const settingsDir = path.join(workspace, ".vscode");
   mkdirSync(settingsDir, { recursive: true });
   writeFileSync(path.join(workspace, "hello.txt"), "hello e2e\n");
   writeFileSync(
     path.join(settingsDir, "settings.json"),
-    JSON.stringify({ "Pi for IDE.autoStart": true }, null, 2),
+    JSON.stringify({ "Pi for IDE.autoStart": true, "Pi for IDE.port": port }, null, 2),
   );
   return {
+    root,
+    port,
     workspace,
     userDataDir: path.join(root, "user-data"),
     extensionsDir: path.join(root, "extensions"),
@@ -117,6 +125,72 @@ export async function waitForFrame(pageOrFrame, urlPredicate, timeoutMs = 30000)
     await new Promise((r) => setTimeout(r, 500));
   }
   throw new Error("timed out waiting for frame");
+}
+
+import { homedir } from "node:os";
+
+/** pi-web 在跑实例的 run-record 目录（~/.pi/agent/pi-web-run/<pid>.json） */
+function runRecordDir() {
+  const configured = process.env.PI_CODING_AGENT_DIR;
+  const agentDir = configured && configured !== "~" ? configured : path.join(homedir(), ".pi", "agent");
+  return path.join(agentDir, "pi-web-run");
+}
+
+/**
+ * 现有 run-record 的 pid 集。attach 只认"已在跑的本系实例"——测试间
+ * 残留的 spawn 会让下一个测试 attach 到错的环境（env/seed 全失效）。
+ * 用法：launch 前 take snapshot，cleanup 时 killNewRunPids(before)。
+ * 只清测试窗口内新增的 pid——用户真身实例的记录早于测试，不碰。
+ */
+export function snapshotRunPids() {
+  try {
+    return new Set(readdirSync(runRecordDir()).filter((f) => f.endsWith(".json")));
+  } catch {
+    return new Set();
+  }
+}
+
+/** 沿父链上溯找 marker（e2e 的 --user-data-dir 路径）：server→shim→ext host
+ *  的 cmdline 链中，只有 ext host 级带 user-data-dir，单层检查会漏。 */
+function ancestryHasMarker(pid, marker, hops = 4) {
+  if (process.platform !== "win32" || !marker) return true;
+  let cur = pid;
+  for (let i = 0; i < hops && cur > 0; i++) {
+    try {
+      const ppid = Number(execFileSync("powershell", ["-NoProfile", "-Command",
+        `(Get-CimInstance Win32_Process -Filter 'ProcessId=${cur}').ParentProcessId`],
+        { encoding: "utf8", timeout: 8000 }).trim());
+      if (!ppid) return false;
+      const cmd = execFileSync("powershell", ["-NoProfile", "-Command",
+        `(Get-CimInstance Win32_Process -Filter 'ProcessId=${ppid}').CommandLine`],
+        { encoding: "utf8", timeout: 8000 });
+      if (cmd.includes(marker)) return true;
+      cur = ppid;
+    } catch { return false; }
+  }
+  return false;
+}
+
+/**
+ * 定点清理 snapshot 之后新增的 run-record 进程。
+ * 判别：只杀祖先链带本测试 user-data-dir 标记的实例——用户真身
+ * VSCodium 并行 spawn 的 server 祖先指向 Roaming profile，跳过不碰。
+ */
+export function killNewRunPids(before, marker) {
+  let names = [];
+  try {
+    names = readdirSync(runRecordDir()).filter((f) => f.endsWith(".json"));
+  } catch { return; }
+  for (const name of names) {
+    if (before.has(name)) continue;
+    let rec = {};
+    try { rec = JSON.parse(readFileSync(path.join(runRecordDir(), name), "utf8")); } catch { /* 读不出也杀 pid 名 */ }
+    for (const pid of [rec.pid, rec.nextPid, Number(name.replace(".json", ""))]) {
+      if (!Number.isSafeInteger(pid) || pid <= 0) continue;
+      if (!ancestryHasMarker(pid, marker)) continue; // 非本测试实例
+      try { execFileSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore", timeout: 10000 }); } catch { /* 已退 */ }
+    }
+  }
 }
 
 /** 命令面板执行命令（F1 → 键入 → Enter）。 */
