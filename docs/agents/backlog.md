@@ -39,10 +39,13 @@ pi-web 单页可见所有项目/会话并可并发执行；宿主窗口有明确
 - `Pi for IDE start timed out (30s)`：standalone 首启时 `/api/embed`
   路由 JIT 编译超了 start() 的 30s 预算——embed 探针与 start 超时
   解耦或延长，否则慢机首启必报。
-- webview e2e 半覆盖：`shell.test.mjs`（jsdom 驱动 shell.js 状态机）+
-  `bridge.test.mjs`（vscode stub + 真 fs/git 跑 Bridge.handle）已落地；
-  未覆盖的是 CSP/webview 真渲染与跨层全链——需要 VSCodium CDP 爬进
-  webview iframe 或 Playwright 假宿主两档之一，重且脆，按需再上。
+- webview e2e 三层已成形：`shell.test.mjs`（jsdom 状态机）+
+  `bridge.test.mjs`（vscode stub + 真 fs/git）+ `e2e/vscodium.test.mjs`
+  （playwright._electron 拉真 VSCodium：装 vsix → 开面板 → 穿透
+  index.html/fake.html/pi-web 三层 iframe → 断言 pi-web UI 落地）。
+  入口 `npm run test:e2e`，需真显示器，不进 CI 门禁；VSCodium 路径走
+  `PI_E2E_VSCODIUM` 环境变量。本 harness 首仗即挖出 ensureStarted
+  复用竞态（autoStart 在途实例的 serverReady 带 :0 探针）。
 - `runGit` `\"` 拼接：文件名含 `"` 会炸（边缘，已知）。
 - readFile/openFile/captureSnapshot 的 cwd 白名单（只读类，可收紧）。
 

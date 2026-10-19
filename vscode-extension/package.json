@@ -214,6 +214,7 @@
     "watch": "tsc -watch -p ./",
     "lint": "eslint src",
     "test": "node --experimental-strip-types --test \"src/**/*.test.mjs\"",
+    "test:e2e": "node --test --test-timeout=300000 \"e2e/*.test.mjs\"",
     "package:pi-web": "node scripts/package-pi-web.js",
     "package": "node scripts/sync-readme.js && vsce package --no-yarn --no-dependencies --skip-license"
   },
@@ -225,6 +226,7 @@
     "@vscode/vsce": "^4.0.0",
     "eslint": "^8.0.0",
     "jsdom": "^26.1.0",
+    "playwright": "^1.62.1",
     "typescript": "^5.4.0"
   }
 }
