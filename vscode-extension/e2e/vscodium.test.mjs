@@ -1,12 +1,14 @@
 import test from "node:test";
+import assert from "node:assert/strict";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { _electron as electron } from "playwright";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  cleanElectronEnv, findVscodium, installVsix, killNewRunPids, latestVsix, makeFixture,
-  openPiPanelViaEditorTitle, snapshotRunPids, waitForFrame,
+  cleanElectronEnv, findVscodium, guardAttachRange, installVsix, latestVsix,
+  makeFixture, openPiPanelViaEditorTitle, releaseAttachGuard, waitForFrame,
 } from "./helpers.mjs";
-import { seedSession } from "./session-fixture.mjs";
+import { seedAgentConfig, seedSession } from "./session-fixture.mjs";
 
 /**
  * 真机 UI e2e：拉起干净 profile 的 VSCodium（只装我们的 vsix），
@@ -75,12 +77,20 @@ test("VSCodium: panel opens and iframe reaches pi-web", { timeout: 300_000 }, as
   const ctx = prerequisites(t);
   if (!ctx) return;
   const fixture = makeFixture();
+  // attach-first 隔离：占住 303x 空口；真身实例在跑则 skip（不打扰/不污染）
+  const guard = await guardAttachRange();
+  if (guard.oursPort) {
+    releaseAttachGuard(guard);
+    t.skip(`a real pi-web instance is serving :${guard.oursPort} — cannot isolate`);
+    return;
+  }
   const { app, piFrame } = await reachPiFrame(ctx, fixture);
   try {
     // iframe 里是 pi-web 真页面——聊天输入框落地即通过
     await piFrame.waitForSelector("textarea", { timeout: 60000 });
   } finally {
     await app.close().catch(() => {});
+    releaseAttachGuard(guard);
     // 拉起的 pi-web 由 watchdog 在窗口关闭后 ~90s 内自退，无需手动清。
   }
 });
@@ -91,9 +101,14 @@ test("VSCodium B: file-review actions drive host diff/open/patch-fallback", { ti
   const fixture = makeFixture();
   // 独立 agent 目录预置一份 write+edit+drifted-edit 会话——不用真跑模型
   const seed = seedSession(fixture.root, fixture.workspace);
-  // attach 会接住任一在跑的 pi-web——上个测试的 spawn 可能还活着，
-  // 记录 pid 快照，结束后按 PID 定点清掉本测试新增的实例
-  const before = snapshotRunPids();
+  const guard = await guardAttachRange();
+  if (guard.oursPort) {
+    releaseAttachGuard(guard);
+    t.skip(`a real pi-web instance is serving :${guard.oursPort} — cannot isolate`);
+    return;
+  }
+  // 本测试 spawn 的实例在 fixture agentDir 下落 run-record——快照默认读
+  // 真目录记不到它；清理由 watchdog/attach-guard 负责，无残留风险
   const { app, win, piFrame } = await reachPiFrame(ctx, fixture, {
     PI_CODING_AGENT_DIR: seed.agentDir,
   });
@@ -150,9 +165,120 @@ test("VSCodium B: file-review actions drive host diff/open/patch-fallback", { ti
     );
   } finally {
     await app.close().catch(() => {});
-    killNewRunPids(before, fixture.userDataDir);
+    releaseAttachGuard(guard);
+    // 本测试 spawn 的实例 run-record 落在 fixture agentDir（run-record 快照
+    // 默认读真目录，本来就记不到它）——靠 watchdog ~90s 自退，无残留风险。
   }
 });
+
+// ── C 段：活体档——真模型走一轮 prompt→write→回退，验证快照捕获/反放/条目
+//    删除的完整链路。模型配置从真 agent 目录复制进隔离 fixture（不进仓库），
+//    PI_E2E_LIVE=1 显式开——会真烧模型推理时间。
+test("VSCodium C: live prompt turn → revert restores files", { timeout: 480_000 }, async (t) => {
+  if (process.env.PI_E2E_LIVE !== "1") {
+    t.skip("set PI_E2E_LIVE=1 to run the live-model revert test");
+    return;
+  }
+  const ctx = prerequisites(t);
+  if (!ctx) return;
+  const fixture = makeFixture();
+  const agentSeed = await seedAgentConfig(path.join(fixture.root, "agent"));
+  if (!agentSeed) {
+    t.skip("no usable model in real agent dir (engine down or unconfigured)");
+    return;
+  }
+  console.log(`    live model: ${agentSeed.model}`);
+  const guard = await guardAttachRange();
+  if (guard.oursPort) {
+    releaseAttachGuard(guard);
+    t.skip(`a real pi-web instance is serving :${guard.oursPort} — cannot isolate`);
+    return;
+  }
+  const { app, win, piFrame } = await reachPiFrame(ctx, fixture, {
+    PI_CODING_AGENT_DIR: agentSeed.agentDir,
+  });
+  try {
+    await piFrame.waitForSelector("textarea", { timeout: 60000 });
+    const file = path.join(fixture.workspace, "live-e2e.txt");
+
+    // 真发一轮 prompt——快照由扩展在 turn 开始时经 captureSnapshot 捕获。
+    // textarea 存在 ≠ React 已 hydration：fill 能写 DOM 但 Enter/点击要
+    // 等 handler 挂上。send 按钮的 disabled={!value.trim()} 由 state 驱动
+    // ——enabled 翻转本身就是"React 收到文本"的就绪信号。
+    const input = piFrame.locator("textarea").first();
+    await input.fill(
+      "Use the write tool to create a file named 'live-e2e.txt' in the current directory " +
+      "with exact content 'e2e-marker', then stop.",
+    );
+    // locale 可能随系统解析成 zh——title 三语兼容
+    const sendBtn = piFrame.locator('button[title="Send"], button[title="发送"], button[title="傳送"]').first();
+    await sendBtn.waitFor({ state: "visible", timeout: 30000 });
+    await piFrame.waitForFunction(
+      () => !document.querySelector('button[title="Send"],button[title="发送"],button[title="傳送"]')?.disabled,
+      null, { timeout: 30000 },
+    );
+    await sendBtn.click();
+    console.log("    prompt sent, waiting for turn (cold JIT + inference may take minutes)…");
+
+    // 轮完成 = 审查卡出现；模型层报错则早退（上轮实测 turn 秒挂却白等 5min）。
+    // 判定源用 fixture 会话文件——UI 错误提示文案不稳定。
+    const deadline = Date.now() + 300_000;
+    let reviewShown = false;
+    while (!reviewShown && Date.now() < deadline) {
+      if (await piFrame.locator("text=File review").count()) {
+        reviewShown = true;
+        break;
+      }
+      const err = lastTurnError(agentSeed.agentDir);
+      if (err) throw new Error(`model turn failed: ${err}`);
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+    assert.equal(reviewShown, true, "timed out waiting for File review card");
+    assert.equal(existsSync(file), true, "model should have written live-e2e.txt");
+    console.log("    turn done, live-e2e.txt on disk — reverting");
+
+    // 回退按钮 hover 才显形（opacity 0），dispatchEvent 直发点击；
+    // 两阶段确认：Revert this turn → Confirm
+    await piFrame.locator('button[title^="Revert this turn"]').first().dispatchEvent("click");
+    await piFrame.locator('button[title="Confirm"]').dispatchEvent("click");
+
+    // created→unlink 语义：write 建的文件回退后应消失
+    const revertDeadline = Date.now() + 30_000;
+    while (existsSync(file) && Date.now() < revertDeadline) {
+      await new Promise((r) => setTimeout(r, 400));
+    }
+    assert.equal(existsSync(file), false, "live-e2e.txt should be removed after revert");
+    console.log("    revert done, file removed");
+  } finally {
+    await app.close().catch(() => {});
+    releaseAttachGuard(guard);
+  }
+});
+
+/** fixture agentDir 里最新会话文件出现 turn 错误时，提取 errorMessage。 */
+function lastTurnError(agentDir) {
+  try {
+    const sessDir = path.join(agentDir, "sessions");
+    if (!existsSync(sessDir)) return null;
+    const files = [];
+    for (const d of readdirSync(sessDir)) {
+      for (const f of readdirSync(path.join(sessDir, d))) {
+        if (f.endsWith(".jsonl")) files.push(path.join(sessDir, d, f));
+      }
+    }
+    for (const f of files) {
+      for (const line of readFileSync(f, "utf8").split("\n")) {
+        if (line.includes('"stopReason":"error"')) {
+          try {
+            const m = JSON.parse(line).message;
+            return m?.errorMessage ?? "stopReason=error";
+          } catch { return "stopReason=error"; }
+        }
+      }
+    }
+  } catch { /* 读不了就当没错——让等待继续 */ }
+  return null;
+}
 
 // D 段（watchdog 自退）：关窗后心跳停，~autoStopAfterSec(90s 起)+余量内
 // 端口必须释放。慢路径默认不跑，PI_E2E_SLOW=1 显式开。
@@ -164,6 +290,14 @@ test("VSCodium D: spawned server self-stops after window closes", { timeout: 300
   const ctx = prerequisites(t);
   if (!ctx) return;
   const fixture = makeFixture();
+  // 本测试断言的是"我们 spawn 的实例自退"——attach 到真身实例会让
+  // 断言对象错成别人的 server，先隔离。
+  const guard = await guardAttachRange();
+  if (guard.oursPort) {
+    releaseAttachGuard(guard);
+    t.skip(`a real pi-web instance is serving :${guard.oursPort} — cannot isolate`);
+    return;
+  }
   const { app, piFrame } = await reachPiFrame(ctx, fixture);
   const url = new URL(piFrame.url());
   const port = url.port;
@@ -181,5 +315,6 @@ test("VSCodium D: spawned server self-stops after window closes", { timeout: 300
       break;
     }
   }
+  releaseAttachGuard(guard);
   if (alive) throw new Error(`server on :${port} still answering after window closed + 180s`);
 });

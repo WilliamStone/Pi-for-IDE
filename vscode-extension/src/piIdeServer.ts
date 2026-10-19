@@ -282,6 +282,17 @@ export class PiIdeServer {
             `attached to running Pi Web server on :${o.port} (PID ${o.pid}) — skipping duplicate spawn.`,
           );
           logLifecycle(`attached ours: origin=${origin}, pid=${o.pid}`);
+          // attach 只扫 303x——用户显式配置了别的起始端口时，接上的实例
+          // 可能不是他们以为的那份（别的窗口/手动起的）。给个可见提示，
+          // 让"配了端口却连上旧实例"不再静默。
+          const preferred = vscode.workspace
+            .getConfiguration("Pi for IDE")
+            .get<number>("port", DEFAULT_PORT);
+          if (preferred !== o.port) {
+            void vscode.window.showInformationMessage(
+              `Pi for IDE attached to a running server on :${o.port} (configured port ${preferred}). It shares its session/agent data with whoever started it.`,
+            );
+          }
           return origin;
         } catch {
           // 还在启动：下一轮再试。

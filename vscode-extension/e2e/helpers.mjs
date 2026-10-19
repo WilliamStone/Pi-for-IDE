@@ -12,6 +12,7 @@ export function cleanElectronEnv() {
   return env;
 }
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync, statSync } from "node:fs";
+import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -86,6 +87,40 @@ export function installVsix(cli, vsix, { userDataDir, extensionsDir }) {
     execFileSync(cli, args,
       { encoding: "utf8", timeout: 120000, stdio: ["ignore", "pipe", "pipe"], env });
   }
+}
+
+/**
+ * attach-first 隔离器：ensureStarted 先扫 3030–3039 找 ours 实例直接 attach
+ * ——测试期真身实例若在跑就会被接上（隔离即破，还会把会话写进真目录）。
+ * 用法：launch 前调用。占住该区间所有空闲口（attach 只认 cmdline 含本包
+ * 路径的 ours，哑监听者被滤掉）；返回 holders 供 finally 关闭。
+ * 若某口已有真在跑的 ours 实例（/api/embed 应答 200）→ 返回 oursPort →
+ * 测试应 skip：隔离不了，也不该打扰用户实例。
+ */
+export async function guardAttachRange() {
+  const holders = [];
+  for (let port = 3030; port <= 3039; port++) {
+    const srv = net.createServer();
+    const held = await new Promise((resolve) => {
+      srv.once("error", () => resolve(false));
+      srv.listen(port, "127.0.0.1", () => resolve(true));
+    });
+    if (held) { holders.push(srv); continue; }
+    try {
+      const r = await fetch(`http://127.0.0.1:${port}/api/embed`, { signal: AbortSignal.timeout(1500) });
+      if (r.ok) {
+        for (const s of holders) s.close();
+        return { oursPort: port, holders: [] };
+      }
+    } catch {
+      // 占用者不是可 attach 的 ours（非 HTTP/不应答 embed）→ 无害
+    }
+  }
+  return { oursPort: null, holders };
+}
+
+export function releaseAttachGuard(guard) {
+  for (const s of guard?.holders ?? []) s.close();
 }
 
 /**

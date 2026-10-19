@@ -5,7 +5,8 @@
 //   edited.txt  —— edit 后停在 newText（反放可重建 before → 双侧 diff）
 //   drifted.txt —— edit 记录后又被改动（reconstructBefore 失败 →
 //                  openText 降级 + "在本轮后又被修改" 提示）
-import { mkdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import path from "node:path";
 
 /** pi 的 cwd→sessions 子目录 slug：`--` + 分隔符/冒号全转 `-` + `--` */
@@ -78,4 +79,54 @@ export function seedSession(root, workspace) {
   const sessionFile = path.join(dir, name);
   writeFileSync(sessionFile, entries.map((e) => JSON.stringify(e)).join("\n") + "\n");
   return { agentDir, sessionFile, files };
+}
+
+/**
+ * 活体档用的配置复制：把真 agent 目录里的模型/设置搬到 fixture
+ * agentDir（本机文件拷贝——apiKey 只落在用户自己的磁盘上，
+ * 绝不进仓库）。真目录没配 defaultModel 时返回 null → 测试 skip。
+ */
+export async function seedAgentConfig(agentDir) {
+  const real = path.join(homedir(), ".pi", "agent");
+  const settingsPath = path.join(real, "settings.json");
+  const modelsPath = path.join(real, "models.json");
+  if (!existsSync(settingsPath) || !existsSync(modelsPath)) return null;
+  let settings, models;
+  try {
+    settings = JSON.parse(readFileSync(settingsPath, "utf8"));
+    models = JSON.parse(readFileSync(modelsPath, "utf8"));
+    if (!settings?.defaultProvider || !settings?.defaultModel) return null;
+  } catch { return null; }
+
+  // 引擎实际加载的模型可能换了 id（如 bonsai2 → bonsai2-mtp）——
+  // 探测 provider 的 /v1/models，把 defaultModel 校正到真实可用的那个；
+  // 探不通说明引擎没起 → 返回 null 让测试 skip。
+  const provider = models?.providers?.[settings.defaultProvider];
+  if (!provider?.baseUrl) return null;
+  try {
+    const base = provider.baseUrl.endsWith("/") ? provider.baseUrl : `${provider.baseUrl}/`;
+    const r = await fetch(new URL("models", base).href, {
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!r.ok) return null;
+    const { data } = await r.json();
+    const ids = (data ?? []).map((m) => m.id).filter(Boolean);
+    if (!ids.length) return null;
+    if (!ids.includes(settings.defaultModel)) {
+      settings.defaultModel = ids[0];
+    }
+    // 三处必须一致：defaultModel、provider.models[].id（getModel 查这里）、
+    // enabledModels（scope 收窄到被测模型，杜绝落到别的 provider 再超时）
+    provider.models = [{ ...(provider.models?.[0] ?? {}), id: settings.defaultModel }];
+    settings.enabledModels = [`${settings.defaultProvider}/${settings.defaultModel}`];
+  } catch { return null; }
+
+  mkdirSync(agentDir, { recursive: true });
+  writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify(settings, null, 2));
+  writeFileSync(path.join(agentDir, "models.json"), JSON.stringify(models, null, 2));
+  for (const f of ["auth.json", "mcp.json"]) {
+    const src = path.join(real, f);
+    if (existsSync(src)) copyFileSync(src, path.join(agentDir, f));
+  }
+  return { agentDir, model: `${settings.defaultProvider}/${settings.defaultModel}` };
 }
