@@ -182,6 +182,8 @@ export async function checkPiWebUpdate(
 ): Promise<
   | {
       current: string;
+      /** 当前在用副本的构建戳（无戳老安装为 undefined）。 */
+      currentBuiltAt?: string;
       managed: boolean;
       best?: string;
       latest?: string;
@@ -204,7 +206,8 @@ export async function checkPiWebUpdate(
   );
   const managed = !!managedBin && binPath === managedBin;
   if (!binPath) return undefined;
-  const pkgJson = path.join(path.dirname(path.dirname(binPath)), "package.json");
+  const pkgDir = path.dirname(path.dirname(binPath));
+  const pkgJson = path.join(pkgDir, "package.json");
   let current: string;
   try {
     current = JSON.parse(readFileSync(pkgJson, "utf8")).version;
@@ -216,6 +219,7 @@ export async function checkPiWebUpdate(
   if (!compat.latest) return undefined;
   return {
     current,
+    currentBuiltAt: installedBuildStamp(pkgDir).builtAt,
     managed,
     best: compat.best?.version,
     latest: compat.latest.version,
