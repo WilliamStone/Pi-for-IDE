@@ -77,18 +77,24 @@ export class TurnRevert {
     try {
       const list = this.snapshots.get(cwd);
       const snap = list?.find((s) => s.turnId === turnId);
-      if (snap) {
-        const key = pathKey(abs, cwd);
-        if (snap.files.has(key)) {
-          return { kind: "getBeforeContent", content: snap.files.get(key)! };
-        }
-        // 快照无此文件且 git 可用 → 试 git show HEAD:<repo-rel>
-        if (snap.gitRoot) {
-          const rel = toGitRelPath(abs, snap.gitRoot);
-          const content = await this.gitShowHead(snap.gitRoot, rel);
-          return { kind: "getBeforeContent", content };
-        }
+      if (!snap) {
+        this.logger(`getBeforeContent: turn=${turnId} — no snapshot for this turn (cwd=${cwd}, tracked=${list?.length ?? 0})`);
+        return { kind: "getBeforeContent", content: null };
       }
+      const key = pathKey(abs, cwd);
+      if (snap.files.has(key)) {
+        return { kind: "getBeforeContent", content: snap.files.get(key)! };
+      }
+      // 快照无此文件且 git 可用 → 试 git show HEAD:<repo-rel>
+      if (snap.gitRoot) {
+        const rel = toGitRelPath(abs, snap.gitRoot);
+        const content = await this.gitShowHead(snap.gitRoot, rel);
+        if (content === null) {
+          this.logger(`getBeforeContent: ${filePath} — not in snapshot, not in git HEAD`);
+        }
+        return { kind: "getBeforeContent", content };
+      }
+      this.logger(`getBeforeContent: ${filePath} — not in snapshot, no git repo`);
       return { kind: "getBeforeContent", content: null };
     } catch (error) {
       this.logger(`getBeforeContent failed: ${error}`);
@@ -106,11 +112,17 @@ export class TurnRevert {
     const cwd = await this.canonicalCwd(req.cwd);
     try {
       const abs = await this.canonicalPath(this.normalizePath(filePath, cwd));
-      if (!isWithinCwd(abs, cwd) || !edits?.length) {
+      if (!isWithinCwd(abs, cwd)) {
+        this.logger(`reconstructBefore: ${filePath} — outside session cwd`);
+        return { kind: "reconstructBefore", content: null };
+      }
+      if (!edits?.length) {
+        this.logger(`reconstructBefore: ${filePath} — no edits provided`);
         return { kind: "reconstructBefore", content: null };
       }
       const current = await this.readFileText(abs);
       if (current === null) {
+        this.logger(`reconstructBefore: ${filePath} — file missing on disk`);
         return { kind: "reconstructBefore", content: null };
       }
       const applied = applyEditsReversed(current, edits);
