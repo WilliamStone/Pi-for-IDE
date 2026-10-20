@@ -141,6 +141,11 @@ export interface EmbedRevertFilesRequest {
   files: string[];
   /** 本轮 write 新建的文件——快照与 HEAD 都查无时宿主据此删除回退。 */
   created?: string[];
+  /**
+   * 本轮 write 的完整新内容（input.content）。宿主据此做漂移校验：
+   * 轮后用户手动改过的文件跳过回退并报错，不覆盖手动修改。
+   */
+  expectedAfter?: { filePath: string; content: string }[];
   cwd: string;
 }
 
@@ -563,10 +568,11 @@ export async function revertFilesViaHost(
   files: string[],
   cwd: string,
   created?: string[],
+  expectedAfter?: { filePath: string; content: string }[],
 ): Promise<{ success: boolean; message?: string }> {
   try {
     const res = await sendEmbedRequest<EmbedRevertFilesResponse>(
-      { kind: "revertFiles", turnId, files, cwd, created },
+      { kind: "revertFiles", turnId, files, cwd, created, expectedAfter },
       10000,
     );
     return { success: res?.success ?? false, message: res?.message };

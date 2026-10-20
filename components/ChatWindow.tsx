@@ -1531,7 +1531,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
           <div className="new-session-hero" style={{ paddingLeft: 16, paddingRight: isMobile ? 16 : 52 }}>
             <div className="new-session-hero-inner" style={{ maxWidth: "var(--chat-content-max-width, 820px)" }}>
               <div className="new-session-brand">
-                <Image src={extVersion ? "/icons/ide-logo.png" : "/icons/apple-touch-icon.png"} width={40} height={40} alt="" priority className="new-session-logo" />
+                <Image src={extVersion ? "/icons/ide-logo.png" : "/icons/apple-touch-icon.png"} width={60} height={60} alt="" priority className="new-session-logo" />
                 <div className="new-session-brand-text">
                   <span className="new-session-brand-name">
                     {appDisplayName()}

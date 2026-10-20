@@ -109,7 +109,7 @@ function FileReviewCardImpl({ turnId, changes, cwd, sessionId, onOpenFile }: Pro
       return;
     }
     await showDiffViaHost(change.path, before, after, t("chat.fileReviewTurnDiff", { path: change.relativePath }));
-  }, [inEmbed, turnId, cwd, t]);
+  }, [inEmbed, turnId, cwd, sessionId, t]);
 
   // embed 模式：在宿主编辑器中直接打开文件（不开 diff）。
   const handleOpenInHost = useCallback((change: FileChange, e: React.MouseEvent) => {

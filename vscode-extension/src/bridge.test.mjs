@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, mkdirSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { registerHooks } from "node:module";
@@ -95,6 +95,76 @@ test("revertFiles deletes a created file and restores snapshot content", async (
   });
   assert.equal(res.success, true, res.message);
   assert.equal(readFileSync(path.join(repo, "dirty.txt"), "utf8"), "dirty-edited\n");
+  assert.equal(existsSync(path.join(repo, "created.txt")), false);
+});
+
+test("revertFiles skips drifted files instead of clobbering manual edits", async (t) => {
+  const repo = makeRepo(t);
+  const bridge = new Bridge(() => {});
+  await bridge.handle({ kind: "captureSnapshot", turnId: "t1", cwd: repo });
+
+  // 本轮 write：新建 created.txt + 覆盖 dirty.txt；
+  // 轮后用户在 created.txt 上又改了内容 → 漂移；dirty.txt 保持轮后内容 → 可回退。
+  writeFileSync(path.join(repo, "created.txt"), "turn-content\n");
+  writeFileSync(path.join(repo, "dirty.txt"), "dirty-after-turn\n");
+  writeFileSync(path.join(repo, "created.txt"), "user-edited-later\n");
+
+  const res = await bridge.handle({
+    kind: "revertFiles",
+    turnId: "t1",
+    files: ["dirty.txt", "created.txt"],
+    created: ["created.txt"],
+    expectedAfter: [
+      { filePath: "created.txt", content: "turn-content\n" },
+      { filePath: "dirty.txt", content: "dirty-after-turn\n" },
+    ],
+    cwd: repo,
+  });
+  assert.equal(res.success, false);
+  assert.match(res.message, /created\.txt.*changed since the turn/);
+  // 漂移文件保住了用户修改；未漂移的照旧回退到快照
+  assert.equal(readFileSync(path.join(repo, "created.txt"), "utf8"), "user-edited-later\n");
+  assert.equal(readFileSync(path.join(repo, "dirty.txt"), "utf8"), "dirty-edited\n");
+});
+
+test("revertFiles treats a user-deleted created file as already reverted", async (t) => {
+  const repo = makeRepo(t);
+  const bridge = new Bridge(() => {});
+  await bridge.handle({ kind: "captureSnapshot", turnId: "t1", cwd: repo });
+
+  // 本轮 write 新建 created.txt，用户轮后又删掉了——目标态已达成。
+  writeFileSync(path.join(repo, "created.txt"), "turn-content\n");
+  rmSync(path.join(repo, "created.txt"));
+
+  const res = await bridge.handle({
+    kind: "revertFiles",
+    turnId: "t1",
+    files: ["created.txt"],
+    created: ["created.txt"],
+    expectedAfter: [{ filePath: "created.txt", content: "turn-content\n" }],
+    cwd: repo,
+  });
+  assert.equal(res.success, true, res.message);
+  assert.equal(existsSync(path.join(repo, "created.txt")), false);
+});
+
+test("revertFiles without expectedAfter keeps legacy unconditional restore", async (t) => {
+  const repo = makeRepo(t);
+  const bridge = new Bridge(() => {});
+  await bridge.handle({ kind: "captureSnapshot", turnId: "t1", cwd: repo });
+
+  // 旧版页面不带 expectedAfter——保持原语义（快照整体覆盖）。
+  writeFileSync(path.join(repo, "created.txt"), "turn-content\n");
+  writeFileSync(path.join(repo, "created.txt"), "user-edited-later\n");
+
+  const res = await bridge.handle({
+    kind: "revertFiles",
+    turnId: "t1",
+    files: ["created.txt"],
+    created: ["created.txt"],
+    cwd: repo,
+  });
+  assert.equal(res.success, true, res.message);
   assert.equal(existsSync(path.join(repo, "created.txt")), false);
 });
 

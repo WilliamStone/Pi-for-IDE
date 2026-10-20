@@ -373,6 +373,11 @@ export class Bridge {
         return { kind: "revertFiles", success: false, message: "snapshot missing or expired" };
       }
       const createdSet = new Set((created ?? []).map((p) => pathKey(p, cwd)));
+      // 与 files[] 同一来源路径：按 normalizePath 键对齐（不走 canonical——
+      // canonical 只在文件存在时才有意义，expectedAfter 的键必须跟请求路径一致）。
+      const expectedMap = new Map<string, string>(
+        (req.expectedAfter ?? []).map((e) => [pathKey(this.normalizePath(e.filePath, cwd), cwd), e.content]),
+      );
       let reverted = 0;
       const errors: string[] = [];
       for (const filePath of files) {
@@ -382,6 +387,22 @@ export class Bridge {
           if (!isWithinCwd(abs, cwd)) {
             errors.push(`${filePath}: outside session cwd`);
             continue;
+          }
+          // 漂移守护：轮后预期内容已知且文件仍在、内容与轮后不符 →
+          // 用户在轮后改过该文件——跳过并报错，绝不覆盖手动修改。
+          // 文件已删（null）不算漂移：created 分支视为已回退，快照/HEAD
+          // 分支照常恢复（删除不是需要保护的编辑）。
+          const expected = expectedMap.get(pathKey(this.normalizePath(filePath, cwd), cwd));
+          if (expected !== undefined) {
+            const current = await this.readFileText(abs);
+            if (current !== null && current !== expected) {
+              errors.push(`${filePath}: changed since the turn — skipped to keep your edits`);
+              continue;
+            }
+            if (current === null && createdSet.has(key)) {
+              reverted++; // 本轮新建的文件已被用户删掉——回退目标态已达成
+              continue;
+            }
           }
           if (snap.files.has(key)) {
             // 本轮前有未提交改动 → 恢复成那个内容
@@ -835,6 +856,13 @@ interface RevertFilesRequest {
   files: string[];
   /** 页面声称本轮新建的文件（快照与 HEAD 都查无时允许删除回退）。 */
   created?: string[];
+  /**
+   * 该轮 write 产出的完整新内容（input.content），按文件给出。
+   * 提供时视为回退前的漂移校验：磁盘内容与轮后预期不符（用户在轮后
+   * 手动改过）→ 该文件跳过并报错，不覆盖用户修改；文件已不存在
+   * 不算冲突（无需保护的内容）。缺失时保持旧行为（向后兼容）。
+   */
+  expectedAfter?: { filePath: string; content: string }[];
   cwd: string;
 }
 

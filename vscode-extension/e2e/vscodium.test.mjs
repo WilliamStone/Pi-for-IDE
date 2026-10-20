@@ -219,7 +219,7 @@ test("VSCodium C: live prompt turn → revert restores files", { timeout: 480_00
     coverSkip(t, "C live-revert", `real pi-web instance on :${guard.oursPort}`);
     return;
   }
-  const { app, win, piFrame } = await reachPiFrame(ctx, fixture, {
+  const { app, piFrame } = await reachPiFrame(ctx, fixture, {
     PI_CODING_AGENT_DIR: agentSeed.agentDir,
   });
   try {

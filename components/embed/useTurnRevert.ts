@@ -74,7 +74,12 @@ export function useTurnRevert(opts: {
           if (r.success) okCount++;
           else errs.push(`${change.relativePath}: ${r.message ?? t("chat.revertOpFailed")}`);
         } else if (change.kind === "write") {
-          const r = await revertFilesViaHost(turnId, [change.path], cwd, [change.path]);
+          // expectedAfter 带本轮 write 全文——宿主比对磁盘当前内容，
+          // 轮后被手改过的文件跳过回退而不是覆盖用户修改。
+          const expectedAfter = typeof change.newContent === "string"
+            ? [{ filePath: change.path, content: change.newContent }]
+            : undefined;
+          const r = await revertFilesViaHost(turnId, [change.path], cwd, [change.path], expectedAfter);
           if (r.success) okCount++;
           else errs.push(`${change.relativePath}: ${r.message ?? t("chat.revertOpFailed")}`);
         } else {

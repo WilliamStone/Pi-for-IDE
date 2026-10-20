@@ -1,4 +1,5 @@
 "use strict";
+/* eslint-disable @typescript-eslint/no-require-imports -- bin 侧 CJS 生命周期脚本，与 build.cjs 同豁免面 */
 
 // pnpm -g 升级/重装本包时，仍在跑的 server 会攥住旧安装目录里被硬链接
 // 的文件，pnpm 删除旧目录即报 os error 32——原文毫无诊断。本脚本跑在
