@@ -112,10 +112,9 @@ export class TurnRevert {
     const cwd = await this.canonicalCwd(req.cwd);
     try {
       const abs = await this.canonicalPath(this.normalizePath(filePath, cwd));
-      if (!isWithinCwd(abs, cwd)) {
-        this.logger(`reconstructBefore: ${filePath} — outside session cwd`);
-        return { kind: "reconstructBefore", content: null };
-      }
+      // 注意：本请求只读不写——cwd 白名单属于写路径（revertFiles/revertEdit），
+      // 这里若也限，agent 改 cwd 外文件（合法操作）的 diff 左栏永远重建不了。
+      // 读面本就无 cwd 限制（readFile 同样不查），newText 计数校验仍在防漂移。
       if (!edits?.length) {
         this.logger(`reconstructBefore: ${filePath} — no edits provided`);
         return { kind: "reconstructBefore", content: null };
