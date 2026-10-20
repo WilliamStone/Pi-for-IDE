@@ -146,6 +146,12 @@
           "type": "string",
           "default": "",
           "description": "%config.localPackage%"
+        },
+        "Pi for IDE.installSource": {
+          "type": "string",
+          "enum": ["auto", "local", "registry", "newest"],
+          "default": "auto",
+          "description": "%config.installSource%"
         }
       }
     },

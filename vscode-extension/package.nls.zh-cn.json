@@ -18,5 +18,6 @@
   "config.autoStop": "允许由扩展拉起的 pi-web 服务器在所有窗口/客户端断开后自行退出（服务端看门狗）。没有任何心跳或打开页面后即关闭。独立启动的 Pi Web+ 服务不受此开关影响。",
   "config.autoStopAfterSec": "扩展拉起的服务器在完全静默（无心跳、无打开客户端）多少秒后自行退出。仅在 autoStop 开启时生效。最小 90——后台浏览器页约每分钟才能轮询一次。",
   "config.checkForUpdates": "激活后向 npm registry 检查一次 pi-web 更新版本并提供升级。",
-  "config.localPackage": "本地 pi-web .tgz 包的绝对路径（绕过 npm registry 安装）。配置后「升级服务组件」与后台检查都读取该文件——便于测试本地构建。"
+  "config.localPackage": "本地 pi-web .tgz 包的绝对路径（绕过 npm registry 安装）。配置后「升级服务组件」与后台检查都读取该文件——便于测试本地构建。",
+  "config.installSource": "安装/升级来源：auto = 填了 localPackage 用本地、否则走 npm registry；local = 只用本地包；registry = 只用 npm（忽略 localPackage）；newest = 两边相比，谁新装谁（先比版本，同版本比构建戳）。"
 }
