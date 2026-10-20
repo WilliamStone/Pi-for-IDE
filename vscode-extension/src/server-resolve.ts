@@ -20,6 +20,7 @@ import {
   pickNewestSupported,
   queryRegistryCompat,
   readTgzIdentity,
+  resolveLocalPackagePath,
   type BuildIdentity,
 } from "./managedRuntime";
 import { emitServerStatus } from "./server-status";
@@ -255,24 +256,28 @@ export function pickInstallFlow(
  * 不同才报新（无戳无法判同版本新旧，保守不扰）。
  */
 export function checkLocalPackageUpdate(
-  tgzPath: string,
+  configPath: string,
   context: vscode.ExtensionContext,
   pkg: string,
 ):
   | {
+      /** 实际解析到的 tgz 文件（目录配置时挑出的最新者）。 */
+      resolvedPath?: string;
       current?: { version: string; builtAt?: string };
       candidate?: BuildIdentity;
       isNewer: boolean;
       reason?: string;
     }
   | undefined {
+  const tgzPath = resolveLocalPackagePath(configPath, pkg);
+  if (!tgzPath) return undefined;
   const id = readTgzIdentity(tgzPath);
   if (!id?.version) return undefined;
   if (id.name && id.name !== pkg) {
-    return { candidate: id, isNewer: false, reason: `package name mismatch: tarball is ${id.name}, configured package is ${pkg}` };
+    return { resolvedPath: tgzPath, candidate: id, isNewer: false, reason: `package name mismatch: tarball is ${id.name}, configured package is ${pkg}` };
   }
   if (!levelSupported(id.level)) {
-    return { candidate: id, isNewer: false, reason: `level ${id.level ?? "unknown"} outside supported range — may need a newer extension` };
+    return { resolvedPath: tgzPath, candidate: id, isNewer: false, reason: `level ${id.level ?? "unknown"} outside supported range — may need a newer extension` };
   }
   const binPath = managedPackageBin(context, pkg);
   let current: { version: string; builtAt?: string } | undefined;
@@ -287,10 +292,10 @@ export function checkLocalPackageUpdate(
       current = { version: binVersion(binPath) ?? "unknown" };
     }
   }
-  if (!current) return { candidate: id, isNewer: true };
+  if (!current) return { resolvedPath: tgzPath, candidate: id, isNewer: true };
   const v = compareVersions(id.version, current.version);
   const isNewer = v > 0 || (v === 0 && !!id.builtAt && id.builtAt > (current.builtAt ?? ""));
-  return { candidate: id, current, isNewer };
+  return { resolvedPath: tgzPath, candidate: id, current, isNewer };
 }
 
 /**

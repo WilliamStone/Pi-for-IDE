@@ -18,6 +18,6 @@
   "config.autoStop": "Let the extension-spawned pi-web server exit on its own after every window/client disconnects (server-side watchdog). The process then shuts down once no heartbeat or open page remains. Servers started standalone outside the IDE are never affected.",
   "config.autoStopAfterSec": "Seconds of full silence (no heartbeat, no open client) before an extension-spawned server exits. Applies only when autoStop is on. Minimum 90 — hidden browser tabs can only poll about once a minute.",
   "config.checkForUpdates": "Check once after activation for a newer pi-web-for-ide package and offer to upgrade (installSource decides whether the registry, the local tarball, or both is consulted).",
-  "config.localPackage": "Absolute path to a local pi-web .tgz package to install from (bypasses the npm registry). \"Upgrade Server Component\" and the background check then look at this file — handy for testing local builds.",
+  "config.localPackage": "Path to a local pi-web .tgz — either the file itself or a directory containing packages (the newest matching build inside is picked automatically, so rebuilt artifacts keep being found even as filenames change).",
   "config.installSource": "Where installs/upgrades come from: auto = compare local tarball and registry, prefer the local build on a version tie; prefer-remote = same comparison but prefer the registry on a tie; local = only the localPackage tarball; registry = only npm (localPackage ignored)."
 }

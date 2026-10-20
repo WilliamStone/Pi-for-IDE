@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import * as cp from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -25,7 +26,7 @@ registerHooks({
   },
 });
 
-const { pickVersionDirName, readTgzIdentity } = await import("./managedRuntime.ts");
+const { pickVersionDirName, readTgzIdentity, resolveLocalPackagePath } = await import("./managedRuntime.ts");
 const { pickInstallFlow } = await import("./server-resolve.ts");
 
 const PKG = "@william_stone/pi-web-for-ide";
@@ -92,6 +93,50 @@ test("pickInstallFlow: auto/prefer-remote compare both; higher version wins", ()
 test("pickInstallFlow: version tie → auto picks local, prefer-remote picks registry", () => {
   assert.equal(pickInstallFlow("auto", "0.1.0", "0.1.0"), "local");
   assert.equal(pickInstallFlow("prefer-remote", "0.1.0", "0.1.0"), "registry");
+});
+
+/** 造一个最小 npm tgz（package/ 前缀布局 + 可选构建戳），用系统 tar。 */
+function makeTgz(dir, name, version, builtAt) {
+  const staging = mkdtempSync(path.join(tmpdir(), "pi-tgz-src-"));
+  const pkgDir = path.join(staging, "package");
+  mkdirSync(pkgDir, { recursive: true });
+  writeFileSync(path.join(pkgDir, "package.json"), JSON.stringify({
+    name, version, piIde: { level: 3 },
+  }));
+  if (builtAt) {
+    writeFileSync(path.join(pkgDir, "pi-web-build.json"), JSON.stringify({ version, builtAt }));
+  }
+  const tag = builtAt ? `-${builtAt.replace(/\D/g, "").slice(0, 14)}` : "";
+  const tgz = path.join(dir, `${name.replace(/[^a-z0-9_-]/gi, "_")}-${version}${tag}.tgz`);
+  const r = cp.spawnSync("tar", ["-czf", tgz, "-C", staging, "package", "--force-local"], { encoding: "utf8" });
+  assert.equal(r.status, 0, r.stderr);
+  return tgz;
+}
+
+test("resolveLocalPackagePath: file path passes through", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "pi-lp-"));
+  const tgz = makeTgz(dir, "@william_stone/pi-web-for-ide", "0.12.2-1");
+  assert.equal(resolveLocalPackagePath(tgz, PKG), tgz);
+  assert.equal(resolveLocalPackagePath(path.join(dir, "missing.tgz"), PKG), undefined);
+});
+
+test("resolveLocalPackagePath: directory picks the newest matching build", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "pi-lp-"));
+  // 两个同包不同构建 + 一个别的包 + 一个非包文件 → 取 newer build。
+  const older = makeTgz(dir, "@william_stone/pi-web-for-ide", "0.12.2-1", "2026-10-20T01:00:00.000Z");
+  const newer = makeTgz(dir, "@william_stone/pi-web-for-ide", "0.12.2-1", "2026-10-20T09:00:00.000Z");
+  makeTgz(dir, "someone-else", "9.9.9");
+  writeFileSync(path.join(dir, "notes.txt"), "not a package");
+  const picked = resolveLocalPackagePath(dir, PKG);
+  assert.equal(picked, newer);
+  assert.notEqual(picked, older);
+});
+
+test("resolveLocalPackagePath: empty/mismatched directory → undefined", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "pi-lp-"));
+  makeTgz(dir, "someone-else", "9.9.9");
+  assert.equal(resolveLocalPackagePath(dir, PKG), undefined);
+  assert.equal(resolveLocalPackagePath(path.join(dir, "no-such-dir"), PKG), undefined);
 });
 
 test("readTgzIdentity reads package identity + build stamp from the real tarball", (t) => {

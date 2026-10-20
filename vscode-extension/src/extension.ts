@@ -346,7 +346,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const report: string[] = [
         `installSource: ${installSource}`,
         localTgz
-          ? `local: ${localTgz} → ${local?.candidate
+          ? `local: ${local?.resolvedPath ?? localTgz} → ${local?.candidate
               ? `${local.candidate.version}${fmtBuild(local.candidate.builtAt)}${local.candidate.gitSha ? ` (${local.candidate.gitSha})` : ""}`
               : "(cannot read package identity)"}${local?.reason ? ` — refused: ${local.reason}` : ""}`
           : "local: (localPackage not set)",

@@ -245,6 +245,42 @@ export function readTgzIdentity(tgzPath: string): BuildIdentity | undefined {
   }
 }
 
+/**
+ * localPackage 配置值 → 实际 tgz 文件：
+ * - 指向 .tgz 文件 → 直接返回；
+ * - 指向目录 → 扫其中 *.tgz，读身份过滤包名匹配者（文件名随版本/构建
+ *   变化没关系——看内容不看名），取 (version, builtAt) 最新者。
+ * 找不到/无效返回 undefined。
+ */
+export function resolveLocalPackagePath(configPath: string, pkg: string): string | undefined {
+  try {
+    const st = statSync(configPath);
+    if (st.isFile()) {
+      return /\.t(ar\.)?gz$/i.test(configPath) ? configPath : undefined;
+    }
+    if (!st.isDirectory()) return undefined;
+    let best: { file: string; version: string; builtAt: string } | undefined;
+    for (const entry of readdirSync(configPath)) {
+      if (!/\.t(ar\.)?gz$/i.test(entry)) continue;
+      const file = path.join(configPath, entry);
+      const id = readTgzIdentity(file);
+      // pkg 传空 = 不限包名（installManagedLocalPackage 后再验名）。
+      if (!id?.version || (pkg && id.name && id.name !== pkg)) continue;
+      const builtAt = id.builtAt ?? "";
+      if (
+        !best ||
+        compareVersions(id.version, best.version) > 0 ||
+        (compareVersions(id.version, best.version) === 0 && builtAt > best.builtAt)
+      ) {
+        best = { file, version: id.version, builtAt };
+      }
+    }
+    return best?.file;
+  } catch {
+    return undefined;
+  }
+}
+
 /** 已装包目录里的构建戳（缺文件的老安装视为"无戳"——比对时最旧）。 */
 export function installedBuildStamp(pkgDir: string): { builtAt?: string; gitSha?: string } {
   try {
@@ -482,11 +518,12 @@ export async function installManagedPackage(
 export async function installManagedLocalPackage(
   channel: vscode.OutputChannel,
   context: vscode.ExtensionContext,
-  tgzPath: string,
+  configPath: string,
   onProgress?: (message: string) => void,
 ): Promise<boolean> {
-  if (!existsSync(tgzPath) || !/\.t(ar\.)?gz$/i.test(tgzPath)) {
-    channel.appendLine(`local package not found or not a .tgz: ${tgzPath}`);
+  const tgzPath = resolveLocalPackagePath(configPath, "");
+  if (!tgzPath) {
+    channel.appendLine(`no usable local package at ${configPath} (not a .tgz, or directory has none).`);
     return false;
   }
   const id = readTgzIdentity(tgzPath);
