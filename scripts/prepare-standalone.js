@@ -224,6 +224,29 @@ function main() {
   console.log("=== 2/2 组装 standalone 产物 ===");
   const serverDir = assembleStandalone();
 
+  // 3. for-pack：写入构建身份——版本号在测试/迭代期恒定，(version, builtAt)
+  //    二元组才让"本地/在线找到的新旧"可比较（扩展侧按它判断要不要装）。
+  if (process.argv.includes("--for-pack")) {
+    const pkgJson = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
+    let gitSha = "";
+    try {
+      gitSha = require("child_process")
+        .execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: repoRoot, encoding: "utf8" })
+        .trim();
+    } catch { /* 非 git 环境可省 */ }
+    const stamp = {
+      name: pkgJson.name,
+      version: pkgJson.version,
+      builtAt: new Date().toISOString(),
+      ...(gitSha ? { gitSha } : {}),
+    };
+    fs.writeFileSync(
+      path.join(repoRoot, "pi-web-build.json"),
+      JSON.stringify(stamp, null, 2) + "\n",
+    );
+    console.log(`  build stamp: ${stamp.version} built ${stamp.builtAt}${gitSha ? ` (${gitSha})` : ""}`);
+  }
+
   console.log(`\nSTANDALONE_DIR=${serverDir}`);
 }
 

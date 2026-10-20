@@ -28,7 +28,8 @@
     "bin",
     ".next/standalone",
     "next.config.ts",
-    "package.json"
+    "package.json",
+    "pi-web-build.json"
   ],
   "scripts": {
     "preinstall": "node bin/preinstall-guard.js",

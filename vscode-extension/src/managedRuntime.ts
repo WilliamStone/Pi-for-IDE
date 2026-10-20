@@ -85,10 +85,10 @@ function markerVersion(context: vscode.ExtensionContext): string {
 export function listManagedVersions(
   context: vscode.ExtensionContext,
   pkg: string,
-): { version: string; dir: string; level?: number; ready: boolean; current: boolean }[] {
+): { version: string; dir: string; level?: number; ready: boolean; current: boolean; builtAt?: string }[] {
   const root = managedRuntimeRoot(context);
   const cur = markerVersion(context);
-  const out: { version: string; dir: string; level?: number; ready: boolean; current: boolean }[] =
+  const out: { version: string; dir: string; level?: number; ready: boolean; current: boolean; builtAt?: string }[] =
     [];
   const push = (version: string, dirRoot: string, current: boolean) => {
     const pkgDir = path.join(dirRoot, "node_modules", pkg);
@@ -97,6 +97,7 @@ export function listManagedVersions(
       dir: pkgDir,
       level: packageLevel(pkgDir),
       ready: existsSync(path.join(pkgDir, "bin", "pi-web.js")),
+      builtAt: installedBuildStamp(pkgDir).builtAt,
       current,
     });
   };
@@ -119,7 +120,10 @@ export function listManagedVersions(
     }
     push(legacyVer, root, false);
   }
-  return out.sort((a, b) => compareVersions(b.version, a.version));
+  // 版本降序；同版本（构建戳分槽）按 builtAt 新→旧。
+  return out.sort(
+    (a, b) => compareVersions(b.version, a.version) || (b.builtAt ?? "").localeCompare(a.builtAt ?? ""),
+  );
 }
 
 /**
@@ -192,6 +196,105 @@ export async function queryRegistryCompat(pkg: string): Promise<RegistryCompat> 
 }
 
 // ---------------------------------------------------------------------------
+// 构建身份（pi-web-build.json）：同版本号下区分新旧构建
+// ---------------------------------------------------------------------------
+
+export interface BuildIdentity {
+  name?: string;
+  version: string;
+  level?: number;
+  /** ISO8601 打包时间戳——prepare-standalone --for-pack 戳进包内。 */
+  builtAt?: string;
+  gitSha?: string;
+}
+
+/**
+ * tar -xOf 读 tgz 内成员（Windows 10+ 自带 bsdtar；POSIX tar 通用）。
+ * --force-local：bsdtar 会把 `S:\…` 的盘符冒号当远程主机语法。
+ */
+function tgzMember(tgzPath: string, member: string): string | undefined {
+  try {
+    const r = cp.spawnSync("tar", ["-xOf", tgzPath, member, "--force-local"], {
+      encoding: "utf8",
+      timeout: 30_000,
+    });
+    if (r.status === 0 && r.stdout) return r.stdout;
+  } catch {
+    // tar 缺席或读不到都算"无法识别"。
+  }
+  return undefined;
+}
+
+/** 读发行包 tgz 的构建身份（package.json + pi-web-build.json）。 */
+export function readTgzIdentity(tgzPath: string): BuildIdentity | undefined {
+  const pkgRaw = tgzMember(tgzPath, "package/package.json");
+  if (!pkgRaw) return undefined;
+  try {
+    const p = JSON.parse(pkgRaw) as { name?: string; version?: string; piIde?: { level?: number } };
+    if (!p.version) return undefined;
+    const id: BuildIdentity = { name: p.name, version: p.version, level: p.piIde?.level };
+    const stampRaw = tgzMember(tgzPath, "package/pi-web-build.json");
+    if (stampRaw) {
+      const s = JSON.parse(stampRaw) as { builtAt?: string; gitSha?: string };
+      id.builtAt = s.builtAt;
+      id.gitSha = s.gitSha;
+    }
+    return id;
+  } catch {
+    return undefined;
+  }
+}
+
+/** 已装包目录里的构建戳（缺文件的老安装视为"无戳"——比对时最旧）。 */
+export function installedBuildStamp(pkgDir: string): { builtAt?: string; gitSha?: string } {
+  try {
+    return JSON.parse(readFileSync(path.join(pkgDir, "pi-web-build.json"), "utf8")) as {
+      builtAt?: string;
+      gitSha?: string;
+    };
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * 版本目录名选择：
+ * - 带构建戳的包永远进 `<version>.b<yyyymmddhhmmss>` 槽——已发布的同版本
+ *   registry 安装占 `<version>` 槽，两者互不相撞；
+ * - 同戳同槽（已装过同一构建）→ reused=true，调用方短路；
+ * - 无戳（registry 路径）→ `<version>`。
+ */
+export function pickVersionDirName(
+  versionsRoot: string,
+  pkg: string,
+  identity: BuildIdentity,
+): { dirName: string; reused: boolean } {
+  const binOk = (dirName: string) =>
+    existsSync(path.join(versionsRoot, dirName, "node_modules", pkg, "bin", "pi-web.js"));
+  if (!identity.builtAt) {
+    return { dirName: identity.version, reused: binOk(identity.version) };
+  }
+  const ts = identity.builtAt.replace(/\D/g, "").slice(0, 14);
+  const dirName = `${identity.version}.b${ts}`;
+  return { dirName, reused: binOk(dirName) };
+}
+
+/**
+ * marker 前翻判定：版本号高者赢；同版本比构建戳（ISO 串字典序=时序）。
+ * 防并发窗口把 marker 倒回旧构建/旧版本。
+ */
+function isNewerManagedEntry(context: vscode.ExtensionContext, pkg: string, dirName: string): boolean {
+  const cur = markerVersion(context);
+  if (!cur) return true;
+  const stripBuild = (n: string) => n.replace(/\.b\d{14}$/, "");
+  const v = compareVersions(stripBuild(dirName), stripBuild(cur));
+  if (v !== 0) return v > 0;
+  const stampOf = (n: string) =>
+    installedBuildStamp(path.join(managedRuntimeRoot(context), "versions", n, "node_modules", pkg)).builtAt ?? "";
+  return stampOf(dirName) > stampOf(cur);
+}
+
+// ---------------------------------------------------------------------------
 // 安装（版本目录 + 锁 + marker 前翻 + 清理）
 // ---------------------------------------------------------------------------
 
@@ -219,42 +322,20 @@ function dirSizeMB(dir: string): number {
 }
 
 /**
- * 往托管运行时安装指定版本：`npm i --prefix versions/<ver> pkg@ver`
- * → 成功后 marker 前翻。不碰运行中的旧目录。
+ * 共享安装骨架：跨窗口锁 → `npm i --prefix versions/<dirName> <spec>`
+ * → marker 前翻（构建身份判定）→ 清理。registry spec（pkg@ver）与本地
+ * tgz 路径都走这里——npm 原生支持两种 spec。
  */
-export async function installManagedPackage(
+async function runManagedInstall(
   channel: vscode.OutputChannel,
   context: vscode.ExtensionContext,
   pkg: string,
-  version?: string,
+  dirName: string,
+  spec: string,
   onProgress?: (message: string) => void,
 ): Promise<boolean> {
   const root = managedRuntimeRoot(context);
-
-  // 目标版本：显式传入或取最高兼容版本（问 registry）。
-  let targetVersion = version;
-  if (!targetVersion || targetVersion === "latest") {
-    const compat = await queryRegistryCompat(pkg);
-    if (compat.needsExtensionUpgrade && compat.latest) {
-      channel.appendLine(
-        `the latest package ${compat.latest.version} (level ${compat.latest.level}) requires a newer extension (supported ≤${EMBED_PROTOCOL_SUPPORTED}). Please upgrade Pi for IDE from the marketplace first.`,
-      );
-      return false;
-    }
-    if (!compat.best) {
-      channel.appendLine("no compatible version available in the registry.");
-      return false;
-    }
-    targetVersion = compat.best.version;
-    channel.appendLine(`selected highest compatible version ${targetVersion} (level ${compat.best.level})`);
-  }
-  const binPath = packageBinIn(managedVersionDir(context, targetVersion), pkg);
-
-  // 已是当前版本且就绪 → 无操作。
-  if (markerVersion(context) === targetVersion && existsSync(binPath)) {
-    channel.appendLine(`managed runtime is already ${targetVersion}; nothing to install.`);
-    return true;
-  }
+  const binPath = packageBinIn(path.join(root, "versions", dirName), pkg);
 
   // 跨窗口安装锁（原子创建），后到者等先装完复用。
   const lockFile = path.join(root, ".installing");
@@ -265,7 +346,7 @@ export async function installManagedPackage(
     if (waitedMs % 15_000 < 3000) {
       channel.appendLine(`another window is installing the managed runtime; waited ${Math.round(waitedMs / 1000)}s…`);
     }
-    if (!existsSync(lockFile) && managedPackageBin(context, pkg)) break;
+    if (!existsSync(lockFile) && existsSync(binPath)) break;
   }
   if (existsSync(lockFile)) {
     channel.appendLine("stale install lock (>10min) removed; continuing.");
@@ -275,8 +356,8 @@ export async function installManagedPackage(
       // 尽力。
     }
   }
-  if (waitedMs > 0 && markerVersion(context) === targetVersion && existsSync(binPath)) {
-    channel.appendLine("target version already installed by another window; reusing it.");
+  if (waitedMs > 0 && markerVersion(context) === dirName && existsSync(binPath)) {
+    channel.appendLine("target build already installed by another window; reusing it.");
     return true;
   }
   let lockFd: number | undefined;
@@ -304,14 +385,8 @@ export async function installManagedPackage(
     }
   };
 
-  const versionRoot = managedVersionDir(context, targetVersion);
-  const spec = `${pkg}@${targetVersion}`;
-  if (!isSafePkgSpec(spec)) {
-    channel.appendLine(`refusing to install suspicious package spec: ${spec}`);
-    release();
-    return false;
-  }
-  channel.appendLine(`managed install (version dir ${targetVersion}): npm i --prefix "${versionRoot}" ${spec} --ignore-scripts --no-audit --no-fund`);
+  const versionRoot = path.join(root, "versions", dirName);
+  channel.appendLine(`managed install (version dir ${dirName}): npm i --prefix "${versionRoot}" ${spec} --ignore-scripts --no-audit --no-fund`);
   channel.show(true);
   const startedAt = Date.now();
   const timer = setInterval(() => {
@@ -321,7 +396,7 @@ export async function installManagedPackage(
   return new Promise((resolve) => {
     const child = cp.spawn(
       "npm",
-      ["i", "--prefix", versionRoot, spec, "--ignore-scripts", "--no-audit", "--no-fund"],
+      ["i", "--prefix", versionRoot, `"${spec}"`, "--ignore-scripts", "--no-audit", "--no-fund"],
       { shell: true },
     );
     child.stdout?.on("data", (d: Buffer) => channel.append(d.toString()));
@@ -337,17 +412,16 @@ export async function installManagedPackage(
       clearInterval(timer);
       release();
       if (code === 0 && existsSync(binPath)) {
-        // marker 只前翻（新>旧才写），防并发窗口倒车覆盖。
-        const cur = markerVersion(context);
-        if (!cur || compareVersions(targetVersion, cur) > 0) {
+        // marker 只前翻（新版本或同版本新构建才写），防并发窗口倒车覆盖。
+        if (isNewerManagedEntry(context, pkg, dirName)) {
           try {
-            writeFileSync(path.join(root, MANAGED_MARKER), targetVersion + "\n", "utf8");
-            channel.appendLine(`managed runtime switched to ${targetVersion} (marker updated).`);
+            writeFileSync(path.join(root, MANAGED_MARKER), dirName + "\n", "utf8");
+            channel.appendLine(`managed runtime switched to ${dirName} (marker updated).`);
           } catch (e) {
             channel.appendLine(`failed to write version marker: ${e}`);
           }
         } else {
-          channel.appendLine(`marker is already ${cur} (never regresses); this install only added the directory.`);
+          channel.appendLine(`marker is already ${markerVersion(context)} (never regresses); this install only added the directory.`);
         }
         void sweepManagedVersions(context, channel);
         resolve(true);
@@ -357,6 +431,101 @@ export async function installManagedPackage(
       resolve(false);
     });
   });
+}
+
+/**
+ * registry 安装：目标版本显式传入或取最高兼容版本（问 registry）。
+ */
+export async function installManagedPackage(
+  channel: vscode.OutputChannel,
+  context: vscode.ExtensionContext,
+  pkg: string,
+  version?: string,
+  onProgress?: (message: string) => void,
+): Promise<boolean> {
+  let targetVersion = version;
+  if (!targetVersion || targetVersion === "latest") {
+    const compat = await queryRegistryCompat(pkg);
+    if (compat.needsExtensionUpgrade && compat.latest) {
+      channel.appendLine(
+        `the latest package ${compat.latest.version} (level ${compat.latest.level}) requires a newer extension (supported ≤${EMBED_PROTOCOL_SUPPORTED}). Please upgrade Pi for IDE from the marketplace first.`,
+      );
+      return false;
+    }
+    if (!compat.best) {
+      channel.appendLine("no compatible version available in the registry.");
+      return false;
+    }
+    targetVersion = compat.best.version;
+    channel.appendLine(`selected highest compatible version ${targetVersion} (level ${compat.best.level})`);
+  }
+  const binPath = packageBinIn(managedVersionDir(context, targetVersion), pkg);
+
+  // 已是当前版本且就绪 → 无操作。
+  if (markerVersion(context) === targetVersion && existsSync(binPath)) {
+    channel.appendLine(`managed runtime is already ${targetVersion}; nothing to install.`);
+    return true;
+  }
+  const spec = `${pkg}@${targetVersion}`;
+  if (!isSafePkgSpec(spec)) {
+    channel.appendLine(`refusing to install suspicious package spec: ${spec}`);
+    return false;
+  }
+  return runManagedInstall(channel, context, pkg, targetVersion, spec, onProgress);
+}
+
+/**
+ * 本地 tgz 安装：Pi for IDE.localPackage 指向的发行包。读构建身份→级别
+ * 校验→版本目录选择（构建戳分槽）→同一 runManagedInstall 骨架。
+ * 已装同一构建时短路（幂等）。
+ */
+export async function installManagedLocalPackage(
+  channel: vscode.OutputChannel,
+  context: vscode.ExtensionContext,
+  tgzPath: string,
+  onProgress?: (message: string) => void,
+): Promise<boolean> {
+  if (!existsSync(tgzPath) || !/\.t(ar\.)?gz$/i.test(tgzPath)) {
+    channel.appendLine(`local package not found or not a .tgz: ${tgzPath}`);
+    return false;
+  }
+  const id = readTgzIdentity(tgzPath);
+  if (!id?.version) {
+    channel.appendLine(`cannot read package identity from ${tgzPath} (tar unavailable or not an npm tarball).`);
+    return false;
+  }
+  const pkg = id.name ?? "";
+  if (!pkg) {
+    channel.appendLine("local tarball has no package name.");
+    return false;
+  }
+  if (!levelSupported(id.level)) {
+    channel.appendLine(
+      `local package ${id.version} (level ${id.level ?? "unknown"}) is outside the supported range (${MIN_PKG_LEVEL}..${EMBED_PROTOCOL_SUPPORTED}); it may require a newer Pi for IDE extension.`,
+    );
+    return false;
+  }
+  const versionsRoot = path.join(managedRuntimeRoot(context), "versions");
+  const pick = pickVersionDirName(versionsRoot, pkg, id);
+  if (pick.reused && markerVersion(context) === pick.dirName) {
+    channel.appendLine(`local package is already the current build (${pick.dirName}); nothing to install.`);
+    return true;
+  }
+  const binPath = packageBinIn(path.join(versionsRoot, pick.dirName), pkg);
+  if (pick.reused && existsSync(binPath)) {
+    channel.appendLine(`build ${pick.dirName} already installed; only the marker may need flipping.`);
+    // 已装但非当前——翻 marker（新版本/新构建时才写）。
+    if (isNewerManagedEntry(context, pkg, pick.dirName)) {
+      writeFileSync(path.join(managedRuntimeRoot(context), MANAGED_MARKER), pick.dirName + "\n", "utf8");
+      channel.appendLine(`managed runtime switched to ${pick.dirName} (marker updated).`);
+    }
+    return true;
+  }
+  channel.appendLine(
+    `installing local package ${id.name}@${id.version}` +
+      (id.builtAt ? ` built ${id.builtAt}` : "") + (id.gitSha ? ` (${id.gitSha})` : ""),
+  );
+  return runManagedInstall(channel, context, pkg, pick.dirName, tgzPath, onProgress);
 }
 
 /** 人工切换 marker（管理命令用）——允许降级，不受"只前翻"限制。 */

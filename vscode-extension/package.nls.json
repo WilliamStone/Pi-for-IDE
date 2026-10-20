@@ -17,5 +17,6 @@
   "description": "Pi for IDE — VSCode-native editor experience for pi coding agent. Full pi-web GUI (chat, sessions, model/MCP config, themes, etc.) plus deep VSCode integration: @ file mentions, context-menu mentions, active-file context, per-turn file review cards with inline diffs and one-click revert, clipboard bridge, etc.",
   "config.autoStop": "Let the extension-spawned pi-web server exit on its own after every window/client disconnects (server-side watchdog). The process then shuts down once no heartbeat or open page remains. Servers started standalone outside the IDE are never affected.",
   "config.autoStopAfterSec": "Seconds of full silence (no heartbeat, no open client) before an extension-spawned server exits. Applies only when autoStop is on. Minimum 90 — hidden browser tabs can only poll about once a minute.",
-  "config.checkForUpdates": "Check the npm registry for a newer pi-web package once after activation and offer to upgrade."
+  "config.checkForUpdates": "Check the npm registry for a newer pi-web package once after activation and offer to upgrade.",
+  "config.localPackage": "Absolute path to a local pi-web .tgz package to install from (bypasses the npm registry). \"Upgrade Server Component\" and the background check then look at this file — handy for testing local builds."
 }

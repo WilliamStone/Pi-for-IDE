@@ -18,9 +18,10 @@
 import * as vscode from "vscode";
 import { PiIdeServer } from "./piIdeServer";
 import { sweepLegacyOrphans } from "./port-scan";
-import { checkPiWebUpdate, installPiWebPackage } from "./server-resolve";
+import { checkLocalPackageUpdate, checkPiWebUpdate, installPiWebPackage } from "./server-resolve";
 import { outputChannel } from "./server-status";
 import {
+  installManagedLocalPackage,
   installManagedPackage,
   isNewerVersion,
   levelSupported,
@@ -304,6 +305,59 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const pkg =
         (vscode.workspace.getConfiguration("Pi for IDE").get<string>("package") ?? "").trim() ||
         "@william_stone/pi-web-for-ide";
+      // 本地安装源（Pi for IDE.localPackage）：绕过 registry，从 .tgz 装。
+      // 新旧按构建身份（version, builtAt）判定——测试期同版本反复打包
+      // 就靠构建戳区分。
+      const localTgz = (vscode.workspace.getConfiguration("Pi for IDE").get<string>("localPackage") ?? "").trim();
+      if (localTgz) {
+        const check = checkLocalPackageUpdate(localTgz, context, pkg);
+        if (!check?.candidate) {
+          void vscode.window.showErrorMessage(`Pi for IDE: cannot read package identity from ${localTgz} — not an npm tarball or tar unavailable.`);
+          return;
+        }
+        if (check.reason) {
+          void vscode.window.showWarningMessage(`Pi for IDE: local package refused — ${check.reason}`);
+          return;
+        }
+        const c = check.candidate;
+        const fmtBuild = (b?: string) => (b ? ` built ${b.slice(0, 16).replace("T", " ")}` : "");
+        const candLabel = `${c.version}${fmtBuild(c.builtAt)}${c.gitSha ? ` (${c.gitSha})` : ""}`;
+        const curLabel = check.current ? `${check.current.version}${fmtBuild(check.current.builtAt)}` : "none";
+        const msg = check.isNewer
+          ? `Local package ${candLabel} is newer than current ${curLabel}.`
+          : `Local package ${candLabel} is not newer than current ${curLabel}.`;
+        const pick = await vscode.window.showInformationMessage(
+          msg,
+          check.isNewer ? "Install" : "Install Anyway",
+          "Cancel",
+        );
+        if (!pick?.startsWith("Install")) return;
+        const ok = await vscode.window.withProgress(
+          { location: vscode.ProgressLocation.Notification, title: `Installing ${pkg} from local tarball…` },
+          (progress) =>
+            installManagedLocalPackage(outputChannel(), context, localTgz, (m) =>
+              progress.report({ message: m }),
+            ),
+        );
+        if (!ok) {
+          void vscode.window.showErrorMessage(`${pkg} local install failed — see the Pi for IDE output panel for details.`);
+          return;
+        }
+        const running = await server;
+        if (running && !running.disposed) {
+          const r = await vscode.window.showInformationMessage(
+            `${pkg} installed from local tarball (${candLabel}). Restart the server to apply.`,
+            "Restart Server",
+            "Later",
+          );
+          if (r === "Restart Server") {
+            await running.stop();
+            await ensureServer();
+          }
+        }
+        return;
+      }
+
       const info = await checkPiWebUpdate(pkg, context);
       if (!info) {
         void vscode.window.showInformationMessage("Pi for IDE: no installed pi-web package found.");
@@ -370,6 +424,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         label: `${v.current ? "$(star-full) " : ""}${v.version}`,
         description:
           `level ${v.level ?? "unknown"}${levelSupported(v.level) ? "" : " (unsupported by this extension)"}` +
+          `${v.builtAt ? ` · built ${v.builtAt.slice(0, 16).replace("T", " ")}` : ""}` +
           `${v.ready ? "" : " (bin missing)"}${v.current ? " · current" : ""}`,
         detail: v.dir,
         action: "switch",
@@ -412,6 +467,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const pkg =
         (vscode.workspace.getConfiguration("Pi for IDE").get<string>("package") ?? "").trim() ||
         "@william_stone/pi-web-for-ide";
+      // 配了本地安装源时不问 registry——比本地件的构建戳。
+      const localTgz = (vscode.workspace.getConfiguration("Pi for IDE").get<string>("localPackage") ?? "").trim();
+      if (localTgz) {
+        const check = checkLocalPackageUpdate(localTgz, context, pkg);
+        if (check?.isNewer && check.candidate) {
+          const pick = await vscode.window.showInformationMessage(
+            `A newer local pi-web build is available: ${check.candidate.version}` +
+              (check.candidate.builtAt ? ` built ${check.candidate.builtAt.slice(0, 16).replace("T", " ")}` : "") +
+              (check.current ? ` (current: ${check.current.version})` : "") + ".",
+            "Install",
+            "Later",
+          );
+          if (pick === "Install") void vscode.commands.executeCommand("piIde.upgrade");
+        }
+        return;
+      }
       const info = await checkPiWebUpdate(pkg, context);
       if (!info) return;
       if (info.needsExtensionUpgrade) {

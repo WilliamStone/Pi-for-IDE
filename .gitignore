@@ -48,3 +48,5 @@ next-env.d.ts
 # npm pack 产物
 *.tgz
 e2e_*.mjs
+# 打包构建戳（prepare-standalone --for-pack 生成）
+pi-web-build.json

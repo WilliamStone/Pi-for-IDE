@@ -10,12 +10,17 @@ import * as vscode from "vscode";
 import {
   binLevel,
   binVersion,
+  compareVersions,
+  installManagedLocalPackage,
   installManagedPackage,
+  installedBuildStamp,
   isSafePkgSpec,
   levelSupported,
   managedPackageBin,
   pickNewestSupported,
   queryRegistryCompat,
+  readTgzIdentity,
+  type BuildIdentity,
 } from "./managedRuntime";
 import { emitServerStatus } from "./server-status";
 
@@ -218,6 +223,50 @@ export async function checkPiWebUpdate(
     needsExtensionUpgrade: compat.needsExtensionUpgrade,
     none: compat.none,
   };
+}
+
+/**
+ * 本地包检查（Pi for IDE.localPackage）：把 tgz 的构建身份与当前会跑的
+ * 那份副本比——版本高者新；同版本比构建戳（builtAt）；戳缺失时只有版本
+ * 不同才报新（无戳无法判同版本新旧，保守不扰）。
+ */
+export function checkLocalPackageUpdate(
+  tgzPath: string,
+  context: vscode.ExtensionContext,
+  pkg: string,
+):
+  | {
+      current?: { version: string; builtAt?: string };
+      candidate?: BuildIdentity;
+      isNewer: boolean;
+      reason?: string;
+    }
+  | undefined {
+  const id = readTgzIdentity(tgzPath);
+  if (!id?.version) return undefined;
+  if (id.name && id.name !== pkg) {
+    return { candidate: id, isNewer: false, reason: `package name mismatch: tarball is ${id.name}, configured package is ${pkg}` };
+  }
+  if (!levelSupported(id.level)) {
+    return { candidate: id, isNewer: false, reason: `level ${id.level ?? "unknown"} outside supported range — may need a newer extension` };
+  }
+  const binPath = managedPackageBin(context, pkg);
+  let current: { version: string; builtAt?: string } | undefined;
+  if (binPath) {
+    const pkgDir = path.dirname(path.dirname(binPath));
+    try {
+      current = {
+        version: JSON.parse(readFileSync(path.join(pkgDir, "package.json"), "utf8")).version,
+        ...installedBuildStamp(pkgDir),
+      };
+    } catch {
+      current = { version: binVersion(binPath) ?? "unknown" };
+    }
+  }
+  if (!current) return { candidate: id, isNewer: true };
+  const v = compareVersions(id.version, current.version);
+  const isNewer = v > 0 || (v === 0 && !!id.builtAt && id.builtAt > (current.builtAt ?? ""));
+  return { candidate: id, current, isNewer };
 }
 
 /**
