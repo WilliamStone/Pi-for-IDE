@@ -11,7 +11,6 @@ import {
   binLevel,
   binVersion,
   compareVersions,
-  installManagedLocalPackage,
   installManagedPackage,
   installedBuildStamp,
   isNewerVersion,
@@ -277,7 +276,9 @@ export interface UpgradePlan {
 export type LocalCheck = NonNullable<ReturnType<typeof checkLocalPackageUpdate>>;
 export type RemoteCheck = NonNullable<Awaited<ReturnType<typeof checkPiWebUpdate>>>;
 
-const fmtBuild = (b?: string) => (b ? ` built ${b.slice(0, 16).replace("T", " ")}` : "");
+/** "2026-10-20T02:46:13.857Z" → " built 2026-10-20 02:46"（空则空串）——升级报告/通知/版本列表共用。 */
+export const formatBuildStamp = (b?: string) => (b ? ` built ${b.slice(0, 16).replace("T", " ")}` : "");
+const fmtBuild = formatBuildStamp;
 
 export async function planUpgrade(
   context: vscode.ExtensionContext,

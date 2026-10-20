@@ -18,7 +18,7 @@
 import * as vscode from "vscode";
 import { PiIdeServer } from "./piIdeServer";
 import { sweepLegacyOrphans } from "./port-scan";
-import { installPiWebPackage, planUpgrade } from "./server-resolve";
+import { formatBuildStamp, installPiWebPackage, planUpgrade } from "./server-resolve";
 import { outputChannel } from "./server-status";
 import {
   installManagedLocalPackage,
@@ -314,7 +314,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         void vscode.window.showErrorMessage("Pi for IDE: installSource is local but localPackage is not set.");
         return;
       }
-      const fmtBuild = (b?: string) => (b ? ` built ${b.slice(0, 16).replace("T", " ")}` : "");
+      const fmtBuild = formatBuildStamp;
       const restartPrompt = async (label: string) => {
         const running = await server;
         if (running && !running.disposed) {
@@ -385,7 +385,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
 
       // a.kind === "registry"
-      const remote = plan.remote!;
       const pick = await vscode.window.showInformationMessage(
         `${pkg} ${a.version} is available (current: ${curLabel}).${a.managed ? " Instances in other windows are unaffected and switch on restart." : ""}`,
         "Upgrade Now",
@@ -426,7 +425,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         label: `${v.current ? "$(star-full) " : ""}${v.version}`,
         description:
           `level ${v.level ?? "unknown"}${levelSupported(v.level) ? "" : " (unsupported by this extension)"}` +
-          `${v.builtAt ? ` · built ${v.builtAt.slice(0, 16).replace("T", " ")}` : ""}` +
+          `${v.builtAt ? ` ·${formatBuildStamp(v.builtAt)}` : ""}` +
           `${v.ready ? "" : " (bin missing)"}${v.current ? " · current" : ""}`,
         detail: v.dir,
         action: "switch",
@@ -476,7 +475,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const localTgz = (cfgUpd.get<string>("localPackage") ?? "").trim();
       if (installSource === "local" && !localTgz) return;
       const plan = await planUpgrade(context, pkg, installSource, localTgz);
-      const fmt = (b?: string) => (b ? ` built ${b.slice(0, 16).replace("T", " ")}` : "");
+      const fmt = formatBuildStamp;
       const cur = plan.current ? `${plan.current.version}${fmt(plan.current.builtAt)}` : "none";
       const a = plan.action;
       if (a.kind === "local" && a.recommended) {
