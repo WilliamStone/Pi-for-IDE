@@ -1,127 +1,81 @@
-# Pi for IDE / Pi Web+
+# Pi for IDE — VS Code extension
 
-[中文文档](./docs/README.zh-CN.md) | [日本語](./docs/README.ja.md) | [Русский](./docs/README.ru.md)
+![Pi for IDE screenshot](screen.png)
 
-Embeds the [pi agent](https://github.com/earendil-works/pi)'s web UI into VSCode/VSCodium as a first-class panel, with an IDE-workflow integration layer on top.
+**Pi for IDE** embeds the [Pi Web+](https://github.com/WilliamStone/Pi-for-IDE) web UI — a Next.js frontend for the pi coding agent — into a VS Code webview panel, and adds a layer of deep integration for IDE workflows: chat with the agent, browse session history, configure models and skills, review and revert file changes — without leaving your editor.
 
-This repo ships two independently installable and updateable deliverables:
+The pi-web server is **not bundled**. It runs as a local process provided by the separately installable [`@william_stone/pi-web-for-ide`](https://www.npmjs.com/package/@william_stone/pi-web-for-ide) package, which also works standalone in a normal browser. The extension and the web app can be upgraded independently.
 
-| Deliverable | Name | Role |
-|---|---|---|
-| VSCode extension | **`pi-for-ide`** (`WilliamStone.pi-for-ide`) | **The product**. A lightweight host shell (~190KB): launches/connects to a pi-web server and layers IDE integration inside the webview. |
-| npm package | **`@william_stone/pi-web-for-ide`** | The substrate. pi-web plus an IDE adaptation layer; IDE features activate when a host embeds it via `?embed=<host>`. CLI command: `pi-web-for-ide` (deliberately distinct from upstream's `pi-web` so the two can coexist). |
+## Features
 
-The relationship: `@william_stone/pi-web-for-ide` is "pi-web + a host-adaptation layer". Standalone it behaves like stock pi-web (brand slot shows **Pi Web+**); IDE features activate only in embed mode. The extension carries no pi-web payload — the web app installs and upgrades separately.
+### 1. Embedded panel, externally served
 
-## IDE integration (the core)
+- **Resolve chain**: `executablePath` setting → bundled `resources/` → global npm package → PATH shim (`pi-web-for-ide`) → managed runtime (the extension can install and keep its own copy under globalStorage — no global install required).
+- **Attach-first**: if a patched pi-web instance is already listening on ports 3030–3039, the panel attaches to it instead of starting a duplicate. One server is shared across windows and keeps a single view of `~/.pi` data. When the attached port differs from your configured `Pi for IDE.port`, a notice explains what you connected to.
+- **Embed handshake**: after connecting, the extension probes `GET /api/embed` and validates the wire protocol version. An upstream (unpatched) `pi-web`, an incomplete install, or a protocol mismatch each produce a specific warning with upgrade guidance — never a silent failure.
+- **Port**: preferred start port 3030, auto-increments when occupied. The panel header also has an **Open in Browser** button.
+- **Everything pi-web has**: session browsing, Markdown rendering, tool-call views, branch navigation, SSE streaming, i18n, themes.
 
-Active only when embedded in VSCode/VSCodium via `?embed=vscode`:
+### 2. Workspace integration
 
-- **`@` file mention**: completion queries `vscode.workspace.findFiles` (workspace index, not server filesystem)
-- **Right-click mention**: Explorer/editor context menus "Mention in Pi for IDE" for files and selections
-- **Active-file context injection**: the file you're viewing is injected into the system prompt as a hidden marker (AI-visible, UI-hidden, never persisted)
-- **File review cards + inline diff + one-click revert**: per-turn cards list AI-modified files; reverting restores code and removes the turn — read-only git, no stash/commit
-- **Clipboard bridge**: copy/paste inside the sandboxed iframe routes through `vscode.env.clipboard`
-- **UI trim**: pi-web's file tree/preview panels hide in host mode — VSCode's explorer and editor groups take over
+- **File browsing delegated to VS Code**: pi-web's own file tree / preview tabs / worktree switcher are hidden in embed mode; the Explorer and editor groups take over.
+- **`@` file mentions**: the composer's `@` completion resolves through `vscode.workspace.findFiles` (top 50, paths only — no code snippets sent).
+- **Right-click mentions**: *Pi for IDE: Mention This File* / *Mention This Code* on the editor and explorer context menus.
+- **Clipboard bridge**: cross-origin iframes can't use `navigator.clipboard`, so copy/paste is routed through `vscode.env.clipboard`.
+- **Active-file context**: the file you are viewing is injected into the system prompt as a hidden marker — visible to the model, not shown in the UI, never persisted to the session file. The composer also shows a `current file` hint so you know what the agent sees.
 
-All pi-web capabilities (session management, streaming chat, model/OAuth/MCP/skills/plugin config, terminal, i18n, themes, PWA) remain available in both modes.
+### 3. File review & one-click revert
 
-## Install & use
+After each turn, a **File review** card lists every file the agent touched:
 
-Requires Node.js ≥ 22.19.0.
+- **Open diff in editor**: a native two-sided `vscode.diff`. The "before" side is reconstructed by reverse-applying that turn's edits; if the file drifted afterwards and reconstruction fails, the recorded unified patch opens instead with a notice.
+- **Open file in editor**: jump straight to the file.
+- **Revert this turn**: hover a user message → *Revert*. A snapshot taken when the turn started restores every touched file (write-created files are removed), then the turn's conversation entries are deleted and parent links re-joined — reverting a middle turn never loses later turns. Always asks for confirmation.
+- **Git stays clean**: read-only git usage throughout — no stash, commits, or dangling objects.
 
-**Step 1 — install @william_stone/pi-web-for-ide globally (pnpm recommended):**
+### 4. Server lifecycle
 
-```bash
-pnpm add -g @william_stone/pi-web-for-ide   # npm i -g works too; local: pnpm i -g ./pi-web-for-ide-0.12.1.tgz
-```
+- `Pi for IDE.autoStart`: start the server in the background when the extension activates (off by default).
+- **Watchdog self-stop**: an extension-spawned server exits on its own after full silence — no heartbeat, no open page — for `autoStopAfterSec` (default 90 s, minimum 90 because hidden tabs poll ~once a minute). Servers you start standalone are never affected.
+- `Pi for IDE: Stop Server` stops the instance this window manages.
+- **Safe upgrades**: the npm package carries a preinstall guard — upgrading while a server holds its files fails early with clear stop instructions instead of a mid-install `os error 32`.
 
-> Why pnpm: it surfaces the package's postinstall for interactive approval (`pnpm approve-builds`) — needed to link the standalone external packages. npm's script blocking has no equivalent escape hatch. Fallback anyway: `pi-web` self-heals the links on startup (≥0.12.2); see `docs/vscode-extension-deploy.md`.
+## Commands
 
-**Step 2 — install the extension and open:**
+| Command | Title |
+|---|---|
+| `Pi for IDE: Open` | Open the Pi for IDE panel |
+| `Pi for IDE: Show Panel` | Reveal the panel (if already created) |
+| `Pi for IDE: Start Server` | Start the local pi-web server |
+| `Pi for IDE: Stop Server` | Stop the managed server |
+| `Pi for IDE: Open in Browser` | Open the server in the system browser |
+| `Pi for IDE: Mention This File` | Mention the file in the composer |
+| `Pi for IDE: Mention This Code` | Mention the selection |
+| `Pi for IDE: Upgrade Server Component` | Update the pi-web package |
+| `Pi for IDE: Manage Server Versions` | Pick which installed copy runs |
 
-```powershell
-code --install-extension vscode-extension/pi-for-ide-0.1.0.vsix    # VSCodium: codium
-```
-
-Then click the **Pi for IDE** status-bar item or run **Pi for IDE: Open**. On first use, configure a model/API key via the panel's Settings → Models (shares `~/.pi/agent/` with the pi CLI).
-
-**Optional: standalone mode.** The installed package also runs in a plain browser like stock pi-web (brand shows Pi Web+):
-
-```bash
-pi-web-for-ide            # http://127.0.0.1:3030; see pi-web-for-ide --help for --port/--hostname/--no-open
-pi-web status|stop|open|update|update-sdk
-```
-
-## Settings (extension)
+## Settings
 
 | Setting | Description |
 |---|---|
-| `Pi for IDE.executablePath` | Absolute path to a pi-web entry (standalone `server.js` or `bin/pi-web.js`); usually left empty for auto-resolution. |
-| `Pi for IDE.workspaceRoot` | Project dir for sessions (`cwd`); defaults to the workspace folder. |
-| `Pi for IDE.openBeside` | Open the panel in the adjacent column (default true). |
-| `Pi for IDE.port` | Preferred starting port (default 3030; auto-increments when busy). |
-| `Pi for IDE.package` | Package name for managed-runtime and global lookup (default `@william_stone/pi-web-for-ide`). |
+| `Pi for IDE.executablePath` | Absolute path to a server entry (`standalone/server.js` or `bin/pi-web.js`). Empty → automatic resolve chain. |
+| `Pi for IDE.package` | Package name used for managed/global lookups (default `@william_stone/pi-web-for-ide`; must be the IDE-patched build). |
+| `Pi for IDE.workspaceRoot` | `cwd` passed to pi sessions; empty → current workspace folder. |
+| `Pi for IDE.openBeside` | Open the panel in the adjacent column (default `true`). |
+| `Pi for IDE.port` | Preferred start port (default `3030`). |
+| `Pi for IDE.autoStart` | Start the server on activation (default `false`). |
+| `Pi for IDE.autoStop` | Let spawned servers self-stop after silence (default `true`). |
+| `Pi for IDE.autoStopAfterSec` | Silence threshold in seconds, min 90 (default `90`). |
+| `Pi for IDE.checkForUpdates` | Check npm for a newer package once per activation (default `true`). |
 
-Can't connect, blank panel, save errors: see [docs/vscode-extension-deploy.md](./docs/vscode-extension-deploy.md).
+## Requirements
 
-## Upstream & credits
+- The pi-web server comes from `@william_stone/pi-web-for-ide` — install it globally (`pnpm add -g @william_stone/pi-web-for-ide`) or let the extension's managed runtime download it on first use.
+- A running server needs Node.js ≥ 22.19 when launched via the PATH shim; the managed/spawned modes use the editor's bundled Node.
 
-- **[pi](https://github.com/earendil-works/pi)** (earendil-works): the underlying coding agent.
-- **[pi-web](https://github.com/agegr/pi-web)** (agegr): the Next.js web UI for pi — this repo's direct upstream; the entire web application is theirs, and we merge upstream releases rather than re-implementing.
-- **[pi-code](https://github.com/wangjinxin613/pi-code)** (wangjinxin613): the original IDE integration — the VSCode extension, embed bridge, file review/revert, and active-file injection all originate there; this repo forks from it.
-- **[pi-for-ide](https://github.com/WilliamStone/Pi-for-IDE) (This Repo)**: on top of pi-code — decoupled packaging (external npm package + thin extension), brand layering (Pi Web+ / Pi for IDE), pnpm/PATH-shim server resolution, the standalone MCP fix, server/webview lifecycle fixes, and continued upstream sync. See `docs/decoupling-plan.md`.
+## Limitations
 
-## For developers
-
-Server-entry resolution order (extension side): `Pi for IDE.executablePath` → bundled `resources/` (transitional) → `npm root -g` → `pi-web-for-ide` PATH shim (only our package's own command name is accepted — an upstream `pi-web` shim is never launched) → versioned managed runtime under `globalStorage` (auto-installed; see [docs/agents/managed-runtime.md](./docs/agents/managed-runtime.md)). After spawn it probes `GET /api/embed` and warns when the connected server lacks the IDE patch.
-
-Architecture:
-
-```
-pi-for-ide extension (VSCode)
-  ├── piIdeServer        resolve entry → spawn pi-web → probe /api/embed
-  ├── webviewProvider    <iframe src="…/?embed=vscode"> + readiness gate
-  └── bridge             page ↔ VSCode API: openFile / completeAt /
-                         clipboard / snapshots / revert / activeEditor
-@william_stone/pi-web-for-ide (external package)
-  └── embed host abstraction (?embed=<host>) — host-agnostic protocol;
-      VSCode is the first adapter, JetBrains-class hosts can follow
-```
-
-Build & sync:
-
-```bash
-npm install                 # deps
-npm run build               # next build (browser app)
-node scripts/prepare-standalone.js   # standalone assembly used by npm pack
-npm pack                    # → @william_stone/pi-web-for-ide-<ver>.tgz
-cd vscode-extension && npm run compile && npm run package   # → pi-for-ide-<ver>.vsix
-bash scripts/sync-upstream.sh vX.Y.Z   # merge an upstream pi-web tag
-```
-
-Do not run `next build` or `npm run build` during normal development. It writes to `.next/` and can interfere with the development server; leave builds for release work.
-
-`PI_WEB_STANDALONE=1` flips the build into Next standalone output; `scripts/` holds the upstream-sync and patch-export toolchain (`sync-upstream.sh`, `export-patches.sh`, `apply-to.sh`).
-
-Contributor guides: [Internationalization](./docs/i18n.md) and [Release process](./docs/release.md).
-
-## Repository Layout
-
-```text
-app/               Next.js UI and API routes
-components/        React UI components
-hooks/             Client state and interaction hooks
-lib/               Session, agent, model, file, Git, and security logic
-public/            Static assets and PWA files
-bin/               npm CLI entrypoint and launch option parsing
-vscode-extension/  The pi-for-ide VSCode/VSCodium extension shell
-docs/              Focused user and contributor guides
-demo/              Static browser demo published to GitHub Pages (see demo/README.md)
-```
-
-See [AGENTS.md](./AGENTS.md) for the architecture notes and detailed file map.
-
-## License
-
-[MIT](./LICENSE)
+- The webview iframe is sandboxed: `window.confirm()` / `alert()` / `prompt()` are unavailable; confirmations use in-page UI.
+- Attach scans ports 3030–3039 only. To force a dedicated server, set `Pi for IDE.port` outside that range.
+- Revert restores only the files that turn touched; manual edits made afterwards are your own.
+- `?embed=vscode` activates host mode (hides browser-only UI, enables the bridge) but does not affect standalone browser use.

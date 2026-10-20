@@ -216,7 +216,7 @@
     "test": "node --experimental-strip-types --test \"src/**/*.test.mjs\"",
     "test:e2e": "node --test --test-timeout=300000 \"e2e/*.test.mjs\"",
     "package:pi-web": "node scripts/package-pi-web.js",
-    "package": "node scripts/sync-readme.js && vsce package --no-yarn --no-dependencies --skip-license"
+    "package": "vsce package --no-yarn --no-dependencies --skip-license"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
