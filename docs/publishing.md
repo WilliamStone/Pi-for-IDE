@@ -19,6 +19,14 @@ npm version patch        # 或 minor/major——先抬版本号（npm 不允许�
 npm publish              # prepack 自动跑构建+standalone 组装（约 2-3 分钟）
 ```
 
+### 发包前指纹校验（任何渠道发布前都跑）
+
+```bash
+npm run release:check
+```
+
+校验磁盘上的产物与 manifest 声明一致：vsix 内 changelog 顶部版本 == `vscode-extension/package.json` 版本、vsix 内 manifest 版本一致；tgz 内 `pi-web-build.json` 的 name/version == 根 `package.json`，并打印 `builtAt`/`gitSha` 供核对。**打包在最终编辑落盘之前完成时（产物冻结了旧内容）这步会拦下**——曾发生过 vsix 带着旧 changelog 发布的事故。任一项不符即退出非零，不要发布。
+
 ### 验证
 
 ```bash
