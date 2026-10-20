@@ -23,12 +23,13 @@ Web 应用本身仍是独立产品：同一个服务也可以在浏览器里跑�
 - **右键提及**：编辑器和资源管理器右键菜单有「Mention This File / Mention This Code」。
 - **剪贴板桥接**：面板内的复制粘贴和编辑器其他部分一样。
 - **活动文件感知**：当前打开的文件会悄悄放进智能体的视野——输入框下方有提示，你始终知道 AI 手里是哪个文件。
+- **IDE 快捷键不打折**：焦点在面板里时，页面没消费的按键组合（Ctrl+J、Ctrl+B、Ctrl+`、F 键……）交给 VS Code 自己解析——你的自定义快捷键和 `when` 条件照常生效。页面自己的快捷键优先。
 
 ### 审查与撤销智能体的改动
 
 每轮结束后，「**File review**」卡片列出这轮动过的文件：
 
-- **Open diff in editor**——VS Code 原生双侧 diff，看本轮改了什么。
+- **Open diff in editor**——VS Code 原生双侧 diff，看本轮改了什么；智能体改到会话目录之外的文件也照样出对比。
 - **Open file in editor**——直接跳到那个文件。
 - **回退此轮**——hover 用户消息点 *Revert*：该轮动过的每个文件回到改动前的状态，该轮的对话记录同时移除。回退中间某一轮不会弄丢后面的内容。操作前确认。
 
@@ -36,6 +37,8 @@ Web 应用本身仍是独立产品：同一个服务也可以在浏览器里跑�
 
 - **用完即走**：扩展拉起的服务在最后一个窗口或页面断开后不久自行退出——不会留一个进程过夜。
 - **开关在手**：`Pi for IDE: Start Server` / `Stop Server` 随叫随到；`Pi for IDE.autoStart` 也能让服务随编辑器启动。
+- **升级按你的渠道**：npm registry 或本地构建——`Pi for IDE.localPackage` 指向 `.tgz` 文件或装着构建的目录（按构建时间戳区分同名版本，自动认最新）；`Pi for IDE.installSource` 在 `auto` / `prefer-remote` / `local` / `registry` 间选边。升级提示带完整对照（各来源、版本号、构建戳），**Details…** 一键看全表。
+- **换班无感**：服务升级后，其他窗口里已打开的面板自动切到新实例；装完也有提示告诉你浏览器标签页要手动刷新一次。
 - **升级不翻车**：服务在跑时升级包会提前告诉你"先停再装"，而不是装到一半留一个坏掉的安装。
 
 ## 命令
@@ -65,6 +68,8 @@ Web 应用本身仍是独立产品：同一个服务也可以在浏览器里跑�
 | `Pi for IDE.executablePath` | 指定某个服务构建。留空 → 自动。 |
 | `Pi for IDE.package` | 由哪个包提供服务（默认 `@william_stone/pi-web-for-ide`）。 |
 | `Pi for IDE.checkForUpdates` | 有新服务包时通知你（默认开）。 |
+| `Pi for IDE.localPackage` | 本地服务包路径——`.tgz` 文件或装着 `.tgz` 构建的目录，自动认最新（默认空）。 |
+| `Pi for IDE.installSource` | 升级来源：`auto`、`prefer-remote`、`local`、`registry`（默认 `auto`）。 |
 
 ## 说明
 

@@ -23,12 +23,13 @@ Click the **Pi for IDE button** in the bottom-right of the IDE status bar (or ru
 - **Right-click mentions**: *Mention This File* / *Mention This Code* on the editor and Explorer context menus.
 - **Clipboard just works**: copy/paste inside the panel behaves like everywhere else in the editor.
 - **Active-file awareness**: the file you're viewing is quietly placed in the agent's context — the composer shows a hint so you always know which file it's looking at.
+- **IDE shortcuts stay live**: with focus inside the panel, chords the app doesn't consume (Ctrl+J, Ctrl+B, Ctrl+\`, F-keys…) are resolved by VS Code itself — your own keybindings and `when` clauses apply exactly as a normal keypress. The app's own shortcuts keep priority.
 
 ### Review and undo agent changes
 
 After each turn, a **File review** card lists the files the agent touched:
 
-- **Open diff in editor** — a native two-sided VS Code diff of that turn's changes.
+- **Open diff in editor** — a native two-sided VS Code diff of that turn's changes, even when the agent edited a file outside the session's own folder.
 - **Open file in editor** — jump straight to the file.
 - **Revert this turn** — hover a user message and hit *Revert*: every file the turn touched returns to its pre-turn state, and the turn's conversation entries are removed. Reverting a middle turn never loses later turns. Always confirmed first.
 
@@ -36,7 +37,9 @@ After each turn, a **File review** card lists the files the agent touched:
 
 - **Leaves no trace**: a server started by the extension exits on its own shortly after the last window or page disconnects — nothing left running overnight.
 - **You're in control**: `Pi for IDE: Start Server` / `Stop Server` any time; `Pi for IDE.autoStart` can also bring it up with the editor.
-- **Upgrades don't wedge**: upgrading the package while a server is running tells you to stop first instead of leaving a broken half-install.
+- **Upgrade your way**: npm registry or a local build — point `Pi for IDE.localPackage` at a `.tgz` file or a folder of builds (the newest wins, told apart by build timestamp, not just version). `Pi for IDE.installSource` picks `auto` / `prefer-remote` / `local` / `registry`. Upgrade prompts show the full comparison — sources, versions, build stamps — with **Details…** for the complete table.
+- **Clean handoffs**: after a server upgrade, open panels in other windows switch to the new instance on their own; a reminder tells you browser tabs need one manual reload.
+- **Upgrades don't wedge**: upgrading the package while a server is running tells you to restart first instead of leaving a broken half-install.
 
 ## Commands
 
@@ -65,6 +68,8 @@ After each turn, a **File review** card lists the files the agent touched:
 | `Pi for IDE.executablePath` | Point at a specific server build. Empty → automatic. |
 | `Pi for IDE.package` | Which package provides the server (default `@william_stone/pi-web-for-ide`). |
 | `Pi for IDE.checkForUpdates` | Notify when a newer server package exists (default on). |
+| `Pi for IDE.localPackage` | Path to a local server tarball, or a folder of `.tgz` builds — the newest wins (default empty). |
+| `Pi for IDE.installSource` | Upgrade source: `auto`, `prefer-remote`, `local`, `registry` (default `auto`). |
 
 ## Notes
 
