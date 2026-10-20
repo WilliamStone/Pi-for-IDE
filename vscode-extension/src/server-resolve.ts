@@ -265,11 +265,14 @@ export interface UpgradePlan {
   current?: { version: string; builtAt?: string };
   /** 对照报告行（installSource / local / registry / current）。 */
   report: string[];
-  action:
-    | { kind: "local"; label: string; recommended: boolean }
-    | { kind: "registry"; version: string; managed: boolean }
-    | { kind: "none"; reason: string };
+  action: UpgradeAction;
 }
+
+/** 计划结论：可安装的本地/在线动作，或"无可动作"及其原因。 */
+export type UpgradeAction =
+  | { kind: "local"; label: string; recommended: boolean }
+  | { kind: "registry"; version: string; managed: boolean }
+  | { kind: "none"; reason: string };
 
 export type LocalCheck = NonNullable<ReturnType<typeof checkLocalPackageUpdate>>;
 export type RemoteCheck = NonNullable<Awaited<ReturnType<typeof checkPiWebUpdate>>>;

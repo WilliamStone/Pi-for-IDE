@@ -20,7 +20,7 @@ import * as path from "path";
 import * as vscode from "vscode";
 import { PiIdeServer } from "./piIdeServer";
 import { sweepLegacyOrphans } from "./port-scan";
-import { formatBuildStamp, installPiWebPackage, planUpgrade } from "./server-resolve";
+import { formatBuildStamp, installPiWebPackage, planUpgrade, type UpgradeAction } from "./server-resolve";
 import { outputChannel } from "./server-status";
 import {
   installManagedLocalPackage,
@@ -336,6 +336,73 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
   );
 
+  // ---- 升级执行共享件：命令与后台通知共用 ----
+
+  /** 装完后的收尾提示：有运行中服务器问重启；没有也要给一句交代（静默成功像死按钮）。 */
+  const restartPrompt = async (label: string): Promise<void> => {
+    const running = await server;
+    if (running && !running.disposed) {
+      const r = await vscode.window.showInformationMessage(
+        `${label} Restart the server to apply.`,
+        "Restart Server",
+        "Later",
+      );
+      if (r === "Restart Server") {
+        await running.stop();
+        await ensureServer();
+        // 实例已换——已打开的面板重指到新 origin（refresh 内部判断
+        // 实例变化才重推 URL，shell 探测后就绪了再换 iframe）。
+        await provider?.refreshIfOpen();
+      }
+      return;
+    }
+    void vscode.window.showInformationMessage(`${label} Takes effect on next server start.`);
+  };
+
+  /**
+   * 按升级计划动作执行安装 + 收尾。命令的 Install/Upgrade 与后台通知
+   * 的 Install 共用同一路径——后台那一下点击就是直接装，不弹第二层确认。
+   */
+  const applyUpgradeAction = async (
+    a: Exclude<UpgradeAction, { kind: "none" }>,
+    pkg: string,
+    localTgz: string,
+  ): Promise<void> => {
+    const ch = outputChannel();
+    if (a.kind === "local") {
+      const ok = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: `Installing ${pkg} from local tarball…` },
+        (progress) =>
+          installManagedLocalPackage(ch, context, localTgz, (m) =>
+            progress.report({ message: m }),
+          ),
+      );
+      if (!ok) {
+        void vscode.window.showErrorMessage(`${pkg} local install failed — see the Pi for IDE output panel for details.`);
+        return;
+      }
+      await restartPrompt(`${pkg} installed from local tarball (${a.label}).`);
+      return;
+    }
+    // a.kind === "registry"
+    const ok = await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: `Upgrading ${pkg}…` },
+      (progress) =>
+        a.managed
+          ? installManagedPackage(ch, context, pkg, a.version, (msg) =>
+              progress.report({ message: msg }),
+            )
+          : installPiWebPackage(ch, pkg, a.version),
+    );
+    if (!ok) {
+      void vscode.window.showErrorMessage(
+        `${pkg} upgrade failed — see the Pi for IDE output panel for details.`,
+      );
+      return;
+    }
+    await restartPrompt(`${pkg} upgraded to ${a.version}.`);
+  };
+
   // 升级命令：采集各侧候选 → 报告对照（来源设置/各侧版本/当前版本）→
   // 结论 → 确认 → 安装 → 重启本窗口服务器。托管运行时走版本目录
   // （不碰运行中的旧目录）；全局安装走包管理器原地升级。
@@ -354,23 +421,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
       const fmtBuild = formatBuildStamp;
-      const restartPrompt = async (label: string) => {
-        const running = await server;
-        if (running && !running.disposed) {
-          const r = await vscode.window.showInformationMessage(
-            `${label} Restart the server to apply.`,
-            "Restart Server",
-            "Later",
-          );
-          if (r === "Restart Server") {
-            await running.stop();
-            await ensureServer();
-            // 实例已换——已打开的面板重指到新 origin（refresh 内部判断
-            // 实例变化才重推 URL，shell 探测后就绪了再换 iframe）。
-            await provider?.refreshIfOpen();
-          }
-        }
-      };
 
       // 升级计划（planUpgrade）：采集→对照报告→flow→动作——与后台检查
       // 共用同一判定；这里只负责渲染与执行。
@@ -382,7 +432,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       for (const l of plan.report) ch.appendLine(`  ${l}`);
       const DETAILS = "Details…";
       const showDetails = (pick?: string) => {
-        if (pick === DETAILS) ch.show(true);
+        // show() 不带 preserveFocus——Details 的意图就是"给我看"，面板
+        // 要抢焦点出现；show(true) 只把通道开在不抢焦点的位置，用户看不到。
+        if (pick === DETAILS) ch.show();
         return pick === DETAILS;
       };
       const curLabel = plan.current ? `${plan.current.version}${fmtBuild(plan.current.builtAt)}` : "none";
@@ -408,18 +460,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         );
         if (showDetails(pick)) return;
         if (!pick?.startsWith("Install")) return;
-        const ok = await vscode.window.withProgress(
-          { location: vscode.ProgressLocation.Notification, title: `Installing ${pkg} from local tarball…` },
-          (progress) =>
-            installManagedLocalPackage(ch, context, localTgz, (m) =>
-              progress.report({ message: m }),
-            ),
-        );
-        if (!ok) {
-          void vscode.window.showErrorMessage(`${pkg} local install failed — see the Pi for IDE output panel for details.`);
-          return;
-        }
-        await restartPrompt(`${pkg} installed from local tarball (${a.label}).`);
+        await applyUpgradeAction(a, pkg, localTgz);
         return;
       }
 
@@ -432,22 +473,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       if (showDetails(pick)) return;
       if (pick !== "Upgrade Now") return;
-      const ok = await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: `Upgrading ${pkg}…` },
-        (progress) =>
-          a.managed
-            ? installManagedPackage(ch, context, pkg, a.version, (msg) =>
-                progress.report({ message: msg }),
-              )
-            : installPiWebPackage(ch, pkg, a.version),
-      );
-      if (!ok) {
-        void vscode.window.showErrorMessage(
-          `${pkg} upgrade failed — see the Pi for IDE output panel for details.`,
-        );
-        return;
-      }
-      await restartPrompt(`${pkg} upgraded to ${a.version}.`);
+      await applyUpgradeAction(a, pkg, localTgz);
     }),
   );
 
@@ -517,20 +543,34 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const fmt = formatBuildStamp;
       const cur = plan.current ? `${plan.current.version}${fmt(plan.current.builtAt)}` : "none";
       const a = plan.action;
+      // 与命令一致的通道报告——Details 按钮开的表就在这里。
+      const ch = outputChannel();
+      ch.appendLine(`\n=== upgrade check (auto) — installSource: ${installSource} ===`);
+      for (const l of plan.report) ch.appendLine(`  ${l}`);
+      const DETAILS = "Details…";
+      const showDetails = (pick?: string) => {
+        if (pick === DETAILS) ch.show();
+        return pick === DETAILS;
+      };
       if (a.kind === "local" && a.recommended) {
         const pick = await vscode.window.showInformationMessage(
           `Local build ${a.label} is newer than current ${cur}.`,
           "Install",
+          DETAILS,
           "Later",
         );
-        if (pick === "Install") void vscode.commands.executeCommand("piIde.upgrade");
+        if (showDetails(pick)) return;
+        // Install 就是直接装——后台通知本身就是确认，不再弹命令的第二层。
+        if (pick === "Install") await applyUpgradeAction(a, pkg, localTgz);
       } else if (a.kind === "registry") {
         const pick = await vscode.window.showInformationMessage(
           `${pkg} ${a.version} is available (current: ${cur}).`,
           "Upgrade Now",
+          DETAILS,
           "Later",
         );
-        if (pick === "Upgrade Now") void vscode.commands.executeCommand("piIde.upgrade");
+        if (showDetails(pick)) return;
+        if (pick === "Upgrade Now") await applyUpgradeAction(a, pkg, localTgz);
       } else if (a.kind === "none" && a.reason.includes("requires a newer")) {
         // 包太新需要升级扩展——这值得单独提醒。
         void vscode.window.showInformationMessage(`${pkg}: ${a.reason}.`);
