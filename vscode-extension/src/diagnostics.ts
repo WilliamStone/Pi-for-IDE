@@ -19,7 +19,7 @@ export async function reportStartupFailure(
   channel.appendLine("—— startup failure diagnostics ——");
   const tryCmd = (cmd: string): Promise<string> =>
     new Promise((r) =>
-      cp.exec(cmd, { timeout: 8000 }, (e, out) =>
+      cp.exec(cmd, { timeout: 8000, windowsHide: true }, (e, out) =>
         r(e ? "unavailable" : out.trim().split("\n")[0] || "?"),
       ),
     );

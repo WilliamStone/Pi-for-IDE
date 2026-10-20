@@ -9,7 +9,7 @@ import { classifyOccupier, PortOccupier } from "./occupier";
 import { logLifecycle } from "./server-status";
 
 const exec = (cmd: string, timeout = 10_000): Promise<string> =>
-  new Promise((r) => cp.exec(cmd, { timeout }, (_e, out) => r(out)));
+  new Promise((r) => cp.exec(cmd, { timeout, windowsHide: true }, (_e, out) => r(out)));
 
 /** 扫描 303x 端口上的监听者，解析 PID→命令行并分类。 */
 export async function scanPortOccupiers(
@@ -127,7 +127,7 @@ export async function sweepLegacyOrphans(channel: vscode.OutputChannel): Promise
       process.platform === "win32"
         ? `taskkill /PID ${pid} /T /F`
         : `kill -TERM ${pid}`;
-    cp.exec(cmd, { timeout: 10_000 }, (e, out) => {
+    cp.exec(cmd, { timeout: 10_000, windowsHide: true }, (e, out) => {
       const merged = `${out}`;
       // 进程已退出/正被另一窗口终止是良性结果，不刷屏。
       if (!e || /cannot be|not found|不存在|不受支持|being terminated/i.test(merged + e.message)) {
@@ -139,7 +139,7 @@ export async function sweepLegacyOrphans(channel: vscode.OutputChannel): Promise
         process.platform === "win32"
           ? `powershell -NoProfile -Command "Stop-Process -Id ${pid} -Force"`
           : `kill -9 ${pid}`;
-      cp.exec(fallback, { timeout: 10_000 }, (e2) => {
+      cp.exec(fallback, { timeout: 10_000, windowsHide: true }, (e2) => {
         channel.appendLine(`orphan cleanup ${pid}: ${e2 ? "failed " + e2.message : "terminated"}`);
       });
     });
@@ -153,7 +153,7 @@ export async function sweepLegacyOrphans(channel: vscode.OutputChannel): Promise
       "| Select-Object -ExpandProperty ProcessId";
     cp.exec(
       `powershell -NoProfile -Command "${ps}"`,
-      { timeout: 15_000 },
+      { timeout: 15_000, windowsHide: true },
       (e, out) => {
         if (e) return;
         for (const line of out.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)) {
@@ -166,7 +166,7 @@ export async function sweepLegacyOrphans(channel: vscode.OutputChannel): Promise
   }
   cp.exec(
     `pgrep -f "npm-cache/_npx.*(pi-web|server\\.js)|_npx/.*/standalone/server\\.js"`,
-    { timeout: 10_000 },
+    { timeout: 10_000, windowsHide: true },
     (e, out) => {
       if (e) return;
       for (const line of out.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)) {

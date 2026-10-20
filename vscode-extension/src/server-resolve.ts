@@ -37,7 +37,7 @@ export type SpawnTarget =
  */
 export function resolveGlobalPackageBin(pkg: string): Promise<string | undefined> {
   return new Promise((resolve) => {
-    cp.exec("npm root -g", { timeout: 10_000 }, (err, stdout) => {
+    cp.exec("npm root -g", { timeout: 10_000, windowsHide: true }, (err, stdout) => {
       if (err) {
         resolve(undefined);
         return;
@@ -74,7 +74,7 @@ function resolveSingleShimBin(
 ): Promise<string | undefined> {
   const cmd = process.platform === "win32" ? `where ${binName}` : `which ${binName}`;
   return new Promise((resolve) => {
-    cp.exec(cmd, { timeout: 10_000 }, (err, stdout) => {
+    cp.exec(cmd, { timeout: 10_000, windowsHide: true }, (err, stdout) => {
       if (err) {
         resolve(undefined);
         return;
@@ -131,7 +131,7 @@ function resolveSingleShimBin(
 /** 探测可用的包管理器：优先 pnpm（默认执行装包脚本），其次 npm。 */
 function detectPackageManager(): Promise<"pnpm" | "npm" | undefined> {
   const tryCmd = (cmd: string): Promise<boolean> =>
-    new Promise((r) => cp.exec(`${cmd} --version`, { timeout: 8_000 }, (e) => r(!e)));
+    new Promise((r) => cp.exec(`${cmd} --version`, { timeout: 8_000, windowsHide: true }, (e) => r(!e)));
   return tryCmd("pnpm").then((ok) => (ok ? "pnpm" : tryCmd("npm").then((ok2) => (ok2 ? "npm" : undefined))));
 }
 
@@ -158,7 +158,7 @@ export async function installPiWebPackage(
   channel.appendLine(`run: ${cmd}`);
   channel.show(true);
   return new Promise((resolve) => {
-    const child = cp.spawn(pm, ["i", "-g", spec], { shell: true });
+    const child = cp.spawn(pm, ["i", "-g", spec], { shell: true, windowsHide: true });
     child.stdout?.on("data", (d: Buffer) => channel.append(d.toString()));
     child.stderr?.on("data", (d: Buffer) => channel.append(d.toString()));
     child.on("error", (e) => {

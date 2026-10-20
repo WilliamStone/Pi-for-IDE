@@ -92,6 +92,15 @@ export class PiWebWebviewPanel extends vscode.Disposable {
   }
 
   /**
+   * 服务器实例变化后刷新已打开的 iframe（升级/重启）——不聚焦、
+   * 面板没开就是空操作。
+   */
+  async refreshIfOpen(): Promise<void> {
+    if (!this.panel) return;
+    await this.refresh();
+  }
+
+  /**
    * Reveal the panel in the given column, (re)loading it with `cwd` if the
    * cwd changed or the panel was disposed.
    */

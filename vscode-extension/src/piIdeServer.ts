@@ -115,7 +115,7 @@ export class PiIdeServer {
     // （server.js 孤儿继续监听端口并攥住缓存目录，曾致 npx EBUSY）。
     if (process.platform === "win32") {
       await new Promise<void>((r) =>
-        cp.exec(`taskkill /PID ${child.pid} /T /F`, { timeout: 10_000 }, () => r()),
+        cp.exec(`taskkill /PID ${child.pid} /T /F`, { timeout: 10_000, windowsHide: true }, () => r()),
       );
     } else {
       try {
@@ -370,6 +370,8 @@ export class PiIdeServer {
         // POSIX 下独立进程组：stop() 时 kill(-pid) 杀整棵子进程树；
         // Windows 另用 taskkill /T /F（见 stop）。
         detached: process.platform !== "win32",
+        // GUI 宿主下不弹黑色控制台窗口（npm/pi-web 子进程同理）。
+        windowsHide: true,
       });
       this.child = child;
       let readyLogged = false;

@@ -89,7 +89,7 @@ export function isSafePkgSpec(spec: string): boolean {
 let registryBase: Promise<string> | null = null;
 export function getRegistryBase(): Promise<string> {
   registryBase ??= new Promise<string>((resolve) => {
-    cp.exec("npm config get registry", { timeout: 5000 }, (e, out) => {
+    cp.exec("npm config get registry", { timeout: 5000, windowsHide: true }, (e, out) => {
       const u = typeof out === "string" ? out.trim() : "";
       resolve(!e && /^https?:\/\//.test(u) ? u.replace(/\/+$/, "") : "https://registry.npmjs.org");
     });

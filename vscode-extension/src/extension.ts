@@ -327,6 +327,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           if (r === "Restart Server") {
             await running.stop();
             await ensureServer();
+            // 实例已换——已打开的面板重指到新 origin（refresh 内部判断
+            // 实例变化才重推 URL，shell 探测后就绪了再换 iframe）。
+            await provider?.refreshIfOpen();
           }
         }
       };

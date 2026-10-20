@@ -373,16 +373,94 @@ function dirSizeMB(dir: string): number {
 }
 
 /**
- * 共享安装骨架：跨窗口锁 → `npm i --prefix versions/<dirName> <spec>`
- * → marker 前翻（构建身份判定）→ 清理。registry spec（pkg@ver）与本地
- * tgz 路径都走这里——npm 原生支持两种 spec。
+ * npm 装包子进程：windowsHide 治 cmd 黑窗闪屏；输出全程进输出通道。
+ */
+function spawnNpmInstall(
+  channel: vscode.OutputChannel,
+  versionRoot: string,
+  spec: string,
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    const child = cp.spawn(
+      "npm",
+      ["i", "--prefix", versionRoot, `"${spec}"`, "--ignore-scripts", "--no-audit", "--no-fund"],
+      { shell: true, windowsHide: true },
+    );
+    child.stdout?.on("data", (d: Buffer) => channel.append(d.toString()));
+    child.stderr?.on("data", (d: Buffer) => channel.append(d.toString()));
+    child.on("error", (e) => {
+      channel.appendLine(`managed install process failed to start: ${e.message}`);
+      resolve(false);
+    });
+    child.on("exit", (code) => {
+      channel.appendLine(`managed install exited with code ${code}`);
+      resolve(code === 0);
+    });
+  });
+}
+
+/**
+ * 纯 Node 解 npm tgz 到 destPkgDir（= versions/<dir>/node_modules/<pkg>）。
+ * 处理 ustar 前缀与 GNU 长名（'L'）头；'x'/'g'/symlink 成员跳过——
+ * standalone junction 由启动时 linkExternalsToTraced 自愈，无需重建。
+ */
+export function extractTgz(tgzPath: string, destPkgDir: string): boolean {
+  try {
+    const buf = gunzipSync(readFileSync(tgzPath));
+    let off = 0;
+    let longName: string | undefined;
+    while (off + 512 <= buf.length) {
+      const head = buf.subarray(off, off + 512);
+      const size = parseInt(
+        head.subarray(124, 136).toString("utf8").replace(/\0[\s\S]*$/, "").trim() || "0",
+        8,
+      );
+      if (!Number.isFinite(size)) break;
+      const dataStart = off + 512;
+      const dataEnd = dataStart + size;
+      const rawName = head.subarray(0, 100).toString("utf8").replace(/\0[\s\S]*$/, "");
+      if (!rawName) break; // 归档尾（空块）
+      const typeflag = String.fromCharCode(head[156]);
+      if (typeflag === "L") {
+        // GNU 长名——数据段是真名，下一个头复用。
+        longName = buf.subarray(dataStart, dataEnd).toString("utf8").replace(/\0[\s\S]*$/, "");
+      } else {
+        const prefix = head.subarray(345, 500).toString("utf8").replace(/\0[\s\S]*$/, "");
+        const name = longName ?? (prefix ? `${prefix}/${rawName}` : rawName);
+        longName = undefined;
+        if (typeflag === "0" || typeflag === "" || typeflag === "5") {
+          const rel = name.replace(/^package\//, "");
+          // zip-slip 防御：成员必须落在 destPkgDir 内。
+          const dest = path.resolve(destPkgDir, rel);
+          if (rel && dest.startsWith(path.resolve(destPkgDir) + path.sep)) {
+            if (typeflag === "5") {
+              mkdirSync(dest, { recursive: true });
+            } else {
+              mkdirSync(path.dirname(dest), { recursive: true });
+              writeFileSync(dest, buf.subarray(dataStart, dataEnd));
+            }
+          }
+        }
+      }
+      off = dataStart + Math.ceil(size / 512) * 512;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 共享安装骨架：跨窗口锁 → install()（npm 装/本地解包）→ marker 前翻
+ * （构建身份判定）→ 清理。调用方提供 install 动作与展示标签。
  */
 async function runManagedInstall(
   channel: vscode.OutputChannel,
   context: vscode.ExtensionContext,
   pkg: string,
   dirName: string,
-  spec: string,
+  installLabel: string,
+  install: () => Promise<boolean>,
   onProgress?: (message: string) => void,
 ): Promise<boolean> {
   const root = managedRuntimeRoot(context);
@@ -437,51 +515,33 @@ async function runManagedInstall(
   };
 
   const versionRoot = path.join(root, "versions", dirName);
-  channel.appendLine(`managed install (version dir ${dirName}): npm i --prefix "${versionRoot}" ${spec} --ignore-scripts --no-audit --no-fund`);
+  channel.appendLine(`managed install (version dir ${dirName}): ${installLabel}`);
   channel.show(true);
   const startedAt = Date.now();
   const timer = setInterval(() => {
     const secs = Math.round((Date.now() - startedAt) / 1000);
-    onProgress?.(`downloaded ~${dirSizeMB(path.join(versionRoot, "node_modules"))} MB (${secs}s)`);
+    onProgress?.(`installed ~${dirSizeMB(path.join(versionRoot, "node_modules"))} MB (${secs}s)`);
   }, 2000);
-  return new Promise((resolve) => {
-    const child = cp.spawn(
-      "npm",
-      ["i", "--prefix", versionRoot, `"${spec}"`, "--ignore-scripts", "--no-audit", "--no-fund"],
-      { shell: true },
-    );
-    child.stdout?.on("data", (d: Buffer) => channel.append(d.toString()));
-    child.stderr?.on("data", (d: Buffer) => channel.append(d.toString()));
-    const done = (ok: boolean, extra?: string) => {
-      clearInterval(timer);
-      release();
-      if (extra) channel.appendLine(extra);
-      resolve(ok);
-    };
-    child.on("error", (e) => done(false, `managed install process failed to start: ${e.message}`));
-    child.on("exit", (code) => {
-      clearInterval(timer);
-      release();
-      if (code === 0 && existsSync(binPath)) {
-        // marker 只前翻（新版本或同版本新构建才写），防并发窗口倒车覆盖。
-        if (isNewerManagedEntry(context, pkg, dirName)) {
-          try {
-            writeFileSync(path.join(root, MANAGED_MARKER), dirName + "\n", "utf8");
-            channel.appendLine(`managed runtime switched to ${dirName} (marker updated).`);
-          } catch (e) {
-            channel.appendLine(`failed to write version marker: ${e}`);
-          }
-        } else {
-          channel.appendLine(`marker is already ${markerVersion(context)} (never regresses); this install only added the directory.`);
-        }
-        void sweepManagedVersions(context, channel);
-        resolve(true);
-        return;
+  const ok = await install();
+  clearInterval(timer);
+  release();
+  if (ok && existsSync(binPath)) {
+    // marker 只前翻（新版本或同版本新构建才写），防并发窗口倒车覆盖。
+    if (isNewerManagedEntry(context, pkg, dirName)) {
+      try {
+        writeFileSync(path.join(root, MANAGED_MARKER), dirName + "\n", "utf8");
+        channel.appendLine(`managed runtime switched to ${dirName} (marker updated).`);
+      } catch (e) {
+        channel.appendLine(`failed to write version marker: ${e}`);
       }
-      channel.appendLine(`managed install exited with code ${code} (bin not ready: ${!existsSync(binPath)})`);
-      resolve(false);
-    });
-  });
+    } else {
+      channel.appendLine(`marker is already ${markerVersion(context)} (never regresses); this install only added the directory.`);
+    }
+    void sweepManagedVersions(context, channel);
+    return true;
+  }
+  channel.appendLine(`managed install failed (bin not ready: ${!existsSync(binPath)})`);
+  return false;
 }
 
 /**
@@ -522,7 +582,16 @@ export async function installManagedPackage(
     channel.appendLine(`refusing to install suspicious package spec: ${spec}`);
     return false;
   }
-  return runManagedInstall(channel, context, pkg, targetVersion, spec, onProgress);
+  const versionRoot = managedVersionDir(context, targetVersion);
+  return runManagedInstall(
+    channel,
+    context,
+    pkg,
+    targetVersion,
+    `npm i --prefix "${versionRoot}" ${spec} --ignore-scripts --no-audit --no-fund`,
+    () => spawnNpmInstall(channel, versionRoot, spec),
+    onProgress,
+  );
 }
 
 /**
@@ -577,7 +646,18 @@ export async function installManagedLocalPackage(
     `installing local package ${id.name}@${id.version}` +
       (id.builtAt ? ` built ${id.builtAt}` : "") + (id.gitSha ? ` (${id.gitSha})` : ""),
   );
-  return runManagedInstall(channel, context, pkg, pick.dirName, tgzPath, onProgress);
+  // 本地 tgz 直接解包——standalone 包自带全部 node_modules，bin/pi-web.js
+  // 只依赖本地文件与 node 内置，无需 npm 解依赖（省掉下载与闪窗）。
+  const destPkgDir = path.join(versionsRoot, pick.dirName, "node_modules", pkg);
+  return runManagedInstall(
+    channel,
+    context,
+    pkg,
+    pick.dirName,
+    `extract ${tgzPath} → ${destPkgDir}`,
+    () => Promise.resolve(extractTgz(tgzPath, destPkgDir)),
+    onProgress,
+  );
 }
 
 /** 人工切换 marker（管理命令用）——允许降级，不受"只前翻"限制。 */
@@ -604,7 +684,7 @@ async function dirInUse(dir: string): Promise<boolean> {
       process.platform === "win32"
         ? `powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { \\$_.CommandLine -match '${needle.replace(/'/g, "''")}' } | Select-Object -ExpandProperty ProcessId"`
         : `pgrep -f '${needle.replace(/'/g, "'\\''")}'`;
-    cp.exec(cmd, { timeout: 15_000 }, (_e, out) => resolve(out.trim().length > 0));
+    cp.exec(cmd, { timeout: 15_000, windowsHide: true }, (_e, out) => resolve(out.trim().length > 0));
   });
 }
 
