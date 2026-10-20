@@ -226,6 +226,26 @@ export async function checkPiWebUpdate(
 }
 
 /**
+ * 来源选择（Pi for IDE.installSource）→ 实际安装腿的判定。
+ * auto / prefer-remote 都两边比：版本高者赢；同版本 auto→本地、
+ * prefer-remote→在线。本地候选缺席/被拒时回落在线；反之亦然。
+ */
+export function pickInstallFlow(
+  source: string,
+  localVersion: string | undefined,
+  remoteBest: string | undefined,
+): "local" | "registry" {
+  if (source === "local") return "local";
+  if (source === "registry") return "registry";
+  // auto / prefer-remote：两边比。
+  if (!localVersion) return "registry";
+  if (!remoteBest) return "local";
+  const cmp = compareVersions(localVersion, remoteBest);
+  if (cmp !== 0) return cmp > 0 ? "local" : "registry";
+  return source === "prefer-remote" ? "registry" : "local";
+}
+
+/**
  * 本地包检查（Pi for IDE.localPackage）：把 tgz 的构建身份与当前会跑的
  * 那份副本比——版本高者新；同版本比构建戳（builtAt）；戳缺失时只有版本
  * 不同才报新（无戳无法判同版本新旧，保守不扰）。

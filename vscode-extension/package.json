@@ -149,7 +149,7 @@
         },
         "Pi for IDE.installSource": {
           "type": "string",
-          "enum": ["auto", "local", "registry", "newest"],
+          "enum": ["auto", "prefer-remote", "local", "registry"],
           "default": "auto",
           "description": "%config.installSource%"
         }

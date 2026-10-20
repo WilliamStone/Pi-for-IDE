@@ -26,6 +26,7 @@ registerHooks({
 });
 
 const { pickVersionDirName, readTgzIdentity } = await import("./managedRuntime.ts");
+const { pickInstallFlow } = await import("./server-resolve.ts");
 
 const PKG = "@william_stone/pi-web-for-ide";
 
@@ -71,6 +72,26 @@ test("pickVersionDirName: same version newer build → its own slot, not reuse",
   const pick = pickVersionDirName(root, PKG, id);
   assert.equal(pick.dirName, "0.12.2-1.b20261020100000");
   assert.equal(pick.reused, false);
+});
+
+test("pickInstallFlow: local/registry lock to their own side", () => {
+  assert.equal(pickInstallFlow("local", "0.1.0", "0.2.0"), "local");
+  assert.equal(pickInstallFlow("registry", "0.2.0", "0.1.0"), "registry");
+});
+
+test("pickInstallFlow: auto/prefer-remote compare both; higher version wins", () => {
+  // 本地版本高 → 本地；在线高 → 在线；本地缺席 → 在线；在线缺席 → 本地。
+  assert.equal(pickInstallFlow("auto", "0.2.0", "0.1.0"), "local");
+  assert.equal(pickInstallFlow("auto", "0.1.0", "0.2.0"), "registry");
+  assert.equal(pickInstallFlow("auto", undefined, "0.2.0"), "registry");
+  assert.equal(pickInstallFlow("auto", "0.2.0", undefined), "local");
+  assert.equal(pickInstallFlow("prefer-remote", "0.2.0", "0.1.0"), "local");
+  assert.equal(pickInstallFlow("prefer-remote", "0.1.0", "0.2.0"), "registry");
+});
+
+test("pickInstallFlow: version tie → auto picks local, prefer-remote picks registry", () => {
+  assert.equal(pickInstallFlow("auto", "0.1.0", "0.1.0"), "local");
+  assert.equal(pickInstallFlow("prefer-remote", "0.1.0", "0.1.0"), "registry");
 });
 
 test("readTgzIdentity reads package identity + build stamp from the real tarball", (t) => {

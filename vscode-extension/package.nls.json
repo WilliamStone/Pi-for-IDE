@@ -19,5 +19,5 @@
   "config.autoStopAfterSec": "Seconds of full silence (no heartbeat, no open client) before an extension-spawned server exits. Applies only when autoStop is on. Minimum 90 — hidden browser tabs can only poll about once a minute.",
   "config.checkForUpdates": "Check the npm registry for a newer pi-web package once after activation and offer to upgrade.",
   "config.localPackage": "Absolute path to a local pi-web .tgz package to install from (bypasses the npm registry). \"Upgrade Server Component\" and the background check then look at this file — handy for testing local builds.",
-  "config.installSource": "Where installs/upgrades come from: auto = local tarball when localPackage is set, else the npm registry; local = only the tarball; registry = only npm (localPackage ignored); newest = compare both and install whichever is newer (by version, then build stamp)."
+  "config.installSource": "Where installs/upgrades come from: auto = compare local tarball and registry, prefer the local build on a version tie; prefer-remote = same comparison but prefer the registry on a tie; local = only the localPackage tarball; registry = only npm (localPackage ignored)."
 }

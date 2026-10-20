@@ -18,10 +18,9 @@
 import * as vscode from "vscode";
 import { PiIdeServer } from "./piIdeServer";
 import { sweepLegacyOrphans } from "./port-scan";
-import { checkLocalPackageUpdate, checkPiWebUpdate, installPiWebPackage } from "./server-resolve";
+import { checkLocalPackageUpdate, checkPiWebUpdate, installPiWebPackage, pickInstallFlow } from "./server-resolve";
 import { outputChannel } from "./server-status";
 import {
-  compareVersions,
   installManagedLocalPackage,
   installManagedPackage,
   isNewerVersion,
@@ -307,34 +306,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         (vscode.workspace.getConfiguration("Pi for IDE").get<string>("package") ?? "").trim() ||
         "@william_stone/pi-web-for-ide";
       // 安装来源选择（Pi for IDE.installSource）：
-      //   auto     = localPackage 填了用本地，没填用在线；
-      //   local    = 只认本地包；registry = 只认在线；
-      //   newest   = 两边候选相比，谁新装谁（同版本本地构建戳通常更新）。
+      //   auto          = 两边比，同版本→本地；localPackage 没填只有在线候选；
+      //   prefer-remote = 两边比，同版本→在线；
+      //   local / registry = 单边锁死。
       const cfg = vscode.workspace.getConfiguration("Pi for IDE");
       const installSource = (cfg.get<string>("installSource") ?? "auto").trim();
       const localTgz = (cfg.get<string>("localPackage") ?? "").trim();
+      if (installSource === "local" && !localTgz) {
+        void vscode.window.showErrorMessage("Pi for IDE: installSource is local but localPackage is not set.");
+        return;
+      }
       let flow: "local" | "registry";
-      if (installSource === "registry") {
+      if (installSource === "local" || installSource === "registry") {
+        flow = installSource;
+      } else if (!localTgz) {
         flow = "registry";
-      } else if (installSource === "local") {
-        if (!localTgz) {
-          void vscode.window.showErrorMessage("Pi for IDE: installSource is local but localPackage is not set.");
-          return;
-        }
-        flow = "local";
-      } else if (installSource === "auto") {
-        flow = localTgz ? "local" : "registry";
       } else {
-        // newest：两边候选相比，版本高者赢；并列本地胜（测试期本地件通常最新）。
-        if (!localTgz) {
-          flow = "registry";
-        } else {
-          const local = checkLocalPackageUpdate(localTgz, context, pkg);
-          const remote = await checkPiWebUpdate(pkg, context);
-          flow = local?.candidate && !local.reason &&
-            (!remote?.best || compareVersions(local.candidate.version, remote.best) >= 0)
-            ? "local" : "registry";
-        }
+        const local = checkLocalPackageUpdate(localTgz, context, pkg);
+        const remote = await checkPiWebUpdate(pkg, context);
+        flow = pickInstallFlow(
+          installSource,
+          local?.candidate && !local.reason ? local.candidate.version : undefined,
+          remote?.best,
+        );
       }
 
       if (flow === "local") {
@@ -495,13 +489,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const pkg =
         (vscode.workspace.getConfiguration("Pi for IDE").get<string>("package") ?? "").trim() ||
         "@william_stone/pi-web-for-ide";
-      // 安装来源语义与 piIde.upgrade 一致：localPackage 填着但 installSource
-      // 选了 registry/newest 时尊重选择——不用删字段再填回来。
+      // 安装来源语义与 piIde.upgrade 一致（同一 pickInstallFlow 判定）：
+      // localPackage 填着但选了 registry/prefer-remote 时尊重选择——
+      // 不用删字段再填回来。
       const cfgUpd = vscode.workspace.getConfiguration("Pi for IDE");
       const installSource = (cfgUpd.get<string>("installSource") ?? "auto").trim();
       const localTgz = (cfgUpd.get<string>("localPackage") ?? "").trim();
-      if (installSource !== "registry" && localTgz) {
-        const check = checkLocalPackageUpdate(localTgz, context, pkg);
+      if (installSource === "local") {
+        // 单边锁死：只比本地件。
+        const check = localTgz ? checkLocalPackageUpdate(localTgz, context, pkg) : undefined;
         if (check?.isNewer && check.candidate) {
           const pick = await vscode.window.showInformationMessage(
             `A newer local pi-web build is available: ${check.candidate.version}` +
@@ -512,11 +508,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           );
           if (pick === "Install") void vscode.commands.executeCommand("piIde.upgrade");
         }
-        // newest 语义=两边都查：本地不新时再看在线；其余模式到此为止。
-        if (installSource !== "newest") return;
+        return;
       }
-      if (installSource === "local") return;
+      const local = installSource !== "registry" && localTgz
+        ? checkLocalPackageUpdate(localTgz, context, pkg)
+        : undefined;
+      // auto / prefer-remote / registry：registry 腿都要查（前两者用于两边比）。
       const info = await checkPiWebUpdate(pkg, context);
+      if (installSource !== "registry" && local?.isNewer && local.candidate) {
+        const flow = pickInstallFlow(installSource, local.candidate.version, info?.best);
+        if (flow === "local") {
+          const pick = await vscode.window.showInformationMessage(
+            `A newer local pi-web build is available: ${local.candidate.version}` +
+              (local.candidate.builtAt ? ` built ${local.candidate.builtAt.slice(0, 16).replace("T", " ")}` : "") +
+              (local.current ? ` (current: ${local.current.version})` : "") + ".",
+            "Install",
+            "Later",
+          );
+          if (pick === "Install") void vscode.commands.executeCommand("piIde.upgrade");
+        }
+        // 本地赢则不再报在线更新（同轮只报赢的那侧）。
+        if (flow === "local" || installSource === "local") return;
+      }
       if (!info) return;
       if (info.needsExtensionUpgrade) {
         void vscode.window.showInformationMessage(
