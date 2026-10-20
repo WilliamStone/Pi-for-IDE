@@ -1,17 +1,24 @@
 # Changelog
 
-## [0.1.8] - 2026-10-20
+## [0.2.0] - 2026-10-20
 
+- **IDE shortcuts work inside the panel**: chords the web app doesn't consume (Ctrl/Alt/Meta combos and F-keys) are forwarded out of the iframe and resolved by VS Code's own keybinding service — your custom keybindings and `when` clauses apply exactly like a normal keypress. (Requires the matching pi-web-for-ide build; OS/browser-reserved keys like Ctrl+W can't reach the page and remain unreachable.)
+- **Choose where upgrades come from**: new `Pi for IDE.installSource` — `auto` compares both sides (same version → local wins), `prefer-remote` ties → registry, `local`/`registry` lock one side.
+- **Install from local tarballs**: `Pi for IDE.localPackage` accepts a `.tgz` file *or a folder* — folder mode scans tarballs, validates the package name, and picks the newest by `(version, builtAt)` from the embedded `pi-web-build.json` build identity, so same-version rebuilds stay distinguishable. Local installs extract in-process — seconds instead of a minutes-long `npm i`, and no console-window flashes on Windows.
+- **One upgrade decision everywhere**: the Upgrade command and the background check share a single plan. Toasts carry the full comparison (installSource, each candidate's version + build stamp, current build) with a `Details…` button that opens the focused Pi for IDE output channel; the background **Install** applies the plan in one click — no second confirmation, and every install ends with a restart prompt or an explicit "takes effect on next start".
+- **Newest installed copy wins, stamps included**: at spawn time, same-version installed copies compare build stamps — a same-version stale global install no longer shadows a newer managed build.
+- **Cross-window server handoff**: the host that (re)starts a server writes a shared instance marker; other windows' panels switch to the new instance automatically — same-port restarts included, distinguished by an instance token in the embed URL. A post-upgrade note reminds you that browser tabs need a manual reload.
+- **Out-of-session diffs fixed**: "Open diff in editor" now works for files the agent edited *outside* the session cwd — the read-only reconstruction path no longer carries a write-path guard.
 - **Cold-start race fixed**: opening the panel while `autoStart`'s spawn was still in flight served a `serverReady` pointing at `http://127.0.0.1:0` — the shell probed a dead port for 90s. The reuse branch now awaits the in-flight start.
 - **Port-race fallback**: when another pi-web wins the bind between probe and spawn (cold-boot reality), the extension first tries to attach to the winner; if the occupant isn't an embed-capable instance of this package, it respawns on the next free port. A duplicate of *our* server is never created — two instances would write the same `~/.pi` state.
 - **Attach transparency**: attaching to a port different from `Pi for IDE.port` now shows a notice — a configured port no longer silently connects to a sibling window's server.
-- **Two-sided diffs**: "Open diff in editor" reconstructs the pre-turn file by reverse-applying that turn's edits (native `vscode.diff`); when the file drifted afterwards and reconstruction fails, the recorded unified patch opens instead with a notice.
+- **Two-sided diffs**: "Open diff in editor" reconstructs the pre-turn file by reverse-applying that turn's edits (native `vscode.diff`); when the file drifted afterwards and reconstruction fails, the recorded unified patch opens instead with a notice. Fallback branches now log their exact reason to the Pi for IDE output channel.
 - **Path canonicalization**: cwd and file paths resolve through realpath and repo-toplevel with case-insensitive keys — snapshot/diff lookups no longer miss files opened via junction aliases or differently-cased paths on Windows.
 - **Shell reliability**: shell state replays on the "shell painted" message, closing a postMessage race that could leave the gate stuck.
 - **Managed runtime picks the newest compatible installed copy**, not the first leg that resolves.
 - **Marketplace readme restored** as a dedicated, user-facing document (English + 中文), replacing the repo-root README sync.
 - **Real-UI e2e**: `npm run test:e2e` drives actual VSCodium via `playwright._electron` — panel loading, file-review host actions (diff/open/patch-fallback), a live-model turn + revert (opt-in `PI_E2E_LIVE=1`), and the watchdog self-stop (`PI_E2E_SLOW=1`) — with a coverage ledger that calls out any segment skipped rather than letting a green tally hide it.
-- Package-side (pi-web-for-ide ≥ 0.12.2-1): a **preinstall guard** turns the mid-install `os error 32` into actionable "stop the server first" guidance, and the bin command is exclusively `pi-web-for-ide` so the package coexists with upstream `pi-web`.
+- Package-side (pi-web-for-ide ≥ 0.12.2-1): a **preinstall guard** turns the mid-install `os error 32` into actionable "stop the server first" guidance; the bin command is exclusively `pi-web-for-ide` so the package coexists with upstream `pi-web`; the embed handshake now reports a process `boot` id, the welcome page keeps the IDE logo across in-app navigation (and it's larger), and the page forwards unconsumed chords for IDE shortcut routing.
 
 ## [0.1.7] - 2026-10-17
 
