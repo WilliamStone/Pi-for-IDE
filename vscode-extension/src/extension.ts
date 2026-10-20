@@ -362,25 +362,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (flow === "local") {
         if (!local?.candidate) {
           await vscode.window.showErrorMessage(
-            `${pkg}: cannot install — local tarball identity unreadable.`,
-            { modal: true, detail },
+            `${pkg}: cannot install — local tarball identity unreadable.\n\n${detail}`,
           );
           return;
         }
         if (local.reason) {
           await vscode.window.showWarningMessage(
-            `${pkg}: local package refused — ${local.reason}`,
-            { modal: true, detail },
+            `${pkg}: local package refused — ${local.reason}\n\n${detail}`,
           );
           return;
         }
         const c = local.candidate;
         const candLabel = `${c.version}${fmtBuild(c.builtAt)}${c.gitSha ? ` (${c.gitSha})` : ""}`;
         const pick = await vscode.window.showInformationMessage(
-          local.isNewer
+          `${local.isNewer
             ? `Local build ${candLabel} is newer than current.`
-            : `Local build ${candLabel} is not newer than current.`,
-          { modal: true, detail },
+            : `Local build ${candLabel} is not newer than current.`}\n\n${detail}`,
           local.isNewer ? "Install" : "Install Anyway",
           "Cancel",
         );
@@ -403,28 +400,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // flow === "registry"
       if (!remote) {
         await vscode.window.showErrorMessage(
-          `${pkg}: cannot determine the upgrade — no installed copy or registry unreachable.`,
-          { modal: true, detail },
+          `${pkg}: cannot determine the upgrade — no installed copy or registry unreachable.\n\n${detail}`,
         );
         return;
       }
       if (remote.needsExtensionUpgrade) {
         await vscode.window.showWarningMessage(
-          `${pkg} ${remote.latest} (level ${remote.latestLevel}) requires a newer Pi for IDE extension. Please upgrade the extension from the marketplace first.`,
-          { modal: true, detail },
+          `${pkg} ${remote.latest} (level ${remote.latestLevel}) requires a newer Pi for IDE extension. Please upgrade the extension from the marketplace first.\n\n${detail}`,
         );
         return;
       }
       if (!remote.best || !isNewerVersion(remote.best, remote.current)) {
         await vscode.window.showInformationMessage(
-          `${pkg} is already at the latest compatible version (${remote.current}).`,
-          { modal: true, detail },
+          `${pkg} is already at the latest compatible version (${remote.current}).\n\n${detail}`,
         );
         return;
       }
       const pick = await vscode.window.showInformationMessage(
-        `${pkg} ${remote.best} is available (current: ${remote.current}${fmtBuild(remote.currentBuiltAt)}).${remote.managed ? " Instances in other windows are unaffected and switch on restart." : ""}`,
-        { modal: true, detail },
+        `${pkg} ${remote.best} is available (current: ${remote.current}${fmtBuild(remote.currentBuiltAt)}).${remote.managed ? " Instances in other windows are unaffected and switch on restart." : ""}\n\n${detail}`,
         "Upgrade Now",
         "Later",
       );

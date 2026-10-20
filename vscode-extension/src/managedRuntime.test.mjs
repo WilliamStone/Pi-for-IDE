@@ -139,6 +139,17 @@ test("resolveLocalPackagePath: empty/mismatched directory → undefined", () => 
   assert.equal(resolveLocalPackagePath(path.join(dir, "no-such-dir"), PKG), undefined);
 });
 
+test("resolveLocalPackagePath: real repo directory resolves its own tarball", (t) => {
+  const repo = path.resolve(import.meta.dirname, "..", "..");
+  const expected = path.join(repo, "william_stone-pi-web-for-ide-0.12.2-1.tgz");
+  if (!existsSync(expected)) {
+    t.skip("no built tarball in repo root");
+    return;
+  }
+  const picked = resolveLocalPackagePath(repo, PKG);
+  assert.equal(picked, expected);
+});
+
 test("readTgzIdentity reads package identity + build stamp from the real tarball", (t) => {
   const tgz = path.resolve(import.meta.dirname, "..", "..", "william_stone-pi-web-for-ide-0.12.2-1.tgz");
   if (!existsSync(tgz)) {
