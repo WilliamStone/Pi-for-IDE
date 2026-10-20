@@ -446,7 +446,14 @@ export async function resolveServerTarget(
       );
     }
   }
-  const best = pickNewestSupported(candidates, (c) => binVersion(c.bin), (c) => binLevel(c.bin));
+  const best = pickNewestSupported(
+    candidates,
+    (c) => binVersion(c.bin),
+    (c) => binLevel(c.bin),
+    // 同版本构建戳决胜：升级装进托管槽的新构建不该被同版旧全局/旧 shim
+    // 永久影子化（曾踩"装了新版跑的还是旧版"）。包目录 = bin/../../。
+    (c) => installedBuildStamp(path.resolve(c.bin, "..", "..")).builtAt,
+  );
   if (best) {
     const extra = candidates.length > 1 ? ` (newest of ${candidates.length} installed copies)` : "";
     channel.appendLine(`pi-web entry (${best.leg}): ${best.bin}${extra}`);

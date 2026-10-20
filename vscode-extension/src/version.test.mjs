@@ -79,3 +79,35 @@ test("pickNewestSupported picks the highest compatible version, ties keep pool o
   assert.equal(pickNewestSupported([mk("managed", "0.99.0", 99)], v, l), undefined);
   assert.equal(pickNewestSupported([], v, l), undefined);
 });
+
+test("pickNewestSupported with stampOf: same-version build stamp decides", () => {
+  const mk = (name, version, builtAt, level) => ({ name, version, builtAt, level });
+  const v = (i) => i.version;
+  const l = (i) => i.level;
+  const s = (i) => i.builtAt;
+
+  // 核心回归：同版本号下，托管新构建必须打赢池序靠前的旧全局构建
+  // ——「装了新版跑的还是旧版」就是这个场景的修复。
+  const pool = [
+    mk("global", "0.12.2", "2026-10-19T10:00:00.000Z"),
+    mk("managed", "0.12.2", "2026-10-20T04:48:34.872Z"),
+  ];
+  assert.equal(pickNewestSupported(pool, v, l, s)?.name, "managed");
+  // 反向也一样——跟腿序无关。
+  assert.equal(pickNewestSupported([...pool].reverse(), v, l, s)?.name, "managed");
+
+  // 无戳视为最旧：带戳的任意一方赢。
+  const stamped = [mk("global", "0.12.2", undefined), mk("managed", "0.12.2", "2026-10-20T00:00:00.000Z")];
+  assert.equal(pickNewestSupported(stamped, v, l, s)?.name, "managed");
+  const stampedRev = [mk("managed", "0.12.2", "2026-10-20T00:00:00.000Z"), mk("global", "0.12.2", undefined)];
+  assert.equal(pickNewestSupported(stampedRev, v, l, s)?.name, "managed");
+
+  // 都无戳 → 回落池序；版本更高时戳不参与。
+  const noStamp = [mk("global", "0.12.2"), mk("managed", "0.12.2")];
+  assert.equal(pickNewestSupported(noStamp, v, l, s)?.name, "global");
+  const higher = [mk("managed", "0.12.2", "2026-10-20T00:00:00.000Z"), mk("global", "0.13.0")];
+  assert.equal(pickNewestSupported(higher, v, l, s)?.name, "global");
+
+  // 不传 stampOf → 行为不变（同版本池序）。
+  assert.equal(pickNewestSupported([mk("global", "0.12.2"), mk("managed", "0.12.2")], v, l)?.name, "global");
+});

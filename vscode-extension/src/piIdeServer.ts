@@ -1,6 +1,8 @@
 import * as cp from "child_process";
+import * as fs from "fs";
+import * as path from "path";
 import * as vscode from "vscode";
-import { EMBED_PROTOCOL_SUPPORTED } from "./managedRuntime";
+import { EMBED_PROTOCOL_SUPPORTED, managedRuntimeRoot } from "./managedRuntime";
 import { DEFAULT_PACKAGE } from "./occupier";
 import { reportStartupFailure } from "./diagnostics";
 import { findFreePort, reportPortOccupiers, scanPortOccupiers } from "./port-scan";
@@ -48,6 +50,8 @@ export class PiIdeServer {
   disposed = false;
   /** 握手拿到的服务端可选特性表（capabilities map，见 embed-protocol.md）。 */
   embedCapabilities: Record<string, unknown> = {};
+  /** 握手拿到的服务端进程实例标识（boot）——重启后必变，跨窗口换页判定用。 */
+  embedBoot?: string;
   heartbeatTimer?: ReturnType<typeof setInterval>;
 
   static ensureStarted(context: vscode.ExtensionContext): Promise<PiIdeServer | undefined> {
@@ -86,7 +90,43 @@ export class PiIdeServer {
 
   async start(): Promise<this | undefined> {
     await this.ready;
+    if (this.resolvedOrigin && this.child) this.writeInstanceMarker();
     return this.resolvedOrigin ? this : undefined;
+  }
+
+  /**
+   * 本宿主拉起的新实例就绪后在共享运行时目录落「当前实例」标记——
+   * 其他窗口的扩展宿主 watch 此文件，boot 变了就刷新自己的已开面板。
+   * 只在 boot 变化时写（重复 start/attach 复用不触发无谓的 watch 事件）。
+   */
+  private writeInstanceMarker(): void {
+    try {
+      const dir = managedRuntimeRoot(this.context);
+      fs.mkdirSync(dir, { recursive: true });
+      const file = path.join(dir, "server-instance.json");
+      const marker = { boot: this.embedBoot, origin: this.resolvedOrigin, at: Date.now() };
+      const prev = fs.existsSync(file)
+        ? (JSON.parse(fs.readFileSync(file, "utf8")) as { boot?: string }).boot
+        : undefined;
+      if (prev === marker.boot) return;
+      fs.writeFileSync(file, JSON.stringify(marker, null, 2));
+      this.channel.appendLine(`instance marker written: boot=${marker.boot ?? "unknown"} @ ${marker.origin}`);
+    } catch (e) {
+      this.channel.appendLine(`instance marker write failed (non-fatal): ${e}`);
+    }
+  }
+
+  /**
+   * 共享标记声明了一个与本宿主不同的实例 → 本地记录的服务器已过期
+   * （别窗升级/重启换包）。安全停掉旧引用并清全局，下次 ensureStarted
+   * 会重新 attach/spawn 到新实例。由实例标记 watcher 调用。
+   */
+  static async invalidateIfBootMismatch(boot: string | undefined): Promise<void> {
+    const existing = (globalThis as Record<string, unknown>).__piIdeServer as PiIdeServer | undefined;
+    if (!existing || existing.disposed) return;
+    if (boot && existing.embedBoot === boot) return; // 已是当前实例
+    logLifecycle(`invalidateIfBootMismatch: local boot=${existing.embedBoot ?? "unknown"} vs marker boot=${boot ?? "unknown"} — releasing`);
+    await existing.stop();
   }
 
   async stop(): Promise<void> {
@@ -443,10 +483,11 @@ export class PiIdeServer {
         gotHttpResponse = true;
         if (res.status >= 500) saw5xx = true;
         const data = (await res.json().catch(() => null)) as
-          | { embed?: { protocol?: number; version?: string; capabilities?: Record<string, unknown> } }
+          | { embed?: { protocol?: number; version?: string; boot?: string; capabilities?: Record<string, unknown> } }
           | null;
         if (res.ok && data?.embed?.protocol) {
           this.embedCapabilities = data.embed.capabilities ?? {};
+          this.embedBoot = data.embed.boot;
           this.channel.appendLine(
             `embed handshake OK: protocol v${data.embed.protocol}, server version ${data.embed.version ?? "unknown"}` +
               `, capabilities: ${Object.keys(this.embedCapabilities).join(", ") || "none"}`,

@@ -289,6 +289,9 @@ export class PiWebWebviewPanel extends vscode.Disposable {
     url.searchParams.set("embed", "vscode");
     if (this.currentCwd) url.searchParams.set("cwd", this.currentCwd);
     url.searchParams.set("extVer", this.extensionVersion);
+    // 实例标识进 URL：同端口重启的新实例 URL 仍不同——shell 的
+    // loadedUrl 判重不会把它当"同一地址"吞掉，iframe 必然换新页。
+    url.searchParams.set("inst", server.embedBoot ?? "");
     const urlStr = url.toString();
 
     // 服务器实例与 URL 都没变就不重推——避免每次点状态栏都重载 iframe

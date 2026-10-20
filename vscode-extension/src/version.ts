@@ -71,11 +71,18 @@ export function pickNewestSupported<T>(
   items: T[],
   versionOf: (item: T) => string,
   levelOf: (item: T) => number | undefined,
+  stampOf?: (item: T) => string | undefined,
 ): T | undefined {
   const supported = items.filter((i) => levelSupported(levelOf(i)));
-  return supported.length
-    ? supported.reduce((a, b) => (compareVersions(versionOf(a), versionOf(b)) >= 0 ? a : b))
-    : undefined;
+  const cmp = (a: T, b: T) => {
+    const v = compareVersions(versionOf(a), versionOf(b));
+    if (v !== 0) return v;
+    // 同版本（可选）构建戳决胜——ISO 串字典序即时序；无戳视为最旧。
+    // 不给 stampOf 时保持旧行为：同版本留先者（池序）。
+    if (stampOf) return (stampOf(a) ?? "").localeCompare(stampOf(b) ?? "");
+    return 0;
+  };
+  return supported.length ? supported.reduce((a, b) => (cmp(a, b) >= 0 ? a : b)) : undefined;
 }
 
 /** 包名/版本 spec 的 shell 安全校验：配置值原样进 shell 会注入。 */

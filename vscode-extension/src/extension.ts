@@ -15,6 +15,8 @@
  *  - dispose：停止服务器并销毁 webview。
  */
 
+import * as fs from "fs";
+import * as path from "path";
 import * as vscode from "vscode";
 import { PiIdeServer } from "./piIdeServer";
 import { sweepLegacyOrphans } from "./port-scan";
@@ -25,6 +27,7 @@ import {
   installManagedPackage,
   levelSupported,
   listManagedVersions,
+  managedRuntimeRoot,
   setManagedMarker,
   sweepManagedVersions,
 } from "./managedRuntime";
@@ -99,6 +102,42 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   context.subscriptions.push(provider);
+
+  // -------------------------------------------------------------------------
+  // 共享实例标记 watch：任一窗口的宿主拉起新服务器（升级换包/重启）时写
+  // <runtime>/server-instance.json——本宿主据此停掉过期引用并刷新已开面板。
+  // 事件驱动、不轮询；外部重启（非扩展驱动）不写标记、维持原行为。
+  // -------------------------------------------------------------------------
+  {
+    const runtimeDir = managedRuntimeRoot(context);
+    fs.mkdirSync(runtimeDir, { recursive: true });
+    let markerTimer: ReturnType<typeof setTimeout> | undefined;
+    const onInstanceMarker = () => {
+      clearTimeout(markerTimer);
+      markerTimer = setTimeout(() => {
+        void (async () => {
+          let boot: string | undefined;
+          try {
+            boot = (JSON.parse(
+              fs.readFileSync(path.join(runtimeDir, "server-instance.json"), "utf8"),
+            ) as { boot?: string }).boot;
+          } catch {
+            return; // 文件半截/已删——等下一次事件
+          }
+          await PiIdeServer.invalidateIfBootMismatch(boot);
+          await provider?.refreshIfOpen();
+        })();
+      }, 300);
+    };
+    try {
+      const watcher = fs.watch(runtimeDir, (_ev, name) => {
+        if (name === "server-instance.json") onInstanceMarker();
+      });
+      context.subscriptions.push({ dispose: () => watcher.close() });
+    } catch (e) {
+      outputChannel().appendLine(`instance marker watch failed (non-fatal): ${e}`);
+    }
+  }
 
   // -------------------------------------------------------------------------
   // 命令
