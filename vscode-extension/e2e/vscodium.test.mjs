@@ -27,15 +27,35 @@ import { seedAgentConfig, seedSession } from "./session-fixture.mjs";
 
 const extDir = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 
-function prerequisites(t) {
+/**
+ * 覆盖度账本：每段登记 verified/skipped+原因，尾部汇总测试点名——
+ * "全绿"不该掩盖没验到的段（guard skip/模型不可用都是合理跳过，
+ * 但必须让看结果的人一眼知道哪段没被验证）。
+ */
+const coverage = [];
+function markCover(seg, status, note = "") {
+  const rec = coverage.find((c) => c.seg === seg);
+  if (rec) {
+    rec.status = status;
+    if (note) rec.note = note;
+  } else {
+    coverage.push({ seg, status, note });
+  }
+}
+function coverSkip(t, seg, note) {
+  markCover(seg, "skipped", note);
+  t.skip(note);
+}
+
+function prerequisites(t, seg) {
   const vscodium = findVscodium();
   if (!vscodium) {
-    t.skip("no VSCodium found (set PI_E2E_VSCODIUM)");
+    coverSkip(t, seg, "no VSCodium found (set PI_E2E_VSCODIUM)");
     return null;
   }
   const vsix = latestVsix(extDir);
   if (!vsix) {
-    t.skip("no pi-for-ide vsix — run npm run package first");
+    coverSkip(t, seg, "no pi-for-ide vsix — run npm run package first");
     return null;
   }
   return { ...vscodium, vsix };
@@ -74,20 +94,22 @@ async function reachPiFrame({ exe, cli, vsix }, fixture, extraEnv = {}) {
 }
 
 test("VSCodium: panel opens and iframe reaches pi-web", { timeout: 300_000 }, async (t) => {
-  const ctx = prerequisites(t);
+  markCover("A panel-open", "ran");
+  const ctx = prerequisites(t, "A panel-open");
   if (!ctx) return;
   const fixture = makeFixture();
   // attach-first 隔离：占住 303x 空口；真身实例在跑则 skip（不打扰/不污染）
   const guard = await guardAttachRange();
   if (guard.oursPort) {
     releaseAttachGuard(guard);
-    t.skip(`a real pi-web instance is serving :${guard.oursPort} — cannot isolate`);
+    coverSkip(t, "A panel-open", `real pi-web instance on :${guard.oursPort}`);
     return;
   }
   const { app, piFrame } = await reachPiFrame(ctx, fixture);
   try {
     // iframe 里是 pi-web 真页面——聊天输入框落地即通过
     await piFrame.waitForSelector("textarea", { timeout: 60000 });
+    markCover("A panel-open", "verified");
   } finally {
     await app.close().catch(() => {});
     releaseAttachGuard(guard);
@@ -96,7 +118,8 @@ test("VSCodium: panel opens and iframe reaches pi-web", { timeout: 300_000 }, as
 });
 
 test("VSCodium B: file-review actions drive host diff/open/patch-fallback", { timeout: 300_000 }, async (t) => {
-  const ctx = prerequisites(t);
+  markCover("B file-review", "ran");
+  const ctx = prerequisites(t, "B file-review");
   if (!ctx) return;
   const fixture = makeFixture();
   // 独立 agent 目录预置一份 write+edit+drifted-edit 会话——不用真跑模型
@@ -104,7 +127,7 @@ test("VSCodium B: file-review actions drive host diff/open/patch-fallback", { ti
   const guard = await guardAttachRange();
   if (guard.oursPort) {
     releaseAttachGuard(guard);
-    t.skip(`a real pi-web instance is serving :${guard.oursPort} — cannot isolate`);
+    coverSkip(t, "B file-review", `real pi-web instance on :${guard.oursPort}`);
     return;
   }
   // 本测试 spawn 的实例在 fixture agentDir 下落 run-record——快照默认读
@@ -163,6 +186,7 @@ test("VSCodium B: file-review actions drive host diff/open/patch-fallback", { ti
       '.notification-toast:has-text("recorded patch"), .notification-toast:has-text("changed after this turn")',
       { timeout: 60000 },
     );
+    markCover("B file-review", "verified");
   } finally {
     await app.close().catch(() => {});
     releaseAttachGuard(guard);
@@ -175,23 +199,24 @@ test("VSCodium B: file-review actions drive host diff/open/patch-fallback", { ti
 //    删除的完整链路。模型配置从真 agent 目录复制进隔离 fixture（不进仓库），
 //    PI_E2E_LIVE=1 显式开——会真烧模型推理时间。
 test("VSCodium C: live prompt turn → revert restores files", { timeout: 480_000 }, async (t) => {
+  markCover("C live-revert", "ran");
   if (process.env.PI_E2E_LIVE !== "1") {
-    t.skip("set PI_E2E_LIVE=1 to run the live-model revert test");
+    coverSkip(t, "C live-revert", "PI_E2E_LIVE=1 not set");
     return;
   }
-  const ctx = prerequisites(t);
+  const ctx = prerequisites(t, "C live-revert");
   if (!ctx) return;
   const fixture = makeFixture();
   const agentSeed = await seedAgentConfig(path.join(fixture.root, "agent"));
   if (!agentSeed) {
-    t.skip("no usable model in real agent dir (engine down or unconfigured)");
+    coverSkip(t, "C live-revert", "no usable model in real agent dir (engine down or unconfigured)");
     return;
   }
   console.log(`    live model: ${agentSeed.model}`);
   const guard = await guardAttachRange();
   if (guard.oursPort) {
     releaseAttachGuard(guard);
-    t.skip(`a real pi-web instance is serving :${guard.oursPort} — cannot isolate`);
+    coverSkip(t, "C live-revert", `real pi-web instance on :${guard.oursPort}`);
     return;
   }
   const { app, win, piFrame } = await reachPiFrame(ctx, fixture, {
@@ -249,6 +274,7 @@ test("VSCodium C: live prompt turn → revert restores files", { timeout: 480_00
     }
     assert.equal(existsSync(file), false, "live-e2e.txt should be removed after revert");
     console.log("    revert done, file removed");
+    markCover("C live-revert", "verified");
   } finally {
     await app.close().catch(() => {});
     releaseAttachGuard(guard);
@@ -283,11 +309,12 @@ function lastTurnError(agentDir) {
 // D 段（watchdog 自退）：关窗后心跳停，~autoStopAfterSec(90s 起)+余量内
 // 端口必须释放。慢路径默认不跑，PI_E2E_SLOW=1 显式开。
 test("VSCodium D: spawned server self-stops after window closes", { timeout: 300_000 }, async (t) => {
+  markCover("D watchdog", "ran");
   if (process.env.PI_E2E_SLOW !== "1") {
-    t.skip("set PI_E2E_SLOW=1 to run the ~2min watchdog test");
+    coverSkip(t, "D watchdog", "PI_E2E_SLOW=1 not set");
     return;
   }
-  const ctx = prerequisites(t);
+  const ctx = prerequisites(t, "D watchdog");
   if (!ctx) return;
   const fixture = makeFixture();
   // 本测试断言的是"我们 spawn 的实例自退"——attach 到真身实例会让
@@ -295,7 +322,7 @@ test("VSCodium D: spawned server self-stops after window closes", { timeout: 300
   const guard = await guardAttachRange();
   if (guard.oursPort) {
     releaseAttachGuard(guard);
-    t.skip(`a real pi-web instance is serving :${guard.oursPort} — cannot isolate`);
+    coverSkip(t, "D watchdog", `real pi-web instance on :${guard.oursPort}`);
     return;
   }
   const { app, piFrame } = await reachPiFrame(ctx, fixture);
@@ -317,4 +344,25 @@ test("VSCodium D: spawned server self-stops after window closes", { timeout: 300
   }
   releaseAttachGuard(guard);
   if (alive) throw new Error(`server on :${port} still answering after window closed + 180s`);
+  markCover("D watchdog", "verified");
+});
+
+// 覆盖度汇总：把"哪段真验了/哪段跳了"明明白白打在尾部——
+// 不新增断言（环境性 skip 合理），但绝不能让 4 段静默缺席。
+test("E2E coverage summary", () => {
+  const marks = { verified: "✔", ran: "●(no result)", skipped: "⤼" };
+  const lines = coverage.map(
+    (c) => `  ${marks[c.status] ?? "?"} ${c.seg}${c.note ? ` — ${c.note}` : ""}`,
+  );
+  const unverified = coverage.filter((c) => c.status !== "verified");
+  console.log("\n=== E2E COVERAGE ===");
+  console.log(lines.length ? lines.join("\n") : "  (no segments ran)");
+  if (unverified.length) {
+    console.log(
+      `  ⚠ ${unverified.length} segment(s) NOT verified this run — ` +
+      `see reasons above; rerun with the right env (PI_E2E_LIVE=1 / PI_E2E_SLOW=1 / no real instance on 303x) to cover.`,
+    );
+  } else {
+    console.log("  all segments verified.");
+  }
 });
