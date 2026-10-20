@@ -22,6 +22,8 @@ Active only when embedded in VSCode/VSCodium via `?embed=vscode`:
 - **Active-file context injection**: the file you're viewing is injected into the system prompt as a hidden marker (AI-visible, UI-hidden, never persisted)
 - **File review cards + inline diff + one-click revert**: per-turn cards list AI-modified files; reverting restores code and removes the turn — read-only git, no stash/commit
 - **Clipboard bridge**: copy/paste inside the sandboxed iframe routes through `vscode.env.clipboard`
+- **Shortcut routing**: chords the web app doesn't consume (Ctrl/Alt/Meta combos, F-keys) are forwarded to VS Code's own keybinding service — your keybindings and `when` clauses apply natively
+- **Cross-window handoff**: server upgrades/restarts swap every window's panel to the new instance automatically
 - **UI trim**: pi-web's file tree/preview panels hide in host mode — VSCode's explorer and editor groups take over
 
 All pi-web capabilities (session management, streaming chat, model/OAuth/MCP/skills/plugin config, terminal, i18n, themes, PWA) remain available in both modes.
@@ -62,6 +64,12 @@ pi-web status|stop|open|update|update-sdk
 | `Pi for IDE.openBeside` | Open the panel in the adjacent column (default true). |
 | `Pi for IDE.port` | Preferred starting port (default 3030; auto-increments when busy). |
 | `Pi for IDE.package` | Package name for managed-runtime and global lookup (default `@william_stone/pi-web-for-ide`). |
+| `Pi for IDE.autoStart` | Start the server when the editor loads (default off). |
+| `Pi for IDE.autoStop` | Let the spawned server exit after everyone disconnects (default on). |
+| `Pi for IDE.autoStopAfterSec` | Silence before self-stop, min 90s (default `90`). |
+| `Pi for IDE.checkForUpdates` | Notify when a newer server package exists (default on). |
+| `Pi for IDE.localPackage` | Path to a local server tarball, or a folder of `.tgz` builds — the newest wins by `(version, builtAt)`. |
+| `Pi for IDE.installSource` | Upgrade source: `auto` (same version → local), `prefer-remote` (same version → registry), `local`, `registry`. |
 
 Can't connect, blank panel, save errors: see [docs/vscode-extension-deploy.md](./docs/vscode-extension-deploy.md).
 

@@ -105,6 +105,9 @@ lib/
   embed/turn-snapshot.ts    turnId↔entryId pairing (sessionStorage-persisted across reloads)
   embed/messages.ts         embed-mode i18n strings merged into the registry (kept out of upstream message files)
   embed/active-files.ts     host's active-file hint injection
+  embed/keyroute.ts         page-side unconsumed-chord forwarding to the host (Ctrl/Alt/Meta, F-keys)
+  boot.ts                   shared BOOT_ID process-instance marker (embed handshake + agent/running)
+  boot-watch.ts             client-side boot watcher; fires SERVER_RESTARTED_EVENT once per swap
   session-delete.ts         deleteSessions(): session files with their subagents, re-parenting what stays, wrapper shutdown, pins/archive cleanup
   session-tree.ts           sidebar row model: pinned section, project groups and their order, archived predicate, virtual rows, drop targets
   session-ui-state.ts       pi-web-session-state.json (pins, archive, project order and names): lock, atomic write, revision, corrupt backup
@@ -199,6 +202,7 @@ vscode-extension/src/
 
 components/
   AppShell.tsx             layout, URL state, tab management
+  ServerRestartBanner.tsx  top-center "server restarted — reload" notice driven by lib/boot-watch.ts
   SessionSidebar.tsx       toolbar row (Sessions | Files tabs, or the Pi Web brand with the files below them; new, search): tree, archive, menus, toast; files section (resizable, foldable; one header row with the file keys and changed-files count, the picker's row) or tab (picker boxes + file buttons), FileExplorer
   PiWebTitle.tsx           the sidebar's "Pi Web" brand (files below the sessions only): a click scrambles it into the versions
   SessionTree.tsx          virtualized rows of the session tree and the archive view
