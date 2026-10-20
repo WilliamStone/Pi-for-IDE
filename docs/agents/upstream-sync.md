@@ -84,6 +84,8 @@ Upstream CI is Ubuntu-only, so frame these as *correctness/portability* PRs (mor
 
 Dropped: `env -u TURBOPACK` wrapper — upstream removed it themselves (`"build": "next build --webpack"` on main). The nft trace-sensitivity issue (dirty HOME emitted into the whole standalone trace → OOM/EPERM) remains **issue-first**, not filed yet.
 
+**Missing-binary assets (verified negative, 2026-10-21)**: our standalone package dropped `quickjs-wasi/quickjs.wasm` and `node-pty/prebuilds/**` (fs-path-loaded, untraced). Checked `pi-web@0.15.0`'s published tarball — theirs is a 97KB `build/server` + bundled `dist/` package with NO standalone tree; npm installs full `node_modules` on the user's machine, binaries included. **Not affected — nothing to send.** Our fix lives in `prepare-standalone.js#copyBinaryAssets`.
+
 ### Batch 2 — candidates not yet sent
 
 | Candidate | Shape |
