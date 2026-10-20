@@ -354,6 +354,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // 实例变化才重推 URL，shell 探测后就绪了再换 iframe）。
         await provider?.refreshIfOpen();
       }
+      // 其他窗口的面板经实例标记自动刷新（需那边也跑新版扩展）；
+      // 浏览器里打开的 tab 扩展够不着——提示用户手动 reload。
+      void vscode.window.showInformationMessage(
+        "Pi for IDE server updated. Panels in other windows switch over on their own; reload any browser tabs open to the old server (F5) to pick up the new build.",
+      );
       return;
     }
     void vscode.window.showInformationMessage(`${label} Takes effect on next server start.`);
