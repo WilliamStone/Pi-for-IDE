@@ -158,6 +158,20 @@ export interface EmbedRevertEditRequest {
   edits: { oldText: string; newText: string }[];
 }
 
+/** 页面没消费的组合键原样发回 shell——shell 合成等量 KeyboardEvent 让
+ * 宿主快捷键系统原生解析。字段照搬 KeyboardEvent（不需要 chord 串）。 */
+export interface EmbedKeyPassthroughRequest {
+  kind: "keyPassthrough";
+  key: string;
+  code: string;
+  keyCode: number;
+  ctrlKey: boolean;
+  altKey: boolean;
+  shiftKey: boolean;
+  metaKey: boolean;
+  repeat: boolean;
+}
+
 export type EmbedRequest =
   | EmbedOpenFileRequest
   | EmbedCompleteAtRequest
@@ -174,6 +188,7 @@ export type EmbedRequest =
   | EmbedShowDiffRequest
   | EmbedRevertFilesRequest
   | EmbedRevertEditRequest
+  | EmbedKeyPassthroughRequest
   | EmbedOpenInBrowserRequest
   | EmbedGetCapabilitiesRequest;
 

@@ -20,6 +20,7 @@ import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { TurnFileReview } from "./embed/TurnFileReview";
 import { useTurnRevert } from "./embed/useTurnRevert";
 import { embedExtVersion } from "@/lib/embed/bridge";
+import { initEmbedKeyRouter } from "@/lib/embed/keyroute";
 import { appDisplayName } from "@/lib/brand";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
@@ -141,6 +142,9 @@ function NewSessionUpdateLink({
     });
     return () => { cancelled = true; };
   }, []);
+
+  // 未消费组合键兜底转发给宿主（embed 外的独立页面为空操作）。
+  useEffect(() => initEmbedKeyRouter(), []);
 
   if (!update) return null;
   const accessibleLabel = label(update.latestVersion);

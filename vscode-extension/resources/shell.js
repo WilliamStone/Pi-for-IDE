@@ -69,6 +69,28 @@
       gateText.innerHTML = String(p.text);
     } else if (data.source === 'embed') {
       // iframe -> extension host. Forward the whole envelope (id + request).
+      if (data.request && data.request.kind === 'keyPassthrough') {
+        // 页面没消费的组合键：在 shell 文档上合成等量 keydown/keyup——
+        // VS Code 注入 webview 的 main.js 监听这一层，会把它当普通按键
+        // 转给 workbench 快捷键系统做原生解析（用户自定义绑定与 when
+        // 子句全生效），不再经 extension host 中映射表。
+        var init = {
+          key: data.request.key,
+          code: data.request.code,
+          keyCode: data.request.keyCode,
+          ctrlKey: !!data.request.ctrlKey,
+          altKey: !!data.request.altKey,
+          shiftKey: !!data.request.shiftKey,
+          metaKey: !!data.request.metaKey,
+          repeat: !!data.request.repeat,
+          bubbles: true,
+          cancelable: true,
+        };
+        var target = document.body || document;
+        target.dispatchEvent(new KeyboardEvent('keydown', init));
+        target.dispatchEvent(new KeyboardEvent('keyup', init));
+        return;
+      }
       vscode.postMessage(data);
     } else if (data.source === 'host') {
       // extension host -> iframe. Forward responses and notifications.
