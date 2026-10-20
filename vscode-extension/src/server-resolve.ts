@@ -270,9 +270,18 @@ export function checkLocalPackageUpdate(
     }
   | undefined {
   const tgzPath = resolveLocalPackagePath(configPath, pkg);
-  if (!tgzPath) return undefined;
+  if (!tgzPath) {
+    return {
+      isNewer: false,
+      reason: existsSync(configPath)
+        ? `no matching .tgz at ${configPath} (directory has none for ${pkg})`
+        : `path does not exist: ${configPath}`,
+    };
+  }
   const id = readTgzIdentity(tgzPath);
-  if (!id?.version) return undefined;
+  if (!id?.version) {
+    return { resolvedPath: tgzPath, isNewer: false, reason: `cannot read package/package.json in ${tgzPath}` };
+  }
   if (id.name && id.name !== pkg) {
     return { resolvedPath: tgzPath, candidate: id, isNewer: false, reason: `package name mismatch: tarball is ${id.name}, configured package is ${pkg}` };
   }

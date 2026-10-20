@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import * as cp from "node:child_process";
+import { gzipSync } from "node:zlib";
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -95,27 +95,32 @@ test("pickInstallFlow: version tie → auto picks local, prefer-remote picks reg
   assert.equal(pickInstallFlow("prefer-remote", "0.1.0", "0.1.0"), "registry");
 });
 
-/** 造一个最小 npm tgz（package/ 前缀布局 + 可选构建戳），用系统 tar。 */
-function makeTgz(dir, name, version, builtAt) {
-  const staging = mkdtempSync(path.join(tmpdir(), "pi-tgz-src-"));
-  const pkgDir = path.join(staging, "package");
-  mkdirSync(pkgDir, { recursive: true });
-  writeFileSync(path.join(pkgDir, "package.json"), JSON.stringify({
-    name, version, piIde: { level: 3 },
-  }));
-  if (builtAt) {
-    writeFileSync(path.join(pkgDir, "pi-web-build.json"), JSON.stringify({ version, builtAt }));
+/** 造最小 npm tgz（package/ 前缀布局 + 可选构建戳）——不依赖系统 tar。 */
+function makeTgzBare(dir, name, fileName, version, builtAt) {
+  const parts = [JSON.stringify({ name, version, piIde: { level: 3 } })];
+  const files = [["package/package.json", parts[0]]];
+  if (builtAt) files.push(["package/pi-web-build.json", JSON.stringify({ version, builtAt })]);
+  const blocks = [];
+  for (const [fname, content] of files) {
+    const data = Buffer.from(content);
+    const head = Buffer.alloc(512);
+    head.write(fname, 0, 100);
+    head.write("0000644", 100); head.write("0000000", 108); head.write("0000000", 116);
+    head.write(data.length.toString(8).padStart(11, "0") + "\0", 124);
+    head.write("00000000000", 136); head.write("0", 156);
+    let sum = 0;
+    for (const b of head) sum += b;
+    head.write(sum.toString(8).padStart(6, "0") + "\0 ", 148);
+    blocks.push(head, data, Buffer.alloc(Math.ceil(data.length / 512) * 512 - data.length));
   }
-  const tag = builtAt ? `-${builtAt.replace(/\D/g, "").slice(0, 14)}` : "";
-  const tgz = path.join(dir, `${name.replace(/[^a-z0-9_-]/gi, "_")}-${version}${tag}.tgz`);
-  const r = cp.spawnSync("tar", ["-czf", tgz, "-C", staging, "package", "--force-local"], { encoding: "utf8" });
-  assert.equal(r.status, 0, r.stderr);
+  const tgz = path.join(dir, `${fileName}.tgz`);
+  writeFileSync(tgz, gzipSync(Buffer.concat(blocks)));
   return tgz;
 }
 
 test("resolveLocalPackagePath: file path passes through", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "pi-lp-"));
-  const tgz = makeTgz(dir, "@william_stone/pi-web-for-ide", "0.12.2-1");
+  const tgz = makeTgzBare(dir, "@william_stone/pi-web-for-ide", "pkg-a", "0.12.2-1");
   assert.equal(resolveLocalPackagePath(tgz, PKG), tgz);
   assert.equal(resolveLocalPackagePath(path.join(dir, "missing.tgz"), PKG), undefined);
 });
@@ -123,9 +128,9 @@ test("resolveLocalPackagePath: file path passes through", () => {
 test("resolveLocalPackagePath: directory picks the newest matching build", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "pi-lp-"));
   // 两个同包不同构建 + 一个别的包 + 一个非包文件 → 取 newer build。
-  const older = makeTgz(dir, "@william_stone/pi-web-for-ide", "0.12.2-1", "2026-10-20T01:00:00.000Z");
-  const newer = makeTgz(dir, "@william_stone/pi-web-for-ide", "0.12.2-1", "2026-10-20T09:00:00.000Z");
-  makeTgz(dir, "someone-else", "9.9.9");
+  const older = makeTgzBare(dir, "@william_stone/pi-web-for-ide", "pkg-old", "0.12.2-1", "2026-10-20T01:00:00.000Z");
+  const newer = makeTgzBare(dir, "@william_stone/pi-web-for-ide", "pkg-new", "0.12.2-1", "2026-10-20T09:00:00.000Z");
+  makeTgzBare(dir, "someone-else", "other", "9.9.9");
   writeFileSync(path.join(dir, "notes.txt"), "not a package");
   const picked = resolveLocalPackagePath(dir, PKG);
   assert.equal(picked, newer);
@@ -134,7 +139,7 @@ test("resolveLocalPackagePath: directory picks the newest matching build", () =>
 
 test("resolveLocalPackagePath: empty/mismatched directory → undefined", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "pi-lp-"));
-  makeTgz(dir, "someone-else", "9.9.9");
+  makeTgzBare(dir, "someone-else", "other", "9.9.9");
   assert.equal(resolveLocalPackagePath(dir, PKG), undefined);
   assert.equal(resolveLocalPackagePath(path.join(dir, "no-such-dir"), PKG), undefined);
 });

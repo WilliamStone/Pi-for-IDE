@@ -1,4 +1,5 @@
 import * as cp from "child_process";
+import { gunzipSync } from "zlib";
 import {
   closeSync,
   existsSync,
@@ -209,31 +210,45 @@ export interface BuildIdentity {
 }
 
 /**
- * tar -xOf 读 tgz 内成员（Windows 10+ 自带 bsdtar；POSIX tar 通用）。
- * --force-local：bsdtar 会把 `S:\…` 的盘符冒号当远程主机语法。
+ * 纯 Node 读 tgz 成员：gunzip 整个包 → 扫 tar 512B 头找目标成员。
+ * 不依赖外部 tar——扩展宿主里 PATH/环境差异曾导致 spawnSync 静默失败。
  */
-function tgzMember(tgzPath: string, member: string): string | undefined {
+function tgzMembers(tgzPath: string, members: string[]): Map<string, string> {
+  const out = new Map<string, string>();
   try {
-    const r = cp.spawnSync("tar", ["-xOf", tgzPath, member, "--force-local"], {
-      encoding: "utf8",
-      timeout: 30_000,
-    });
-    if (r.status === 0 && r.stdout) return r.stdout;
+    const buf = gunzipSync(readFileSync(tgzPath));
+    const want = new Set(members);
+    let off = 0;
+    while (off + 512 <= buf.length && want.size > 0) {
+      const name = buf.subarray(off, off + 100).toString("utf8").replace(/\0[\s\S]*$/, "");
+      if (!name) break; // 空块 = 归档尾
+      const size = parseInt(
+        buf.subarray(off + 124, off + 136).toString("utf8").replace(/\0[\s\S]*$/, "").trim() || "0",
+        8,
+      );
+      const dataStart = off + 512;
+      if (want.has(name) && Number.isFinite(size)) {
+        out.set(name, buf.subarray(dataStart, dataStart + size).toString("utf8"));
+        want.delete(name);
+      }
+      off = dataStart + Math.ceil(size / 512) * 512;
+    }
   } catch {
-    // tar 缺席或读不到都算"无法识别"。
+    // 解不出（非 gzip/非 tar）→ 空 map。
   }
-  return undefined;
+  return out;
 }
 
-/** 读发行包 tgz 的构建身份（package.json + pi-web-build.json）。 */
+/** 读发行包 tgz 的构建身份（package/package.json + package/pi-web-build.json）。 */
 export function readTgzIdentity(tgzPath: string): BuildIdentity | undefined {
-  const pkgRaw = tgzMember(tgzPath, "package/package.json");
+  const members = tgzMembers(tgzPath, ["package/package.json", "package/pi-web-build.json"]);
+  const pkgRaw = members.get("package/package.json");
   if (!pkgRaw) return undefined;
   try {
     const p = JSON.parse(pkgRaw) as { name?: string; version?: string; piIde?: { level?: number } };
     if (!p.version) return undefined;
     const id: BuildIdentity = { name: p.name, version: p.version, level: p.piIde?.level };
-    const stampRaw = tgzMember(tgzPath, "package/pi-web-build.json");
+    const stampRaw = members.get("package/pi-web-build.json");
     if (stampRaw) {
       const s = JSON.parse(stampRaw) as { builtAt?: string; gitSha?: string };
       id.builtAt = s.builtAt;

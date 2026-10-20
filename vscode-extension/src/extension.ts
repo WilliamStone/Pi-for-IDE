@@ -348,7 +348,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         localTgz
           ? `local: ${local?.resolvedPath ?? localTgz} → ${local?.candidate
               ? `${local.candidate.version}${fmtBuild(local.candidate.builtAt)}${local.candidate.gitSha ? ` (${local.candidate.gitSha})` : ""}`
-              : "(cannot read package identity)"}${local?.reason ? ` — refused: ${local.reason}` : ""}`
+              : local?.reason ?? "no usable package"}${local?.candidate && local.reason ? ` — refused: ${local.reason}` : ""}`
           : "local: (localPackage not set)",
         installSource === "local"
           ? "registry: (not queried — local mode)"
@@ -357,30 +357,47 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const cur = local?.current
         ?? (remote ? { version: remote.current, builtAt: remote.currentBuiltAt } : undefined);
       report.push(`current: ${cur ? `${cur.version}${fmtBuild(cur.builtAt)}` : "none"}`);
-      const detail = report.join("\n");
+
+      // 完整对照写输出通道；浮窗只放单行结论（通知不渲染 \n、无法强制
+      // 展开）——Details… 按钮打开通道看全表。
+      const ch = outputChannel();
+      ch.appendLine(`\n=== upgrade check — installSource: ${installSource} ===`);
+      for (const l of report) ch.appendLine(`  ${l}`);
+      const DETAILS = "Details…";
+      const showDetails = (pick?: string) => {
+        if (pick === DETAILS) ch.show(true);
+        return pick === DETAILS;
+      };
+      const curLabel = cur ? `${cur.version}${fmtBuild(cur.builtAt)}` : "none";
 
       if (flow === "local") {
         if (!local?.candidate) {
-          await vscode.window.showErrorMessage(
-            `${pkg}: cannot install — local tarball identity unreadable.\n\n${detail}`,
+          showDetails(
+            await vscode.window.showErrorMessage(
+              `${pkg}: cannot install — cannot read package identity at ${localTgz}.`,
+              DETAILS,
+            ),
           );
           return;
         }
         if (local.reason) {
-          await vscode.window.showWarningMessage(
-            `${pkg}: local package refused — ${local.reason}\n\n${detail}`,
+          showDetails(
+            await vscode.window.showWarningMessage(
+              `${pkg}: local package refused — ${local.reason}`,
+              DETAILS,
+            ),
           );
           return;
         }
         const c = local.candidate;
         const candLabel = `${c.version}${fmtBuild(c.builtAt)}${c.gitSha ? ` (${c.gitSha})` : ""}`;
         const pick = await vscode.window.showInformationMessage(
-          `${local.isNewer
-            ? `Local build ${candLabel} is newer than current.`
-            : `Local build ${candLabel} is not newer than current.`}\n\n${detail}`,
+          `Local build ${candLabel} is ${local.isNewer ? "newer" : "not newer"} than current ${curLabel}.`,
           local.isNewer ? "Install" : "Install Anyway",
+          DETAILS,
           "Cancel",
         );
+        if (showDetails(pick)) return;
         if (!pick?.startsWith("Install")) return;
         const ok = await vscode.window.withProgress(
           { location: vscode.ProgressLocation.Notification, title: `Installing ${pkg} from local tarball…` },
@@ -399,28 +416,39 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       // flow === "registry"
       if (!remote) {
-        await vscode.window.showErrorMessage(
-          `${pkg}: cannot determine the upgrade — no installed copy or registry unreachable.\n\n${detail}`,
+        showDetails(
+          await vscode.window.showErrorMessage(
+            `${pkg}: cannot determine the upgrade — no installed copy or registry unreachable.`,
+            DETAILS,
+          ),
         );
         return;
       }
       if (remote.needsExtensionUpgrade) {
-        await vscode.window.showWarningMessage(
-          `${pkg} ${remote.latest} (level ${remote.latestLevel}) requires a newer Pi for IDE extension. Please upgrade the extension from the marketplace first.\n\n${detail}`,
+        showDetails(
+          await vscode.window.showWarningMessage(
+            `${pkg} ${remote.latest} (level ${remote.latestLevel}) requires a newer Pi for IDE extension — upgrade the extension first.`,
+            DETAILS,
+          ),
         );
         return;
       }
       if (!remote.best || !isNewerVersion(remote.best, remote.current)) {
-        await vscode.window.showInformationMessage(
-          `${pkg} is already at the latest compatible version (${remote.current}).\n\n${detail}`,
+        showDetails(
+          await vscode.window.showInformationMessage(
+            `${pkg} is already at the latest compatible version — current ${curLabel} ≥ registry best ${remote.best ?? "none"}.`,
+            DETAILS,
+          ),
         );
         return;
       }
       const pick = await vscode.window.showInformationMessage(
-        `${pkg} ${remote.best} is available (current: ${remote.current}${fmtBuild(remote.currentBuiltAt)}).${remote.managed ? " Instances in other windows are unaffected and switch on restart." : ""}\n\n${detail}`,
+        `${pkg} ${remote.best} is available (current: ${curLabel}).${remote.managed ? " Instances in other windows are unaffected and switch on restart." : ""}`,
         "Upgrade Now",
+        DETAILS,
         "Later",
       );
+      if (showDetails(pick)) return;
       if (pick !== "Upgrade Now") return;
       const installChannel = outputChannel();
       const ok = await vscode.window.withProgress(
