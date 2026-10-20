@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { BOOT_ID } from "@/lib/boot";
 import { getSessionListVersion } from "@/lib/session-reader";
 import {
   getAwaitingInputRpcSessionIds,
@@ -18,6 +19,7 @@ export async function GET() {
   recordClientActivity();
   return NextResponse.json(
     {
+      boot: BOOT_ID,
       sessionListVersion: getSessionListVersion(),
       runningSessionIds: getRunningRpcSessionIds(),
       awaitingInputSessionIds: getAwaitingInputRpcSessionIds(),

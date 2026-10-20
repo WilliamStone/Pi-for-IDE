@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { BOOT_ID } from "@/lib/boot";
 import { embedCapabilities } from "@/lib/embed/lifecycle";
 
 // Embed 模式探测端点。
@@ -7,10 +8,6 @@ import { embedCapabilities } from "@/lib/embed/lifecycle";
 // 服务器是否包含 embed 桥补丁——原版 pi-web 没有此路由（404），打过补丁
 // 的返回 200 + 协议版本 + 能力表。宿主据此决定是否启用桥能力或提示安装正确版本。
 const EMBED_PROTOCOL_VERSION = 1;
-
-// 进程实例标识：模块加载即定型 = 本次启动时间戳。宿主据此区分"同一服务
-// 器还在"与"服务器重启过"（升级换包后旧 iframe 需要换页）。
-const BOOT_ID = String(Date.now());
 
 export function GET() {
   // version 供宿主做版本/协议兼容性提示（扩展据此判断该升级哪一侧）。

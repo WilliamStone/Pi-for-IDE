@@ -75,6 +75,7 @@ import {
 } from "@/lib/session-ui-state-shared";
 import { focusIfLost, type FocusDocument } from "@/lib/stacked-dialog";
 import { useFilesPlacement } from "@/hooks/useFilesPlacement";
+import { noteServerBoot } from "@/lib/boot-watch";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useResizablePanel } from "@/hooks/useResizablePanel";
@@ -909,6 +910,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         });
         if (!res.ok) return;
         const data = await res.json() as {
+          boot?: string;
           sessionListVersion: number;
           runningSessionIds?: string[];
           awaitingInputSessionIds?: string[];
@@ -916,6 +918,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           sessionUiStateRevision?: number | null;
         };
         if (stopped || controller !== current) return;
+        noteServerBoot(data.boot);
         runningPollAuthoritativeRef.current = true;
         currentSuppressedCompletionSessionIdsRef.current = new Set(
           data.completionNotificationSuppressedSessionIds ?? [],
