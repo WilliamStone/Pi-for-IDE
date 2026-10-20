@@ -19,5 +19,19 @@
   "config.autoStopAfterSec": "扩展拉起的服务器在完全静默（无心跳、无打开客户端）多少秒后自行退出。仅在 autoStop 开启时生效。最小 90——后台浏览器页约每分钟才能轮询一次。",
   "config.checkForUpdates": "激活后检查一次 pi-web-for-ide 新版本并提供升级（installSource 决定查 registry、本地包还是两边都比）。",
   "config.localPackage": "本地 pi-web .tgz 的路径——可以直接指文件，也可以指目录（自动挑目录里最新的匹配构建，包名/文件名随版本变化也不用改配置）。",
-  "config.installSource": "安装/升级来源：auto = 本地包与 registry 两边相比，同版本时优先本地；prefer-remote = 同样相比但同版本时优先在线；local = 只用 localPackage 本地包；registry = 只用 npm（忽略 localPackage）。"
+  "config.installSource": "安装/升级来源：auto = 本地包与 registry 两边相比，同版本时优先本地；prefer-remote = 同样相比但同版本时优先在线；local = 只用 localPackage 本地包；registry = 只用 npm（忽略 localPackage）。",
+  "view.container.piIde": "Pi for IDE",
+  "view.sessions": "会话",
+  "viewWelcome.sessions": "本机全部 pi 会话，按项目分组。启动服务器后可看到实时运行状态。\n[打开 Pi for IDE](command:piIde.open)",
+  "cmd.session.open": "打开会话",
+  "cmd.session.rename": "重命名会话",
+  "cmd.session.fork": "派生会话",
+  "cmd.session.delete": "删除会话",
+  "cmd.session.pin": "置顶会话",
+  "cmd.session.unpin": "取消置顶",
+  "cmd.session.archive": "归档会话",
+  "cmd.session.unarchive": "取消归档",
+  "cmd.sessions.refresh": "刷新会话列表",
+  "cmd.sessions.toggleWorkspaceOnly": "只看本工作区会话",
+  "cmd.sessions.cycleViewMode": "切换 分组/最近 视图"
 }

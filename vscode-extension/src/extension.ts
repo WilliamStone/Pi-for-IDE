@@ -32,6 +32,7 @@ import {
   sweepManagedVersions,
 } from "./managedRuntime";
 import { PiWebWebviewPanel } from "./webviewProvider";
+import { registerSessionCommands, SessionsTreeProvider } from "./sessions-tree";
 import { Bridge, clearActiveEditorCache, resolveActiveEditor } from "./bridge";
 
 let server: Promise<PiIdeServer | undefined>;
@@ -177,6 +178,42 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.workspace.getConfiguration("Pi for IDE").get<boolean>("openBeside", true)
       ? vscode.ViewColumn.Beside
       : vscode.ViewColumn.Active;
+
+  // -------------------------------------------------------------------------
+  // 原生会话侧栏（Activity Bar → Sessions）：导航权归宿主，pi-web 侧栏由
+  // TreeDataProvider 直连本地 API 替代；点开会话经 ?session= 深链导航面板。
+  // -------------------------------------------------------------------------
+  {
+    const sessionsProvider = new SessionsTreeProvider(
+      async () => (server ? (await server)?.origin : undefined),
+      context.workspaceState,
+      () => (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath),
+    );
+    const sessionsView = vscode.window.createTreeView("piIde.sessions", {
+      treeDataProvider: sessionsProvider,
+      showCollapseAll: true,
+    });
+    sessionsProvider.setVisible(sessionsView.visible);
+    context.subscriptions.push(
+      sessionsProvider,
+      sessionsView,
+      sessionsView.onDidChangeVisibility((e) => sessionsProvider.setVisible(e.visible)),
+      vscode.workspace.onDidChangeWorkspaceFolders(() => sessionsProvider.reload()),
+    );
+    void vscode.commands.executeCommand(
+      "setContext", "piIde.sessions.workspaceOnly", sessionsProvider.isWorkspaceOnly(),
+    );
+    registerSessionCommands(context, {
+      getBaseUrl: async () => (server ? (await server)?.origin : undefined),
+      ensureServer,
+      provider: sessionsProvider,
+      openSession: async (id: string) => {
+        let cwd = resolveConfiguredCwd();
+        if (!cwd) cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "";
+        await provider!.reveal(cwd, openViewColumn(), id);
+      },
+    });
+  }
 
   // （Beside）展示面板。
   context.subscriptions.push(

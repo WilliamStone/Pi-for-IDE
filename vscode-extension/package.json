@@ -89,6 +89,97 @@
         "title": "%cmd.versions%",
         "category": "Pi for IDE",
         "icon": "$(versions)"
+      },
+      {
+        "command": "piIde.session.open",
+        "title": "%cmd.session.open%",
+        "category": "Pi for IDE",
+        "icon": "$(comment)"
+      },
+      {
+        "command": "piIde.session.rename",
+        "title": "%cmd.session.rename%",
+        "category": "Pi for IDE",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "piIde.session.fork",
+        "title": "%cmd.session.fork%",
+        "category": "Pi for IDE",
+        "icon": "$(repo-forked)"
+      },
+      {
+        "command": "piIde.session.delete",
+        "title": "%cmd.session.delete%",
+        "category": "Pi for IDE",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "piIde.session.pin",
+        "title": "%cmd.session.pin%",
+        "category": "Pi for IDE",
+        "icon": "$(pin)"
+      },
+      {
+        "command": "piIde.session.unpin",
+        "title": "%cmd.session.unpin%",
+        "category": "Pi for IDE",
+        "icon": "$(pinned)"
+      },
+      {
+        "command": "piIde.session.archive",
+        "title": "%cmd.session.archive%",
+        "category": "Pi for IDE",
+        "icon": "$(archive)"
+      },
+      {
+        "command": "piIde.session.unarchive",
+        "title": "%cmd.session.unarchive%",
+        "category": "Pi for IDE",
+        "icon": "$(archive)"
+      },
+      {
+        "command": "piIde.sessions.refresh",
+        "title": "%cmd.sessions.refresh%",
+        "category": "Pi for IDE",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "piIde.sessions.toggleWorkspaceOnly",
+        "title": "%cmd.sessions.toggleWorkspaceOnly%",
+        "category": "Pi for IDE",
+        "icon": "$(home)"
+      },
+      {
+        "command": "piIde.sessions.cycleViewMode",
+        "title": "%cmd.sessions.cycleViewMode%",
+        "category": "Pi for IDE",
+        "icon": "$(list-tree)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "piIde",
+          "title": "%view.container.piIde%",
+          "icon": "resources/icons/icon-128.png"
+        }
+      ]
+    },
+    "views": {
+      "piIde": [
+        {
+          "id": "piIde.sessions",
+          "name": "%view.sessions%",
+          "icon": "$(comment-discussion)",
+          "contextualTitle": "Pi Sessions"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "piIde.sessions",
+        "contents": "%viewWelcome.sessions%"
       }
     ],
     "configuration": {
@@ -177,6 +268,50 @@
         {
           "command": "piIde.mentionSelection",
           "when": "false"
+        },
+        {
+          "command": "piIde.session.open",
+          "when": "false"
+        },
+        {
+          "command": "piIde.session.rename",
+          "when": "false"
+        },
+        {
+          "command": "piIde.session.fork",
+          "when": "false"
+        },
+        {
+          "command": "piIde.session.delete",
+          "when": "false"
+        },
+        {
+          "command": "piIde.session.pin",
+          "when": "false"
+        },
+        {
+          "command": "piIde.session.unpin",
+          "when": "false"
+        },
+        {
+          "command": "piIde.session.archive",
+          "when": "false"
+        },
+        {
+          "command": "piIde.session.unarchive",
+          "when": "false"
+        },
+        {
+          "command": "piIde.sessions.refresh",
+          "when": "false"
+        },
+        {
+          "command": "piIde.sessions.toggleWorkspaceOnly",
+          "when": "false"
+        },
+        {
+          "command": "piIde.sessions.cycleViewMode",
+          "when": "false"
         }
       ],
       "editor/title": [
@@ -215,6 +350,68 @@
           "command": "piIde.stop",
           "when": "view == 'piIde.webview' && piIde.serverRunning",
           "group": "navigation@2"
+        },
+        {
+          "command": "piIde.sessions.refresh",
+          "when": "view == 'piIde.sessions'",
+          "group": "navigation@0"
+        },
+        {
+          "command": "piIde.sessions.toggleWorkspaceOnly",
+          "when": "view == 'piIde.sessions' && !piIde.sessions.workspaceOnly",
+          "group": "navigation@1"
+        },
+        {
+          "command": "piIde.sessions.toggleWorkspaceOnly",
+          "when": "view == 'piIde.sessions' && piIde.sessions.workspaceOnly",
+          "group": "navigation@1"
+        },
+        {
+          "command": "piIde.sessions.cycleViewMode",
+          "when": "view == 'piIde.sessions'",
+          "group": "navigation@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "piIde.session.open",
+          "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session/",
+          "group": "inline@0"
+        },
+        {
+          "command": "piIde.session.rename",
+          "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session/",
+          "group": "piweb@1"
+        },
+        {
+          "command": "piIde.session.fork",
+          "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session/",
+          "group": "piweb@2"
+        },
+        {
+          "command": "piIde.session.pin",
+          "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session/ && viewItem !~ /pinned/",
+          "group": "piweb@3"
+        },
+        {
+          "command": "piIde.session.unpin",
+          "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session\\.pinned/",
+          "group": "piweb@3"
+        },
+        {
+          "command": "piIde.session.archive",
+          "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session/ && viewItem !~ /archived/",
+          "group": "piweb@4"
+        },
+        {
+          "command": "piIde.session.unarchive",
+          "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session\\.archived/",
+          "group": "piweb@4"
+        },
+        {
+          "command": "piIde.session.delete",
+          "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session/",
+          "group": "piweb@5"
         }
       ]
     }

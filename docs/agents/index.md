@@ -197,6 +197,8 @@ vscode-extension/src/
   paths.ts                pure: cross-platform path normalization for the bridge (win32/POSIX/UNC/relative)
   revert.ts               pure: applyEditsReversed — occurrence-checked, $-pattern-safe undo of pi edits
   bridge.ts               host-side embed request handlers (files/diff/revert/snapshot/terminal); path allowlist
+  sessions-tree.ts        native Sessions sidebar: TreeDataProvider polling /api/agent/running + /api/sessions; item actions (open/rename/fork/delete/pin/archive) via registerSessionCommands
+  sessions-model.ts       vscode-free model core for the sidebar: workspace filter, project grouping, recent mode, titles, relTime
   extension.ts            activation, commands, status bar, update checks
   webviewProvider.ts      single-document webview shell (postMessage-driven states; CSP + static resources/shell.js)
 

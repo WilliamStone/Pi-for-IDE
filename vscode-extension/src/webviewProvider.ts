@@ -28,6 +28,8 @@ import type { Bridge } from "./bridge";
 export class PiWebWebviewPanel extends vscode.Disposable {
   private panel: vscode.WebviewPanel | undefined;
   private currentCwd: string | undefined;
+  /** 宿主钉住的会话——原生侧栏点选后 URL 带 ?session= 深链。 */
+  private sessionId: string | undefined;
   /** 上次渲染 iframe 用的服务器实例与 URL——变了才重载 iframe。 */
   private lastServer: PiIdeServer | undefined;
   private lastUrl: string | undefined;
@@ -104,10 +106,11 @@ export class PiWebWebviewPanel extends vscode.Disposable {
    * Reveal the panel in the given column, (re)loading it with `cwd` if the
    * cwd changed or the panel was disposed.
    */
-  async reveal(cwd: string, viewColumn: vscode.ViewColumn): Promise<void> {
-    logLifecycle(`reveal: cwd=${cwd || "(none)"}`);
-    const cwdChanged = this.currentCwd !== cwd;
+  async reveal(cwd: string, viewColumn: vscode.ViewColumn, sessionId?: string): Promise<void> {
+    logLifecycle(`reveal: cwd=${cwd || "(none)"} session=${sessionId ?? "(latest)"}`);
+    const cwdChanged = this.currentCwd !== cwd || this.sessionId !== sessionId;
     this.currentCwd = cwd;
+    this.sessionId = sessionId;
 
     if (this.panel && !cwdChanged) {
       // Same cwd — 聚焦面板；refresh 内部判断服务器实例是否变了，
@@ -288,6 +291,7 @@ export class PiWebWebviewPanel extends vscode.Disposable {
     const url = new URL(server.origin);
     url.searchParams.set("embed", "vscode");
     if (this.currentCwd) url.searchParams.set("cwd", this.currentCwd);
+    if (this.sessionId) url.searchParams.set("session", this.sessionId);
     url.searchParams.set("extVer", this.extensionVersion);
     // 实例标识进 URL：同端口重启的新实例 URL 仍不同——shell 的
     // loadedUrl 判重不会把它当"同一地址"吞掉，iframe 必然换新页。
