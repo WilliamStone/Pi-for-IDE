@@ -19,6 +19,7 @@ import { MarkdownBody } from "./MarkdownBody";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { TurnFileReview } from "./embed/TurnFileReview";
 import { useTurnRevert } from "./embed/useTurnRevert";
+import { embedExtVersion } from "@/lib/embed/bridge";
 import { appDisplayName } from "@/lib/brand";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
@@ -255,10 +256,8 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   const isMobile = useIsMobile();
   // embed 模式下宿主扩展经 ?extVer= 传入扩展版本——欢迎页品牌区按三行排版
   // （pi for IDE <ext> / web for IDE <pkg> / pi v<x> · pi-web v<base>）。
-  const [extVersion, setExtVersion] = useState<string | null>(null);
-  useEffect(() => {
-    setExtVersion(new URLSearchParams(window.location.search).get("extVer"));
-  }, []);
+  // 入口参数快照（SPA 站内导航后 location.search 已不带 extVer，不能现读）。
+  const extVersion = embedExtVersion();
   const completionNotificationsEnabled = session?.relation?.kind !== "subagent";
 
   // Wrap onAgentEnd to play the completion sound. This is more reliable than

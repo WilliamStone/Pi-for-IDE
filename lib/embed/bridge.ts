@@ -253,6 +253,14 @@ const EMBED_QUERY_KEY = "embed";
 const MESSAGE_SOURCE_PAGE = "embed";
 const MESSAGE_SOURCE_HOST = "host";
 
+// 页面入口 URL 的查询参数——SPA 站内导航会改写 location.search，但 embed
+// 契约参数（embed/extVer）只存在于宿主构造的入口 URL。模块装载时快照
+// 一次：此后任何组件读到的一定是入口值，不被导航清掉。
+const entryParams =
+  typeof window !== "undefined"
+    ? new URL(window.location.href).searchParams
+    : new URLSearchParams();
+
 let cachedEmbedMode: boolean | null = null;
 
 /**
@@ -262,16 +270,7 @@ let cachedEmbedMode: boolean | null = null;
  */
 export function isEmbedMode(): boolean {
   if (cachedEmbedMode !== null) return cachedEmbedMode;
-  if (typeof window === "undefined") {
-    cachedEmbedMode = false;
-    return false;
-  }
-  try {
-    const params = new URL(window.location.href).searchParams;
-    cachedEmbedMode = Boolean(params.get(EMBED_QUERY_KEY));
-  } catch {
-    cachedEmbedMode = false;
-  }
+  cachedEmbedMode = Boolean(entryParams.get(EMBED_QUERY_KEY));
   return cachedEmbedMode;
 }
 
@@ -279,12 +278,15 @@ export function isEmbedMode(): boolean {
  * 当前宿主标识（`?embed=<hostId>` 的值，如 "vscode"）；非 embed 模式为 null。
  */
 export function embedHostId(): string | null {
-  if (!isEmbedMode() || typeof window === "undefined") return null;
-  try {
-    return new URL(window.location.href).searchParams.get(EMBED_QUERY_KEY);
-  } catch {
-    return null;
-  }
+  return isEmbedMode() ? entryParams.get(EMBED_QUERY_KEY) : null;
+}
+
+/**
+ * 宿主扩展版本（`?extVer=`，嵌入宿主传入）——与 embed 参数同样只在
+ * 入口 URL 有效，统一走 entryParams 快照；非 embed 模式为 null。
+ */
+export function embedExtVersion(): string | null {
+  return entryParams.get("extVer");
 }
 
 // Resolvers waiting for host responses, keyed by request id.
