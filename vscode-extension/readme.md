@@ -70,4 +70,4 @@ After each turn, a **File review** card lists the files the agent touched:
 
 - Runs standalone in a browser just like upstream pi-web — one package, two uses.
 - Want a dedicated server that's never shared? Set `Pi for IDE.port` outside 3030–3039.
-- Revert restores each touched file to its pre-turn state — manual edits you made to the same file *after* the turn are overwritten (files the turn never touched are unaffected). Confirm before reverting.
+- Revert restores each touched file to its pre-turn state; files you manually edited after the turn are skipped with a notice instead of being overwritten.
