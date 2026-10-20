@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { gzipSync } from "node:zlib";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { registerHooks } from "node:module";
@@ -26,7 +26,8 @@ registerHooks({
   },
 });
 
-const { pickVersionDirName, readTgzIdentity, resolveLocalPackagePath } = await import("./managedRuntime.ts");
+const { pickVersionDirName } = await import("./managedRuntime.ts");
+const { readTgzIdentity, resolveLocalPackagePath } = await import("./tgz.ts");
 const { pickInstallFlow } = await import("./server-resolve.ts");
 
 const PKG = "@william_stone/pi-web-for-ide";

@@ -39,7 +39,7 @@
         if (gen !== myGen) return;
         showFrame(url);
         return;
-      } catch (e) {
+      } catch {
         await new Promise(function (r) { setTimeout(r, 1500); });
       }
     }

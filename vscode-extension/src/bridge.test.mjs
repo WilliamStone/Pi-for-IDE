@@ -208,14 +208,14 @@ test("reconstructBefore reverse-applies edits against the current file", async (
   assert.equal(drifted.content, null);
 });
 
-test("openText requests a host in-memory document", async (t) => {
+test("openText requests a host in-memory document", async () => {
   const bridge = new Bridge(() => {});
   await bridge.handle({ kind: "openText", content: "@@ -1 +1 @@\n-a\n+b", language: "diff" });
   assert.equal(calls.showTextDocument.length, 1);
   assert.equal(calls.showTextDocument[0].doc.language, "diff");
 });
 
-test("showDiff writes both temp sides and invokes vscode.diff", async (t) => {
+test("showDiff writes both temp sides and invokes vscode.diff", async () => {
   const bridge = new Bridge(() => {});
   await bridge.handle({ kind: "showDiff", filePath: "f.ts", before: "old\n", after: "new\n" });
   const diff = calls.executeCommand.find((c) => c.cmd === "vscode.diff");

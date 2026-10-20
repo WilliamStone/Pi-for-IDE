@@ -11,8 +11,9 @@ const eslintConfig = [
     ignores: ["vscode-extension/out/**", "vscode-extension/node_modules/**"],
   },
   {
-    // 纯 Node CJS 脚本（如扩展打包脚本）允许 require()。
-    files: ["vscode-extension/scripts/**/*.js"],
+    // 纯 Node CJS 脚本允许 require()：扩展打包脚本、仓库构建/打包脚本、
+    // .cjs 文件——这些文件随 Node 直接运行，不是被 import 的模块。
+    files: ["vscode-extension/scripts/**/*.js", "scripts/**", "**/*.cjs"],
     rules: { "@typescript-eslint/no-require-imports": "off" },
   },
   {

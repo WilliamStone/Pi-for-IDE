@@ -4,7 +4,7 @@ import tsPlugin from "@typescript-eslint/eslint-plugin";
 // 本目录独立的 flat 配置——根仓库 eslint.config.js 是 Next 版，对扩展
 // devDeps（eslint 8 + typescript-eslint 7）不兼容，不能让 eslint 向上
 // 冒泡到它。
-export default [
+const config = [
   { ignores: ["out/**", "src/**/*.test.mjs"] },
   {
     files: ["src/**/*.ts"],
@@ -25,3 +25,4 @@ export default [
     },
   },
 ];
+export default config;

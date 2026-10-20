@@ -19,10 +19,8 @@ import {
   managedPackageBin,
   pickNewestSupported,
   queryRegistryCompat,
-  readTgzIdentity,
-  resolveLocalPackagePath,
-  type BuildIdentity,
 } from "./managedRuntime";
+import { readTgzIdentity, resolveLocalPackagePath, type BuildIdentity } from "./tgz";
 import { emitServerStatus } from "./server-status";
 
 export type SpawnTarget =

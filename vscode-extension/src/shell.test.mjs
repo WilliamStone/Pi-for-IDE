@@ -107,7 +107,7 @@ test("serverReady after an error recovers (new probe generation)", async () => {
 });
 
 test("embed envelope forwards to host; host envelope forwards into iframe", async () => {
-  const { window, posted, frame, post } = bootShell();
+  const { posted, frame, post } = bootShell();
   post({ source: "embed", id: "r1", request: { kind: "readFile" } });
   // MessageEvent 结构化克隆——按字段断言而非引用
   assert.equal(posted.at(-1).source, "embed");

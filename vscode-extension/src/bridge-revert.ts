@@ -1,0 +1,532 @@
+import { exec } from "child_process";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
+import * as vscode from "vscode";
+import { baseName, isWithinCwd, normalizeAbsPath, pathKey, toGitRelPath } from "./paths";
+import { applyEditsReversed } from "./revert";
+
+// ---------------------------------------------------------------------------
+// 桥接请求的「文件快照 + diff + 回退」域（零 git 写入：不创建任何 git
+// 对象/refs）。从 bridge.ts 拆出——该域自带独立状态（快照表/diff 缓存
+// 目录）与 git/fs 辅助簇，与其他桥请求无共享代码。
+// ---------------------------------------------------------------------------
+
+export class TurnRevert {
+  /**
+   * session cwd → 最近3轮快照的内存表。快照只存「本轮前相对 HEAD 有
+   * 未提交改动的文件」的磁盘内容 + git 是否可用。超出3轮自动淘汰最老。
+   */
+  private readonly snapshots = new Map<string, TurnSnapshot[]>();
+  private static readonly MAX_TURNS = 3;
+  private readonly logger: (line: string) => void;
+
+  constructor(logger: (line: string) => void) {
+    this.logger = logger;
+  }
+
+  /**
+   * 在新一轮 prompt 发出前建快照。只读：git diff HEAD --name-only 取
+   * 「相对 HEAD 有改动的文件」清单 + 读这些文件的磁盘内容。不创建
+   * 任何 git 对象，不动 index/stash list。
+   */
+  async captureSnapshot(req: CaptureSnapshotRequest): Promise<CaptureSnapshotResponse> {
+    const { turnId } = req;
+    const cwd = await this.canonicalCwd(req.cwd);
+    try {
+      // 1. git 仓库根——diff/ls-files/show 的路径都相对 toplevel，cwd 在
+      //    子目录时按 cwd 拼会全错位；非仓库则 gitRoot=null。
+      const gitRoot = await this.gitToplevel(cwd);
+      // 2. 取相对 HEAD 有改动的文件清单（只读，repo-root 相对）
+      let dirtyFiles: string[] = [];
+      if (gitRoot) {
+        dirtyFiles = await this.gitDiffNameOnly(gitRoot);
+      }
+      // 3. 读这些文件的磁盘内容（本轮前的未提交改动）。单文件 >2MB 跳过
+      // （快照留空，回退走 HEAD 兜底）——脏区巨大的仓库不该全量读进内存。
+      //    键用 pathKey：win32 下各来源的大小写不一致会让字符串键假 miss。
+      const files = new Map<string, string>();
+      for (const p of dirtyFiles) {
+        const abs = this.normalizePath(p, gitRoot ?? cwd);
+        const content = await this.readFileText(abs, 2 * 1024 * 1024);
+        if (content !== null) files.set(pathKey(abs, cwd), content);
+      }
+      // 4. 存内存表，超出3轮淘汰最老
+      let list = this.snapshots.get(cwd);
+      if (!list) { list = []; this.snapshots.set(cwd, list); }
+      list.push({ turnId, gitRoot, files });
+      while (list.length > TurnRevert.MAX_TURNS) list.shift();
+      this.logger(`captureSnapshot: turn=${turnId}, git=${!!gitRoot}, dirtyFiles=${dirtyFiles.length}`);
+      return { kind: "captureSnapshot", success: true };
+    } catch (error) {
+      this.logger(`captureSnapshot failed: ${error}`);
+      return { kind: "captureSnapshot", success: false, message: String(error) };
+    }
+  }
+
+  /**
+   * 取某文件在本轮快照里的 before 内容。优先级：
+   *   1. 快照里有 → 返回快照内容（含本轮前未提交改动）
+   *   2. git 仓库且文件被追踪 → git show HEAD:path（= HEAD 版本）
+   *   3. 都没有 → null（前端据此标「无快照」）
+   */
+  async getBeforeContent(req: GetBeforeContentRequest): Promise<GetBeforeContentResponse> {
+    const { turnId, filePath } = req;
+    const cwd = await this.canonicalCwd(req.cwd);
+    const abs = await this.canonicalPath(this.normalizePath(filePath, cwd));
+    try {
+      const list = this.snapshots.get(cwd);
+      const snap = list?.find((s) => s.turnId === turnId);
+      if (snap) {
+        const key = pathKey(abs, cwd);
+        if (snap.files.has(key)) {
+          return { kind: "getBeforeContent", content: snap.files.get(key)! };
+        }
+        // 快照无此文件且 git 可用 → 试 git show HEAD:<repo-rel>
+        if (snap.gitRoot) {
+          const rel = toGitRelPath(abs, snap.gitRoot);
+          const content = await this.gitShowHead(snap.gitRoot, rel);
+          return { kind: "getBeforeContent", content };
+        }
+      }
+      return { kind: "getBeforeContent", content: null };
+    } catch (error) {
+      this.logger(`getBeforeContent failed: ${error}`);
+      return { kind: "getBeforeContent", content: null };
+    }
+  }
+
+  /**
+   * 反放重建 before：读磁盘当前内容，把该轮的 edits 反序换回 oldText——
+   * 不依赖快照/git，任意历史轮（旧版会话、快照淘汰后）都能给出 diff 左侧。
+   * 与 revertEdit 同一校验：文件后来被外部改动（newText 失踪/多现）→ null。
+   */
+  async reconstructBefore(req: ReconstructBeforeRequest): Promise<ReconstructBeforeResponse> {
+    const { filePath, edits } = req;
+    const cwd = await this.canonicalCwd(req.cwd);
+    try {
+      const abs = await this.canonicalPath(this.normalizePath(filePath, cwd));
+      if (!isWithinCwd(abs, cwd) || !edits?.length) {
+        return { kind: "reconstructBefore", content: null };
+      }
+      const current = await this.readFileText(abs);
+      if (current === null) {
+        return { kind: "reconstructBefore", content: null };
+      }
+      const applied = applyEditsReversed(current, edits);
+      if (!applied.ok) {
+        this.logger(`reconstructBefore: ${filePath} — ${applied.reason}`);
+        return { kind: "reconstructBefore", content: null };
+      }
+      return { kind: "reconstructBefore", content: applied.content };
+    } catch (error) {
+      this.logger(`reconstructBefore failed: ${error}`);
+      return { kind: "reconstructBefore", content: null };
+    }
+  }
+
+  /**
+   * 用 VSCode 原生 diff 显示 before/after。写到临时目录（不进 git），
+   * 用 vscode.diff 命令打开侧边对比。before/after 为空时用空内容。
+   */
+  async showDiff(req: ShowDiffRequest): Promise<void> {
+    const { filePath, before, after, title } = req;
+    try {
+      const base = baseName(filePath);
+      const tmpDir = await this.ensureDiffCacheDir();
+      // 文名加 hash 后缀避免并发冲突
+      const tag = Buffer.from(filePath).toString("hex").slice(0, 12);
+      const beforeUri = vscode.Uri.file(`${tmpDir}/${base}.${tag}.before`);
+      const afterUri = vscode.Uri.file(`${tmpDir}/${base}.${tag}.after`);
+      await vscode.workspace.fs.writeFile(beforeUri, Buffer.from(before, "utf8"));
+      await vscode.workspace.fs.writeFile(afterUri, Buffer.from(after, "utf8"));
+      const label = title || `${base} (this turn)`;
+      await vscode.commands.executeCommand("vscode.diff", beforeUri, afterUri, label);
+    } catch (error) {
+      this.logger(`showDiff failed: ${error}`);
+    }
+  }
+
+  /**
+   * 打开一段文本为内存文档（不落盘）。漂移文件的 diff 降级路径：
+   * 展示 toolResult 里记录的 unified patch——与 pi-web 内嵌 diff 同源。
+   */
+  async openText(req: OpenTextRequest): Promise<void> {
+    try {
+      const doc = await vscode.workspace.openTextDocument({
+        content: req.content,
+        language: req.language ?? "diff",
+      });
+      await vscode.window.showTextDocument(doc, { preview: true });
+    } catch (error) {
+      this.logger(`openText failed: ${error}`);
+    }
+  }
+
+  /**
+   * 回退：把指定文件恢复到本轮快照的内容。直接 fs.writeFile，不碰 git
+   * index/对象库。created 里列出的文件（页面声称本轮 write 新建）在快照
+   * 与 HEAD 都没有时删除——快照漏采与"本来就存在"已被二者共同排除。
+   */
+  async revertFiles(req: RevertFilesRequest): Promise<RevertFilesResponse> {
+    const { turnId, files, created } = req;
+    const cwd = await this.canonicalCwd(req.cwd);
+    try {
+      const list = this.snapshots.get(cwd);
+      const snap = list?.find((s) => s.turnId === turnId);
+      if (!snap) {
+        return { kind: "revertFiles", success: false, message: "snapshot missing or expired" };
+      }
+      const createdSet = new Set((created ?? []).map((p) => pathKey(p, cwd)));
+      // 与 files[] 同一来源路径：按 normalizePath 键对齐（不走 canonical——
+      // canonical 只在文件存在时才有意义，expectedAfter 的键必须跟请求路径一致）。
+      const expectedMap = new Map<string, string>(
+        (req.expectedAfter ?? []).map((e) => [pathKey(this.normalizePath(e.filePath, cwd), cwd), e.content]),
+      );
+      let reverted = 0;
+      const errors: string[] = [];
+      for (const filePath of files) {
+        const abs = await this.canonicalPath(this.normalizePath(filePath, cwd));
+        const key = pathKey(abs, cwd);
+        try {
+          if (!isWithinCwd(abs, cwd)) {
+            errors.push(`${filePath}: outside session cwd`);
+            continue;
+          }
+          // 漂移守护：轮后预期内容已知且文件仍在、内容与轮后不符 →
+          // 用户在轮后改过该文件——跳过并报错，绝不覆盖手动修改。
+          // 文件已删（null）不算漂移：created 分支视为已回退，快照/HEAD
+          // 分支照常恢复（删除不是需要保护的编辑）。
+          const expected = expectedMap.get(pathKey(this.normalizePath(filePath, cwd), cwd));
+          if (expected !== undefined) {
+            const current = await this.readFileText(abs);
+            if (current !== null && current !== expected) {
+              errors.push(`${filePath}: changed since the turn — skipped to keep your edits`);
+              continue;
+            }
+            if (current === null && createdSet.has(key)) {
+              reverted++; // 本轮新建的文件已被用户删掉——回退目标态已达成
+              continue;
+            }
+          }
+          if (snap.files.has(key)) {
+            // 本轮前有未提交改动 → 恢复成那个内容
+            await vscode.workspace.fs.writeFile(
+              vscode.Uri.file(abs),
+              Buffer.from(snap.files.get(key)!, "utf8"),
+            );
+            reverted++;
+          } else if (snap.gitRoot) {
+            // 快照无此文件。可能：本轮前已存在但快照采集遗漏（路径不匹配 /
+            // gitDiffNameOnly 未列出），或本轮新建。
+            // 用 git show HEAD:<repo-rel> 兴许能取到本轮前内容（= HEAD 版本）。
+            const rel = toGitRelPath(abs, snap.gitRoot);
+            const content = await this.gitShowHead(snap.gitRoot, rel);
+            if (content !== null) {
+              // git HEAD 有此文件 → 恢复成 HEAD 版本
+              await vscode.workspace.fs.writeFile(
+                vscode.Uri.file(abs),
+                Buffer.from(content, "utf8"),
+              );
+              reverted++;
+            } else if (createdSet.has(key)) {
+              // 快照没有 + HEAD 没有 + 页面记录为本轮新建 → 删除即回退。
+              // 快照采集过的"已存在文件"进不了这个分支（dirty 清单含
+              // 未追踪文件，存在即入快照），误删空间只剩页面假报。
+              await vscode.workspace.fs.delete(vscode.Uri.file(abs));
+              reverted++;
+            } else {
+              // git HEAD 无此文件且页面未声明本轮新建（本轮前就不在 git 里）。
+              // 不安全地删文件会误删——可能只是快照采集遗漏。宁可报错，也不删。
+              errors.push(`${filePath}: no snapshot and file absent from git HEAD; cannot revert safely`);
+            }
+          } else if (createdSet.has(key)) {
+            // 非 git：快照无 + 页面声明本轮新建 → 删。
+            await vscode.workspace.fs.delete(vscode.Uri.file(abs));
+            reverted++;
+          } else {
+            // 非 git 且快照无 → 无法回退
+            errors.push(`${filePath}: no snapshot and not a git repo`);
+          }
+        } catch (error) {
+          errors.push(`${filePath}: ${error}`);
+        }
+      }
+      this.logger(`revertFiles: turn=${turnId}, reverted=${reverted}/${files.length}`);
+      return {
+        kind: "revertFiles",
+        success: errors.length === 0,
+        message: errors.length ? errors.join("; ") : undefined,
+      };
+    } catch (error) {
+      this.logger(`revertFiles failed: ${error}`);
+      return { kind: "revertFiles", success: false, message: String(error) };
+    }
+  }
+
+  /**
+   * 回退 edit：读磁盘当前内容，把每个 newText 换回 oldText（反序 apply）。
+   * 纯 fs，零 git。edit 工具的 input.edits 自带 oldText/newText 对，
+   * 反序遍历（后改的先换回）依次 replace 即可还原。
+   */
+  async revertEdit(req: RevertEditRequest): Promise<RevertEditResponse> {
+    const { filePath, edits } = req;
+    const cwd = await this.canonicalCwd(req.cwd);
+    try {
+      const abs = await this.canonicalPath(this.normalizePath(filePath, cwd));
+      if (!isWithinCwd(abs, cwd)) {
+        return {
+          kind: "revertEdit",
+          success: false,
+          message: `path outside session cwd: ${filePath}`,
+        };
+      }
+      const bytes = await vscode.workspace.fs.readFile(vscode.Uri.file(abs));
+      const content = Buffer.from(bytes).toString("utf8");
+      // 反序 apply：后改的先换回，避免前面的 replace 污染后面的上下文
+      // （次数校验与 $ 模式防护在纯模块 revert.ts 里）
+      const applied = applyEditsReversed(content, edits);
+      if (!applied.ok) {
+        return { kind: "revertEdit", success: false, message: applied.reason };
+      }
+      await vscode.workspace.fs.writeFile(
+        vscode.Uri.file(abs),
+        Buffer.from(applied.content, "utf8"),
+      );
+      this.logger(`revertEdit: ${filePath}, reverse-applying ${edits.length} edits`);
+      return { kind: "revertEdit", success: true };
+    } catch (error) {
+      this.logger(`revertEdit failed: ${error}`);
+      return { kind: "revertEdit", success: false, message: String(error) };
+    }
+  }
+
+  // --- git / fs 辅助（均只读） ---
+
+  /**
+   * git 仓库根的规范化绝对路径；非仓库返回 null。
+   * diff/ls-files/show 的路径语义全部相对 toplevel——调用方一律拿这个
+   * 根，不能拿 session cwd 拼 git 相对路径。
+   */
+  private async gitToplevel(cwd: string): Promise<string | null> {
+    try {
+      const { stdout, exitCode } = await this.runGit(cwd, ["rev-parse", "--show-toplevel"]);
+      const top = stdout.trim();
+      if (exitCode !== 0 || !top) return null;
+      // git 报的根可能与本侧 cwd 差一个符号链接/junction 解析——realpath
+      // 对齐，否则 toplevel 与 cwd 拼出的路径键互不相认。
+      const real = await fs.promises.realpath(top).catch(() => top);
+      return this.normalizePath(real, cwd);
+    } catch {
+      return null;
+    }
+  }
+
+  private async gitDiffNameOnly(cwd: string): Promise<string[]> {
+    // 已追踪文件相对 HEAD 的改动（含已暂存和未暂存的修改/删除）。
+    // 注意：git diff HEAD 不含未追踪的新文件，单独用 ls-files 补上。
+    const dirty = new Set<string>();
+    const { stdout: diffOut, exitCode: diffCode } = await this.runGit(cwd, [
+      "diff", "--no-color", "--name-only", "HEAD",
+    ]);
+    if (diffCode === 0) {
+      for (const line of diffOut.split(/\r?\n/)) {
+        const s = line.trim();
+        if (s) dirty.add(s);
+      }
+    }
+    // 未追踪文件（不含 .gitignore 忽略的）。
+    const { stdout: othersOut, exitCode: othersCode } = await this.runGit(cwd, [
+      "ls-files", "--others", "--exclude-standard",
+    ]);
+    if (othersCode === 0) {
+      for (const line of othersOut.split(/\r?\n/)) {
+        const s = line.trim();
+        if (s) dirty.add(s);
+      }
+    }
+    return Array.from(dirty);
+  }
+
+  /** git show HEAD:<rel> 取某文件在 HEAD 时的内容。文件不存在返回 null。 */
+  private async gitShowHead(cwd: string, relPath: string): Promise<string | null> {
+    try {
+      const { stdout, exitCode } = await this.runGit(cwd, ["show", `HEAD:${relPath}`]);
+      if (exitCode !== 0) return null;
+      return stdout;
+    } catch {
+      return null;
+    }
+  }
+
+  /** 运行 git 子进程（仅读操作）。 */
+  private runGit(cwd: string, args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+    return new Promise((resolve) => {
+      exec(
+        `git ${args.map((a) => `"${a.replace(/"/g, '\\"')}"`).join(" ")}`,
+        { cwd, maxBuffer: 20 * 1024 * 1024, windowsHide: true },
+        (err, stdout, stderr) => {
+          resolve({
+            stdout: typeof stdout === "string" ? stdout : "",
+            stderr: typeof stderr === "string" ? stderr : "",
+            exitCode: err ? (err as { code?: number }).code ?? 1 : 0,
+          });
+        },
+      );
+    });
+  }
+
+  /** 读文件文本，不存在或超过 maxBytes 返回 null。 */
+  private async readFileText(absPath: string, maxBytes?: number): Promise<string | null> {
+    try {
+      if (maxBytes !== undefined) {
+        const st = await vscode.workspace.fs.stat(vscode.Uri.file(absPath));
+        if (st.size > maxBytes) return null;
+      }
+      const bytes = await vscode.workspace.fs.readFile(vscode.Uri.file(absPath));
+      return Buffer.from(bytes).toString("utf8");
+    } catch {
+      return null;
+    }
+  }
+
+  /** 统一路径规范化入口：跨平台绝对/相对/混合分隔符 → 正斜杠绝对路径。 */
+  private normalizePath(p: string, cwd: string): string {
+    return normalizeAbsPath(p, cwd);
+  }
+
+  /**
+   * cwd 入口规范化：realpath 解符号链接/junction——win32 上用户目录常是
+   * 映射别名（C:\Users\x ↔ G:\...），git toplevel 报解析后的路径，
+   * 页面给的 session cwd 则是显示串。所有按 cwd 拼路径/做 map 键的
+   * handler 先过它，否则同一棵树字符串键不同。
+   */
+  private async canonicalCwd(cwd: string): Promise<string> {
+    try {
+      return this.normalizePath(await fs.promises.realpath(cwd), cwd);
+    } catch {
+      return this.normalizePath(cwd, cwd);
+    }
+  }
+
+  /**
+   * 任意路径的 canonical 化：存在则 realpath；不存在（新建文件场景）
+   * 则 realpath 父目录再拼 basename。所有参与键/前缀检查（pathKey、
+   * isWithinCwd、toGitRelPath）的路径先过它——进入侧的 C:\ 别名与
+   * git 侧的 G:\ 解析路径在 win32 映射盘上是同一棵树。
+   */
+  private async canonicalPath(p: string): Promise<string> {
+    const real = await fs.promises.realpath(p).catch(() => null);
+    if (real) return this.normalizePath(real, p);
+    const realDir = await fs.promises.realpath(path.dirname(p)).catch(() => null);
+    if (realDir) return this.normalizePath(path.join(realDir, path.basename(p)), p);
+    return p;
+  }
+
+  private diffCacheDir: string | undefined;
+  private async ensureDiffCacheDir(): Promise<string> {
+    if (this.diffCacheDir) return this.diffCacheDir;
+    const dir = path.join(os.tmpdir(), "pi-web-diff-cache");
+    await fs.promises.mkdir(dir, { recursive: true });
+    this.diffCacheDir = dir;
+    return dir;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 该域的 request/response 形状——与 lib/embed/bridge.ts（pi-web 侧）同步。
+// ---------------------------------------------------------------------------
+
+export interface CaptureSnapshotRequest {
+  kind: "captureSnapshot";
+  turnId: string;
+  cwd: string;
+}
+
+export interface GetBeforeContentRequest {
+  kind: "getBeforeContent";
+  turnId: string;
+  filePath: string;
+  cwd: string;
+}
+
+export interface ReconstructBeforeRequest {
+  kind: "reconstructBefore";
+  filePath: string;
+  cwd: string;
+  edits: { oldText: string; newText: string }[];
+}
+
+export interface ShowDiffRequest {
+  kind: "showDiff";
+  filePath: string;
+  before: string;
+  after: string;
+  title?: string;
+}
+
+export interface OpenTextRequest {
+  kind: "openText";
+  content: string;
+  language?: string;
+}
+
+export interface RevertFilesRequest {
+  kind: "revertFiles";
+  turnId: string;
+  files: string[];
+  /** 页面声称本轮新建的文件（快照与 HEAD 都查无时允许删除回退）。 */
+  created?: string[];
+  /**
+   * 该轮 write 产出的完整新内容（input.content），按文件给出。
+   * 提供时视为回退前的漂移校验：磁盘内容与轮后预期不符（用户在轮后
+   * 手动改过）→ 该文件跳过并报错，不覆盖用户修改；文件已不存在
+   * 不算冲突（无需保护的内容）。缺失时保持旧行为（向后兼容）。
+   */
+  expectedAfter?: { filePath: string; content: string }[];
+  cwd: string;
+}
+
+export interface CaptureSnapshotResponse {
+  kind: "captureSnapshot";
+  success: boolean;
+  message?: string;
+}
+
+export interface GetBeforeContentResponse {
+  kind: "getBeforeContent";
+  content: string | null;
+}
+
+export interface ReconstructBeforeResponse {
+  kind: "reconstructBefore";
+  content: string | null;
+}
+
+export interface RevertFilesResponse {
+  kind: "revertFiles";
+  success: boolean;
+  message?: string;
+}
+
+export interface RevertEditRequest {
+  kind: "revertEdit";
+  filePath: string;
+  cwd: string;
+  edits: { oldText: string; newText: string }[];
+}
+
+export interface RevertEditResponse {
+  kind: "revertEdit";
+  success: boolean;
+  message?: string;
+}
+
+/** 单轮快照。files 仅存「相对 HEAD 有未提交改动」的文件内容。 */
+export interface TurnSnapshot {
+  turnId: string;
+  /** git 仓库根的规范化绝对路径；非仓库为 null（快照键与 git show 都以此为准）。 */
+  gitRoot: string | null;
+  /** pathKey → 本轮前磁盘内容。 */
+  files: Map<string, string>;
+}
