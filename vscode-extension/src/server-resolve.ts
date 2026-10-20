@@ -14,6 +14,7 @@ import {
   installManagedLocalPackage,
   installManagedPackage,
   installedBuildStamp,
+  isNewerVersion,
   isSafePkgSpec,
   levelSupported,
   managedPackageBin,
@@ -248,6 +249,97 @@ export function pickInstallFlow(
   const cmp = compareVersions(localVersion, remoteBest);
   if (cmp !== 0) return cmp > 0 ? "local" : "registry";
   return source === "prefer-remote" ? "registry" : "local";
+}
+
+// ---------------------------------------------------------------------------
+// 升级计划：采集各侧候选 → 对照报告 → flow → 结论动作。
+// piIde.upgrade 命令与后台检查共用这一个判定——UI 各自渲染，逻辑不重复。
+// ---------------------------------------------------------------------------
+
+export interface UpgradePlan {
+  installSource: string;
+  localTgz: string;
+  /** 各侧采集结果（单边模式未查的一侧为 undefined）。 */
+  local?: LocalCheck;
+  remote?: RemoteCheck;
+  /** pickInstallFlow 的结论——装哪条腿。 */
+  flow: "local" | "registry";
+  /** 当前在用副本（version + builtAt）。 */
+  current?: { version: string; builtAt?: string };
+  /** 对照报告行（installSource / local / registry / current）。 */
+  report: string[];
+  action:
+    | { kind: "local"; label: string; recommended: boolean }
+    | { kind: "registry"; version: string; managed: boolean }
+    | { kind: "none"; reason: string };
+}
+
+export type LocalCheck = NonNullable<ReturnType<typeof checkLocalPackageUpdate>>;
+export type RemoteCheck = NonNullable<Awaited<ReturnType<typeof checkPiWebUpdate>>>;
+
+const fmtBuild = (b?: string) => (b ? ` built ${b.slice(0, 16).replace("T", " ")}` : "");
+
+export async function planUpgrade(
+  context: vscode.ExtensionContext,
+  pkg: string,
+  installSource: string,
+  localTgz: string,
+): Promise<UpgradePlan> {
+  // 各侧候选按模式采集：单边模式不查对侧。
+  const local = localTgz && installSource !== "registry"
+    ? checkLocalPackageUpdate(localTgz, context, pkg)
+    : undefined;
+  const remote = installSource !== "local" ? await checkPiWebUpdate(pkg, context) : undefined;
+  const flow = pickInstallFlow(
+    installSource,
+    local?.candidate && !local.reason ? local.candidate.version : undefined,
+    remote?.best,
+  );
+  const current = local?.current
+    ?? (remote ? { version: remote.current, builtAt: remote.currentBuiltAt } : undefined);
+
+  const report = [
+    `installSource: ${installSource}`,
+    localTgz
+      ? `local: ${local?.resolvedPath ?? localTgz} → ${local?.candidate
+          ? `${local.candidate.version}${fmtBuild(local.candidate.builtAt)}${local.candidate.gitSha ? ` (${local.candidate.gitSha})` : ""}`
+          : local?.reason ?? "no usable package"}${local?.candidate && local.reason ? ` — refused: ${local.reason}` : ""}`
+      : "local: (localPackage not set)",
+    installSource === "local"
+      ? "registry: (not queried — local mode)"
+      : `registry: ${remote ? `${remote.best ? `best ${remote.best}` : "no compatible version"} (latest ${remote.latest ?? "?"})` : "unreachable"}`,
+    `current: ${current ? `${current.version}${fmtBuild(current.builtAt)}` : "none"}`,
+  ];
+
+  let action: UpgradePlan["action"];
+  if (flow === "local") {
+    if (!local?.candidate) {
+      action = { kind: "none", reason: `cannot read package identity at ${localTgz}` };
+    } else if (local.reason) {
+      action = { kind: "none", reason: `local package refused — ${local.reason}` };
+    } else {
+      const c = local.candidate;
+      action = {
+        kind: "local",
+        label: `${c.version}${fmtBuild(c.builtAt)}${c.gitSha ? ` (${c.gitSha})` : ""}`,
+        recommended: local.isNewer,
+      };
+    }
+  } else {
+    if (!remote) {
+      action = { kind: "none", reason: "no installed copy or registry unreachable" };
+    } else if (remote.needsExtensionUpgrade) {
+      action = {
+        kind: "none",
+        reason: `${pkg} ${remote.latest} (level ${remote.latestLevel}) requires a newer Pi for IDE extension — upgrade the extension first`,
+      };
+    } else if (!remote.best || !isNewerVersion(remote.best, remote.current)) {
+      action = { kind: "none", reason: `already at the latest compatible version (${remote.current})` };
+    } else {
+      action = { kind: "registry", version: remote.best, managed: remote.managed };
+    }
+  }
+  return { installSource, localTgz, local, remote, flow, current, report, action };
 }
 
 /**

@@ -18,12 +18,11 @@
 import * as vscode from "vscode";
 import { PiIdeServer } from "./piIdeServer";
 import { sweepLegacyOrphans } from "./port-scan";
-import { checkLocalPackageUpdate, checkPiWebUpdate, installPiWebPackage, pickInstallFlow } from "./server-resolve";
+import { installPiWebPackage, planUpgrade } from "./server-resolve";
 import { outputChannel } from "./server-status";
 import {
   installManagedLocalPackage,
   installManagedPackage,
-  isNewerVersion,
   levelSupported,
   listManagedVersions,
   setManagedMarker,
@@ -334,69 +333,37 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
       };
 
-      // 各侧候选按模式采集：单边模式不查对侧。
-      const local = localTgz && installSource !== "registry"
-        ? checkLocalPackageUpdate(localTgz, context, pkg)
-        : undefined;
-      const remote = installSource !== "local" ? await checkPiWebUpdate(pkg, context) : undefined;
-      const flow = pickInstallFlow(
-        installSource,
-        local?.candidate && !local.reason ? local.candidate.version : undefined,
-        remote?.best,
-      );
+      // 升级计划（planUpgrade）：采集→对照报告→flow→动作——与后台检查
+      // 共用同一判定；这里只负责渲染与执行。
+      const plan = await planUpgrade(context, pkg, installSource, localTgz);
 
-      // ---- 对照报告（modal detail 呈现全部判据） ----
-      const report: string[] = [
-        `installSource: ${installSource}`,
-        localTgz
-          ? `local: ${local?.resolvedPath ?? localTgz} → ${local?.candidate
-              ? `${local.candidate.version}${fmtBuild(local.candidate.builtAt)}${local.candidate.gitSha ? ` (${local.candidate.gitSha})` : ""}`
-              : local?.reason ?? "no usable package"}${local?.candidate && local.reason ? ` — refused: ${local.reason}` : ""}`
-          : "local: (localPackage not set)",
-        installSource === "local"
-          ? "registry: (not queried — local mode)"
-          : `registry: ${remote ? `${remote.best ? `best ${remote.best}` : "no compatible version"} (latest ${remote.latest ?? "?"})` : "unreachable"}`,
-      ];
-      const cur = local?.current
-        ?? (remote ? { version: remote.current, builtAt: remote.currentBuiltAt } : undefined);
-      report.push(`current: ${cur ? `${cur.version}${fmtBuild(cur.builtAt)}` : "none"}`);
-
-      // 完整对照写输出通道；浮窗只放单行结论（通知不渲染 \n、无法强制
-      // 展开）——Details… 按钮打开通道看全表。
+      // 完整对照写输出通道；浮窗单行结论 + Details… 开通道看全表。
       const ch = outputChannel();
       ch.appendLine(`\n=== upgrade check — installSource: ${installSource} ===`);
-      for (const l of report) ch.appendLine(`  ${l}`);
+      for (const l of plan.report) ch.appendLine(`  ${l}`);
       const DETAILS = "Details…";
       const showDetails = (pick?: string) => {
         if (pick === DETAILS) ch.show(true);
         return pick === DETAILS;
       };
-      const curLabel = cur ? `${cur.version}${fmtBuild(cur.builtAt)}` : "none";
+      const curLabel = plan.current ? `${plan.current.version}${fmtBuild(plan.current.builtAt)}` : "none";
 
-      if (flow === "local") {
-        if (!local?.candidate) {
-          showDetails(
-            await vscode.window.showErrorMessage(
-              `${pkg}: cannot install — cannot read package identity at ${localTgz}.`,
-              DETAILS,
-            ),
-          );
-          return;
-        }
-        if (local.reason) {
-          showDetails(
-            await vscode.window.showWarningMessage(
-              `${pkg}: local package refused — ${local.reason}`,
-              DETAILS,
-            ),
-          );
-          return;
-        }
-        const c = local.candidate;
-        const candLabel = `${c.version}${fmtBuild(c.builtAt)}${c.gitSha ? ` (${c.gitSha})` : ""}`;
+      const a = plan.action;
+      if (a.kind === "none") {
+        const msg = `${pkg}: ${a.reason}.`;
+        showDetails(
+          await (a.reason.startsWith("already at")
+            ? vscode.window.showInformationMessage(msg, DETAILS)
+            : a.reason.includes("requires a newer") || a.reason.includes("refused")
+              ? vscode.window.showWarningMessage(msg, DETAILS)
+              : vscode.window.showErrorMessage(msg, DETAILS)),
+        );
+        return;
+      }
+      if (a.kind === "local") {
         const pick = await vscode.window.showInformationMessage(
-          `Local build ${candLabel} is ${local.isNewer ? "newer" : "not newer"} than current ${curLabel}.`,
-          local.isNewer ? "Install" : "Install Anyway",
+          `Local build ${a.label} is ${a.recommended ? "newer" : "not newer"} than current ${curLabel}.`,
+          a.recommended ? "Install" : "Install Anyway",
           DETAILS,
           "Cancel",
         );
@@ -405,7 +372,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const ok = await vscode.window.withProgress(
           { location: vscode.ProgressLocation.Notification, title: `Installing ${pkg} from local tarball…` },
           (progress) =>
-            installManagedLocalPackage(outputChannel(), context, localTgz, (m) =>
+            installManagedLocalPackage(ch, context, localTgz, (m) =>
               progress.report({ message: m }),
             ),
         );
@@ -413,55 +380,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           void vscode.window.showErrorMessage(`${pkg} local install failed — see the Pi for IDE output panel for details.`);
           return;
         }
-        await restartPrompt(`${pkg} installed from local tarball (${candLabel}).`);
+        await restartPrompt(`${pkg} installed from local tarball (${a.label}).`);
         return;
       }
 
-      // flow === "registry"
-      if (!remote) {
-        showDetails(
-          await vscode.window.showErrorMessage(
-            `${pkg}: cannot determine the upgrade — no installed copy or registry unreachable.`,
-            DETAILS,
-          ),
-        );
-        return;
-      }
-      if (remote.needsExtensionUpgrade) {
-        showDetails(
-          await vscode.window.showWarningMessage(
-            `${pkg} ${remote.latest} (level ${remote.latestLevel}) requires a newer Pi for IDE extension — upgrade the extension first.`,
-            DETAILS,
-          ),
-        );
-        return;
-      }
-      if (!remote.best || !isNewerVersion(remote.best, remote.current)) {
-        showDetails(
-          await vscode.window.showInformationMessage(
-            `${pkg} is already at the latest compatible version — current ${curLabel} ≥ registry best ${remote.best ?? "none"}.`,
-            DETAILS,
-          ),
-        );
-        return;
-      }
+      // a.kind === "registry"
+      const remote = plan.remote!;
       const pick = await vscode.window.showInformationMessage(
-        `${pkg} ${remote.best} is available (current: ${curLabel}).${remote.managed ? " Instances in other windows are unaffected and switch on restart." : ""}`,
+        `${pkg} ${a.version} is available (current: ${curLabel}).${a.managed ? " Instances in other windows are unaffected and switch on restart." : ""}`,
         "Upgrade Now",
         DETAILS,
         "Later",
       );
       if (showDetails(pick)) return;
       if (pick !== "Upgrade Now") return;
-      const installChannel = outputChannel();
       const ok = await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: `Upgrading ${pkg}…` },
         (progress) =>
-          remote.managed
-            ? installManagedPackage(installChannel, context, pkg, remote.best, (msg) =>
+          a.managed
+            ? installManagedPackage(ch, context, pkg, a.version, (msg) =>
                 progress.report({ message: msg }),
               )
-            : installPiWebPackage(installChannel, pkg, remote.best),
+            : installPiWebPackage(ch, pkg, a.version),
       );
       if (!ok) {
         void vscode.window.showErrorMessage(
@@ -469,7 +409,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         );
         return;
       }
-      await restartPrompt(`${pkg} upgraded to ${remote.best}.`);
+      await restartPrompt(`${pkg} upgraded to ${a.version}.`);
     }),
   );
 
@@ -529,61 +469,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const pkg =
         (vscode.workspace.getConfiguration("Pi for IDE").get<string>("package") ?? "").trim() ||
         "@william_stone/pi-web-for-ide";
-      // 安装来源语义与 piIde.upgrade 一致（同一 pickInstallFlow 判定）：
-      // localPackage 填着但选了 registry/prefer-remote 时尊重选择——
-      // 不用删字段再填回来。
+      // 安装来源语义与 piIde.upgrade 完全一致——同一个 planUpgrade：
+      // 后台检查只是"有计划可装时发个通知"，判定逻辑零重复。
       const cfgUpd = vscode.workspace.getConfiguration("Pi for IDE");
       const installSource = (cfgUpd.get<string>("installSource") ?? "auto").trim();
       const localTgz = (cfgUpd.get<string>("localPackage") ?? "").trim();
-      if (installSource === "local") {
-        // 单边锁死：只比本地件。
-        const check = localTgz ? checkLocalPackageUpdate(localTgz, context, pkg) : undefined;
-        if (check?.isNewer && check.candidate) {
-          const pick = await vscode.window.showInformationMessage(
-            `A newer local build of ${pkg} is available: ${check.candidate.version}` +
-              (check.candidate.builtAt ? ` built ${check.candidate.builtAt.slice(0, 16).replace("T", " ")}` : "") +
-              (check.current ? ` (current: ${check.current.version})` : "") + ".",
-            "Install",
-            "Later",
-          );
-          if (pick === "Install") void vscode.commands.executeCommand("piIde.upgrade");
-        }
-        return;
-      }
-      const local = installSource !== "registry" && localTgz
-        ? checkLocalPackageUpdate(localTgz, context, pkg)
-        : undefined;
-      // auto / prefer-remote / registry：registry 腿都要查（前两者用于两边比）。
-      const info = await checkPiWebUpdate(pkg, context);
-      if (installSource !== "registry" && local?.isNewer && local.candidate) {
-        const flow = pickInstallFlow(installSource, local.candidate.version, info?.best);
-        if (flow === "local") {
-          const pick = await vscode.window.showInformationMessage(
-            `A newer local build of ${pkg} is available: ${local.candidate.version}` +
-              (local.candidate.builtAt ? ` built ${local.candidate.builtAt.slice(0, 16).replace("T", " ")}` : "") +
-              (local.current ? ` (current: ${local.current.version})` : "") + ".",
-            "Install",
-            "Later",
-          );
-          if (pick === "Install") void vscode.commands.executeCommand("piIde.upgrade");
-        }
-        // 本地赢则不再报在线更新（同轮只报赢的那侧）。
-        if (flow === "local" || installSource === "local") return;
-      }
-      if (!info) return;
-      if (info.needsExtensionUpgrade) {
-        void vscode.window.showInformationMessage(
-          `${pkg} ${info.latest} requires a newer Pi for IDE extension — please upgrade the extension from the marketplace first.`,
+      if (installSource === "local" && !localTgz) return;
+      const plan = await planUpgrade(context, pkg, installSource, localTgz);
+      const fmt = (b?: string) => (b ? ` built ${b.slice(0, 16).replace("T", " ")}` : "");
+      const cur = plan.current ? `${plan.current.version}${fmt(plan.current.builtAt)}` : "none";
+      const a = plan.action;
+      if (a.kind === "local" && a.recommended) {
+        const pick = await vscode.window.showInformationMessage(
+          `Local build ${a.label} is newer than current ${cur}.`,
+          "Install",
+          "Later",
         );
-        return;
+        if (pick === "Install") void vscode.commands.executeCommand("piIde.upgrade");
+      } else if (a.kind === "registry") {
+        const pick = await vscode.window.showInformationMessage(
+          `${pkg} ${a.version} is available (current: ${cur}).`,
+          "Upgrade Now",
+          "Later",
+        );
+        if (pick === "Upgrade Now") void vscode.commands.executeCommand("piIde.upgrade");
+      } else if (a.kind === "none" && a.reason.includes("requires a newer")) {
+        // 包太新需要升级扩展——这值得单独提醒。
+        void vscode.window.showInformationMessage(`${pkg}: ${a.reason}.`);
       }
-      if (!info.best || !isNewerVersion(info.best, info.current)) return;
-      const pick = await vscode.window.showInformationMessage(
-        `${pkg} ${info.best} is available (current: ${info.current}).`,
-        "Upgrade Now",
-        "Later",
-      );
-      if (pick === "Upgrade Now") void vscode.commands.executeCommand("piIde.upgrade");
+      // 其余 none / 未推荐的本地构建 → 静默（手动跑升级命令能看到完整对照）。
     })();
   }, 8000);
 }
