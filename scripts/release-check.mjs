@@ -84,7 +84,8 @@ console.log(`Web package: ${webPkg.name}@${webPkg.version}`);
 if (!existsSync(tgz)) {
   fail("tgz", `${tgzName} missing — run npm pack first`);
 } else {
-  const stamp = [...tarEntries(gunzipSync(readFileSync(tgz)))].find((e) => e.name === "package/pi-web-build.json");
+  const entries = [...tarEntries(gunzipSync(readFileSync(tgz)))];
+  const stamp = entries.find((e) => e.name === "package/pi-web-build.json");
   if (!stamp) {
     fail("build stamp", "package/pi-web-build.json absent");
   } else {
@@ -92,6 +93,15 @@ if (!existsSync(tgz)) {
     if (meta.name === webPkg.name && meta.version === webPkg.version) ok("build stamp", `${meta.version} @ ${meta.builtAt} (${meta.gitSha ?? "no sha"})`);
     else fail("build stamp", `stamp ${meta.name}@${meta.version} != package.json ${webPkg.name}@${webPkg.version}`);
   }
+  // Binary assets the Next trace drops and prepare-standalone restores —
+  // missing means dead codemode sandbox / terminal at runtime.
+  const names = new Set(entries.map((e) => e.name));
+  for (const bin of ["package/.next/standalone/node_modules/quickjs-wasi/quickjs.wasm"]) {
+    if (names.has(bin)) ok("binary asset", bin.split("/").pop());
+    else fail("binary asset", `${bin} missing — codemode sandbox will ENOENT`);
+  }
+  if ([...names].some((n) => n.includes("node-pty/prebuilds/"))) ok("binary asset", "node-pty prebuilds");
+  else fail("binary asset", "node-pty prebuilds missing — terminal will fail to spawn");
 }
 
 if (failures.length) {

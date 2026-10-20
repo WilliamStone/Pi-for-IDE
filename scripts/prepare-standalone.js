@@ -97,6 +97,24 @@ function walkFiles(root) {
   return out;
 }
 
+/**
+ * 原生/二进制运行时资源——经 fs 路径加载而非 require()，Next trace 丢包：
+ *   quickjs-wasi/quickjs.wasm  codemode 沙箱（缺了 → Code mode 不可用）
+ *   node-pty/prebuilds/**      内嵌终端的 pty 原生二进制（各平台）
+ * 按清单精确补进 standalone node_modules，不做全包扫描（避免拖进无关二进制）。
+ */
+function copyBinaryAssets(srcRoot, destRoot) {
+  const additions = ["quickjs-wasi/quickjs.wasm", "node-pty/prebuilds"];
+  for (const rel of additions) {
+    const src = path.join(srcRoot, "node_modules", rel);
+    const dest = path.join(destRoot, "node_modules", rel);
+    if (!fs.existsSync(src) || fs.existsSync(dest)) continue;
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.cpSync(src, dest, { recursive: true });
+    console.log(`  ${rel}: 补二进制资源`);
+  }
+}
+
 /** 定位 standalone 应用目录（server.js 所在）。 */
 function locateStandaloneAppDir() {
   const standaloneRoot = path.join(repoRoot, ".next", "standalone");
@@ -160,6 +178,7 @@ function assembleStandalone() {
     cpR(publicSrc, path.join(serverDir, "public"));
   }
   copyRuntimeAssets(repoRoot, serverDir);
+  copyBinaryAssets(repoRoot, serverDir);
   materializeExternalLinks(serverDir);
   // for-pack：files 白名单内的目录无法用 .npmignore 排除，物理删掉
   // 哈希目录（trace 副本重复 ~350MB），只留 standalone-externals.json
