@@ -66,21 +66,30 @@ Locale: `defaultLocale` is `"en"` (SSR default; browser detection still applies 
 
 Known remaining: `lib/subagent-mcp.integration.test.mjs` takes ~233s per mcp test on Windows (SDK-side connect wait, still passes). Suspect antivirus interception of child spawns or proxy env vars — verify by retesting with Defender off / unset `HTTP(S)_PROXY`.
 
-## Upstream-contributable candidates (not yet sent)
+## Upstream-contributable candidates
 
 Upstream CI is Ubuntu-only, so frame these as *correctness/portability* PRs (more correct tests, not "fix Windows"); acceptance is principled, not CI-visible. Split per topic, never one bulk diff.
 
 **Two-class rule for what to send**: push only items that are *strictly better even on Linux* (e.g. `pathToFileURL` over bare-path `import`, `node -e` fixtures over `!command` — they remove a POSIX dependency rather than accommodate Windows). Pure Windows accommodations (win32 skips, delimiter/`file:///C:` variants) give upstream zero perceivable benefit — keep those in-fork via the playbook instead of proposing them upstream.
 
+### Batch 1 — sent 2026-10-20 (all test-only, verified on upstream main @7c0778a)
+
+| PR | Content |
+|---|---|
+| [#1364](https://github.com/agegr/pi-web/pull/1364) | `pathToFileURL` for `import(shimPath)` — 6 `hooks/*.test.mjs` |
+| [#1365](https://github.com/agegr/pi-web/pull/1365) | `!touch` marker fixtures → `node -e` — `mcp/sign-in` + `mcp/test` (run-assertions only) |
+| [#1366](https://github.com/agegr/pi-web/pull/1366) | `USERPROFILE` stubbed beside `HOME` — 6 files |
+| [#1367](https://github.com/agegr/pi-web/pull/1367) | `skills-service` isolation: env stub + fixture root under `process.cwd()` (ancestor `.agents` scan) |
+| [#1368](https://github.com/agegr/pi-web/pull/1368) | `rm` EBUSY retries — 4 spawned-child integration files; subagent-mcp swallows residual win32 EBUSY |
+
+Dropped: `env -u TURBOPACK` wrapper — upstream removed it themselves (`"build": "next build --webpack"` on main). The nft trace-sensitivity issue (dirty HOME emitted into the whole standalone trace → OOM/EPERM) remains **issue-first**, not filed yet.
+
+### Batch 2 — candidates not yet sent
+
 | Candidate | Shape |
 |---|---|
-| `pathToFileURL` for `import(absPath)` in tests | strictly more correct, helps Linux too |
-| `!command` fixtures → `node -e` | more reliable even on POSIX (no shell builtin dependency) |
-| `HOME`+`USERPROFILE` both set in homedir-stubbing tests | portability |
-| `rm` EBUSY retries (`maxRetries`/`retryDelay`) | Windows file-lock tolerance |
 | win32 skips for POSIX-permission/read-only-dir asserts | portability |
 | CRLF-tolerant slicing, `file:///C:/` URLs, delimiter hardcode | portability |
-| **Build portability** (2025-12, from our pack work): `build` script uses `env -u TURBOPACK` — POSIX-only, fails on Windows outright. Fix = a Node wrapper script (see our `scripts/build.cjs`). Deeper issue: `@vercel/nft` evaluates `HOME`/`USERPROFILE` env literals in fs-call arg chains (e.g. `lib/directory-browser.ts` `homedir()`→`readdir`), so a "dirty" user dir (model libraries, protected Temp files) gets emitted into the whole standalone trace → minutes-long builds → heap OOM → `readlink EPERM` on filter-driver-protected files. Worth an upstream **issue** first (the tracing sensitivity is Next/nft-side; the `env -u` script fix is a clean PR). |
 
 ## Authoritative test env: docker155 (Linux)
 
