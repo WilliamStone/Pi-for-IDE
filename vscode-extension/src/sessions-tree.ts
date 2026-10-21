@@ -127,14 +127,8 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
         return;
       }
       const snap = await apiJson<RunningSnapshot>(base, "/api/agent/running");
-      const nextRunning = new Set(snap.runningSessionIds ?? []);
-      const nextAwaiting = new Set(snap.awaitingInputSessionIds ?? []);
-      const flagsChanged =
-        nextRunning.size !== this.runningIds.size || nextAwaiting.size !== this.awaitingIds.size ||
-        [...nextRunning].some((id) => !this.runningIds.has(id)) ||
-        [...nextAwaiting].some((id) => !this.awaitingIds.has(id));
-      this.runningIds = nextRunning;
-      this.awaitingIds = nextAwaiting;
+      this.runningIds = new Set(snap.runningSessionIds ?? []);
+      this.awaitingIds = new Set(snap.awaitingInputSessionIds ?? []);
 
       if (snap.sessionListVersion !== this.listVersion) {
         const raw = await apiJson<{
@@ -156,7 +150,9 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
         this.archivedIds = new Set(Object.keys(entries).filter((id) => entries[id].archivedAt !== undefined));
         this.uiRevision = rev;
       }
-      if (flagsChanged) this.changeEmitter.fire();
+      // 拉取成功即通知视图——只判 running 标志会让清单/ui-state 更新静默
+      // 滞留（曾因此一直停在启动 hint）。TreeView 重绘开销可忽略。
+      this.changeEmitter.fire();
     } catch (error) {
       // 服务器未就绪/正在重启——保旧数据，下一轮再来；记录一笔便于诊断。
       outputChannel().appendLine(`[sessions-tree] poll failed: ${error}`);
