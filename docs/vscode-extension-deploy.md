@@ -58,13 +58,13 @@ pi-web-for-ide stop                           # 停掉测试服务器
 cd vscode-extension
 npm install          # 首次
 npm run compile      # tsc -p . → out/
-npm run package      # → pi-for-ide-0.1.0.vsix（约 189KB）
+npm run package      # → pi-for-ide-0.2.1-dev.vsix（约 189KB）
 ```
 
 安装（命令面板 → `Extensions: Install from VSIX…`，或）：
 
 ```powershell
-code --install-extension .\pi-for-ide-0.1.0.vsix
+code --install-extension .\pi-for-ide-0.2.1-dev.vsix
 ```
 
 ## 三、设置项（全部有默认值，零配置可用）

@@ -2,7 +2,7 @@
   "name": "pi-for-ide",
   "displayName": "Pi for IDE",
   "description": "%description%",
-  "version": "0.2.0",
+  "version": "0.2.1-dev",
   "publisher": "WilliamStone",
   "license": "MIT",
   "icon": "resources/icons/icon-128.png",
@@ -240,7 +240,12 @@
         },
         "Pi for IDE.installSource": {
           "type": "string",
-          "enum": ["auto", "prefer-remote", "local", "registry"],
+          "enum": [
+            "auto",
+            "prefer-remote",
+            "local",
+            "registry"
+          ],
           "default": "auto",
           "description": "%config.installSource%"
         }
@@ -423,6 +428,7 @@
     "lint": "eslint src",
     "test": "node --experimental-strip-types --test \"src/**/*.test.mjs\"",
     "test:e2e": "node --test --test-timeout=300000 \"e2e/*.test.mjs\"",
+    "bump": "node scripts/bump-version.mjs",
     "package:pi-web": "node scripts/package-pi-web.js",
     "package": "vsce package --no-yarn --no-dependencies --skip-license"
   },

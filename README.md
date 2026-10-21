@@ -43,7 +43,7 @@ pnpm add -g @william_stone/pi-web-for-ide   # npm i -g works too; local: pnpm i 
 **Step 2 — install the extension and open:**
 
 ```powershell
-code --install-extension vscode-extension/pi-for-ide-0.1.0.vsix    # VSCodium: codium
+code --install-extension vscode-extension/pi-for-ide-0.2.1-dev.vsix    # VSCodium: codium
 ```
 
 Then click the **Pi for IDE** status-bar item or run **Pi for IDE: Open**. On first use, configure a model/API key via the panel's Settings → Models (shares `~/.pi/agent/` with the pi CLI).
