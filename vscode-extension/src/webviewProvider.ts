@@ -123,9 +123,9 @@ export class PiWebWebviewPanel extends vscode.Disposable {
     this.sessionId = sessionId;
 
     if (this.panel && !cwdChanged) {
-      // Same cwd — 聚焦面板；refresh 内部判断服务器实例是否变了，
-      // stop/start 后会把 iframe 重指到新地址，未变时不动（保住会话状态）。
-      this.panel.reveal(viewColumn, false);
+      // Same cwd — 聚焦面板（保留自身列：reveal("Beside") 会把已定位的
+      // 面板重新相对活动编辑器排布，多会话面板互点时会互换位置）。
+      this.panel.reveal(this.panel.viewColumn ?? viewColumn, false);
       await this.refresh();
       return;
     }
@@ -301,11 +301,14 @@ export class PiWebWebviewPanel extends vscode.Disposable {
 
     const url = new URL(server.origin);
     url.searchParams.set("embed", "vscode");
-    if (this.currentCwd) url.searchParams.set("cwd", this.currentCwd);
     if (this.sessionId) {
       url.searchParams.set("session", this.sessionId);
       // 会话深链由原生侧栏发起——页面收敛为纯会话区（无应用侧栏/顶栏）。
       url.searchParams.set("view", "chat");
+      // 深链不可带 cwd：页面把 ?cwd= 解释为"该目录的新会话草稿"，
+      // 与 session 深链同传时草稿会盖掉解析结果、停在首页。
+    } else if (this.currentCwd) {
+      url.searchParams.set("cwd", this.currentCwd);
     }
     url.searchParams.set("extVer", this.extensionVersion);
     // 实例标识进 URL：同端口重启的新实例 URL 仍不同——shell 的

@@ -23,7 +23,7 @@
   "config.installSource": "Where installs/upgrades come from: auto = compare local tarball and registry, prefer the local build on a version tie; prefer-remote = same comparison but prefer the registry on a tie; local = only the localPackage tarball; registry = only npm (localPackage ignored).",
   "view.container.piIde": "Pi for IDE",
   "view.sessions": "Sessions",
-  "viewWelcome.sessions": "All pi sessions on this machine, grouped by project. Start the server to see live status.\n[Open Pi for IDE](command:piIde.open)",
+  "viewWelcome.sessions": "Pi sessions on this machine appear here, grouped by project. Start the server via the Pi for IDE status bar or the Pi for IDE commands.",
   "cmd.session.open": "Open Session",
   "cmd.session.rename": "Rename Session",
   "cmd.session.fork": "Fork Session",
