@@ -33,6 +33,8 @@ interface RunningSnapshot {
 
 interface UiState {
   sessions?: Record<string, { pinnedAt?: number; archivedAt?: number }>;
+  projects?: Record<string, { pinnedAt?: number; root: string }>;
+  projectNames?: Record<string, string>;
 }
 
 async function apiJson<T>(base: string, path: string, init?: RequestInit): Promise<T> {
@@ -50,6 +52,8 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
   private awaitingIds = new Set<string>();
   private pinnedIds = new Set<string>();
   private archivedIds = new Set<string>();
+  private pinnedProjects = new Set<string>();
+  private projectNames = new Map<string, string>();
 
   private workspaceOnly: boolean;
   private mode: SessionsViewMode;
@@ -148,6 +152,8 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
         const entries = state.sessions ?? {};
         this.pinnedIds = new Set(Object.keys(entries).filter((id) => entries[id].pinnedAt !== undefined));
         this.archivedIds = new Set(Object.keys(entries).filter((id) => entries[id].archivedAt !== undefined));
+        this.pinnedProjects = new Set(Object.keys(state.projects ?? {}));
+        this.projectNames = new Map(Object.entries(state.projectNames ?? {}));
         this.uiRevision = rev;
       }
       // 拉取成功即通知视图——只判 running 标志会让清单/ui-state 更新静默
@@ -185,21 +191,37 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
     if (this.mode === "recent") {
       return recentSessions(list).map((s) => this.sessionItem(s, true));
     }
-    return groupByProject(list).map((g) => this.projectItem(g));
+    // pinned 项目组置前——pi-web 的 Pinned 分区对应物；组内顺序按
+    // 各自最新会话活动排序（拖拽 projectOrder 次序 v2 再做，TreeView
+    // 无对应交互先不读）。
+    const groups = groupByProject(list);
+    groups.sort((a, b) => {
+      const ap = this.pinnedProjects.has(a.key) ? 1 : 0;
+      const bp = this.pinnedProjects.has(b.key) ? 1 : 0;
+      return bp - ap;
+    });
+    return groups.map((g) => this.projectItem(g));
   }
 
   private projectItem(group: ProjectGroup): ProjectItem {
-    const label = group.branch ? `${group.label} (${group.branch})` : group.label;
+    const pinned = this.pinnedProjects.has(group.key);
+    const displayName = this.projectNames.get(group.key);
+    const label = `${displayName ?? group.label}${group.branch ? ` (${group.branch})` : ""}`;
     const item = new ProjectItem(
       label,
-      group.sessions.map((s) => this.sessionItem(s, false)),
+      group.sessions
+        .sort((a, b) => Number(this.pinnedIds.has(b.id)) - Number(this.pinnedIds.has(a.id)))
+        .map((s) => this.sessionItem(s, false)),
+      group,
     );
-    item.description = String(group.sessions.length);
+    item.description = `${group.sessions.length}${pinned ? " · pinned" : ""}`;
     item.tooltip = new vscode.MarkdownString(
-      `**${group.root}**${group.isWorktree ? "\n\nworktree" : ""}`,
+      `**${group.root}**${group.isWorktree ? "\n\nworktree" : ""}${pinned ? "\n\npinned" : ""}`,
     );
-    item.iconPath = new vscode.ThemeIcon(group.isWorktree ? "git-branch" : "folder");
-    item.contextValue = "piIde.project";
+    item.iconPath = new vscode.ThemeIcon(
+      pinned ? "pinned" : group.isWorktree ? "git-branch" : "folder",
+    );
+    item.contextValue = `piIde.project${pinned ? ".pinned" : ""}`;
     item.collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
     return item;
   }
@@ -239,7 +261,11 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
 }
 
 class ProjectItem extends vscode.TreeItem {
-  constructor(label: string, readonly sessionItems: vscode.TreeItem[]) {
+  constructor(
+    label: string,
+    readonly sessionItems: vscode.TreeItem[],
+    readonly group: ProjectGroup,
+  ) {
     super(label, vscode.TreeItemCollapsibleState.Expanded);
   }
 }
@@ -260,6 +286,8 @@ export function registerSessionCommands(
     ensureServer: () => Promise<unknown>;
     provider: SessionsTreeProvider;
     openSession: (id: string) => Promise<void>;
+    /** 在该项目目录打开新会话（composer cwd=projectRoot，无 session 深链）。 */
+    openProject: (cwd: string) => Promise<void>;
   },
 ): void {
   const { getBaseUrl, provider } = deps;
@@ -328,6 +356,36 @@ export function registerSessionCommands(
       await provider.reload();
     }),
 
+    // ── 项目组操作：置顶/重命名/在此开新会话 ──────────────────────────
+    vscode.commands.registerCommand("piIde.project.pin", async (item: ProjectItem) => {
+      await post("/api/sessions/ui-state", {
+        action: "pin-project", projectKey: item.group.key, root: item.group.root, pinned: true,
+      });
+      await provider.reload();
+    }),
+    vscode.commands.registerCommand("piIde.project.unpin", async (item: ProjectItem) => {
+      await post("/api/sessions/ui-state", {
+        action: "pin-project", projectKey: item.group.key, root: item.group.root, pinned: false,
+      });
+      await provider.reload();
+    }),
+    vscode.commands.registerCommand("piIde.project.rename", async (item: ProjectItem) => {
+      const name = await vscode.window.showInputBox({
+        title: "Rename project",
+        prompt: "Display name for this project group (empty clears it)",
+        value: typeof item.label === "string" ? item.label.replace(/\s*\(.*\)$/, "") : "",
+      });
+      if (name === undefined) return;
+      await post("/api/sessions/ui-state", {
+        action: "rename-project", projectKey: item.group.key, name: name.trim() || null,
+      });
+      await provider.reload();
+    }),
+    vscode.commands.registerCommand("piIde.project.newSession", async (item: ProjectItem) => {
+      void deps.ensureServer();
+      await deps.openProject(item.group.root || item.group.sessions[0]?.cwd || "");
+    }),
+
     vscode.commands.registerCommand("piIde.sessions.refresh", () => provider.reload()),
     // 两个命令图标化同一个开关：过滤态显示 $(list-filter)，全部态显示 $(globe)。
     vscode.commands.registerCommand("piIde.sessions.filterWorkspace", async () => {
@@ -339,6 +397,11 @@ export function registerSessionCommands(
       await vscode.commands.executeCommand("setContext", "piIde.sessions.workspaceOnly", false);
     }),
     vscode.commands.registerCommand("piIde.sessions.cycleViewMode", () => provider.cycleViewMode()),
+    // 树自带 find 栏——VS Code 原生文本过滤，风格与 Explorer/Outline 一致。
+    vscode.commands.registerCommand("piIde.sessions.find", async () => {
+      await vscode.commands.executeCommand("piIde.sessions.focus");
+      await vscode.commands.executeCommand("list.toggleFind");
+    }),
   );
 }
 

@@ -143,7 +143,7 @@
         "command": "piIde.sessions.filterWorkspace",
         "title": "%cmd.sessions.filterWorkspace%",
         "category": "Pi for IDE",
-        "icon": "$(list-filter)"
+        "icon": "$(home)"
       },
       {
         "command": "piIde.sessions.showAll",
@@ -156,6 +156,36 @@
         "title": "%cmd.sessions.cycleViewMode%",
         "category": "Pi for IDE",
         "icon": "$(list-tree)"
+      },
+      {
+        "command": "piIde.sessions.find",
+        "title": "%cmd.sessions.find%",
+        "category": "Pi for IDE",
+        "icon": "$(list-filter)"
+      },
+      {
+        "command": "piIde.project.pin",
+        "title": "%cmd.project.pin%",
+        "category": "Pi for IDE",
+        "icon": "$(pin)"
+      },
+      {
+        "command": "piIde.project.unpin",
+        "title": "%cmd.project.unpin%",
+        "category": "Pi for IDE",
+        "icon": "$(pinned)"
+      },
+      {
+        "command": "piIde.project.rename",
+        "title": "%cmd.project.rename%",
+        "category": "Pi for IDE",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "piIde.project.newSession",
+        "title": "%cmd.project.newSession%",
+        "category": "Pi for IDE",
+        "icon": "$(add)"
       }
     ],
     "viewsContainers": {
@@ -320,6 +350,26 @@
           "when": "false"
         },
         {
+          "command": "piIde.sessions.find",
+          "when": "false"
+        },
+        {
+          "command": "piIde.project.pin",
+          "when": "false"
+        },
+        {
+          "command": "piIde.project.unpin",
+          "when": "false"
+        },
+        {
+          "command": "piIde.project.rename",
+          "when": "false"
+        },
+        {
+          "command": "piIde.project.newSession",
+          "when": "false"
+        },
+        {
           "command": "piIde.sessions.cycleViewMode",
           "when": "false"
         }
@@ -377,9 +427,14 @@
           "group": "navigation@1"
         },
         {
-          "command": "piIde.sessions.cycleViewMode",
+          "command": "piIde.sessions.find",
           "when": "view == 'piIde.sessions'",
           "group": "navigation@2"
+        },
+        {
+          "command": "piIde.sessions.cycleViewMode",
+          "when": "view == 'piIde.sessions'",
+          "group": "navigation@3"
         }
       ],
       "view/item/context": [
@@ -422,6 +477,26 @@
           "command": "piIde.session.delete",
           "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session/",
           "group": "piweb@5"
+        },
+        {
+          "command": "piIde.project.newSession",
+          "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.project/",
+          "group": "inline@0"
+        },
+        {
+          "command": "piIde.project.rename",
+          "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.project/",
+          "group": "piweb@1"
+        },
+        {
+          "command": "piIde.project.pin",
+          "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.project/ && !(viewItem =~ /\\.pinned/)",
+          "group": "piweb@2"
+        },
+        {
+          "command": "piIde.project.unpin",
+          "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.project.*\\.pinned/",
+          "group": "piweb@2"
         }
       ]
     }

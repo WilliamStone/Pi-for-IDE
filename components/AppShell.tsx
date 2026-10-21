@@ -54,7 +54,7 @@ import {
   setLastOpenSession,
   workspaceKeyOf,
 } from "@/lib/workspace-memory";
-import { isEmbedMode, notifyEmbedHost, installGlobalClipboardInterceptor } from "@/lib/embed/bridge";
+import { isEmbedMode, embedView, notifyEmbedHost, installGlobalClipboardInterceptor } from "@/lib/embed/bridge";
 import { appDisplayName } from "@/lib/brand";
 import { OpenInBrowserButton } from "./embed/OpenInBrowserButton";
 import { IdeHintBadge } from "./IdeHintBadge";
@@ -116,6 +116,8 @@ export function AppShell() {
   const isMobile = useIsMobile();
   const isNarrowMobile = useIsNarrowMobile();
   useViewportHeight();
+  // view=chat：宿主（原生侧栏）持有会话导航——应用侧栏/顶栏整层隐藏。
+  const chatOnlyView = embedView() === "chat";
 
   // Once the user has granted notification permission, register a Web Push
   // subscription so the server can notify backgrounded PWAs (notably iOS,
@@ -2148,6 +2150,7 @@ export function AppShell() {
       background: "var(--bg)",
     }}>
       {/* Mobile overlay backdrop */}
+      {!chatOnlyView && (
       <div
         className={`sidebar-overlay-backdrop${mobileSidebarReady ? "" : " sidebar-mobile-pending"}`}
         onClick={() => setSidebarOpen(false)}
@@ -2161,8 +2164,10 @@ export function AppShell() {
           transition: "opacity 0.25s ease",
         }}
       />
+      )}
 
-      {/* Left sidebar */}
+      {/* Left sidebar — chat 视图由宿主侧栏接管导航，整个应用侧栏不渲染 */}
+      {!chatOnlyView && (
       <div
         ref={sidebarResizer.panelRef}
         id="session-sidebar"
@@ -2182,7 +2187,8 @@ export function AppShell() {
       >
         {sidebarContent}
       </div>
-      {sidebarOpen && (
+      )}
+      {!chatOnlyView && sidebarOpen && (
         <div
           {...sidebarResizer.separatorProps}
           inert={rightPanelFullWidth}
@@ -2195,7 +2201,8 @@ export function AppShell() {
 
       {/* Center: chat */}
       <div inert={rightPanelFullWidth} style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
-        {/* Top bar with sidebar toggle */}
+        {/* Top bar with sidebar toggle — chat 视图隐藏整层 */}
+        {!chatOnlyView && (
         <div ref={topBarRef} style={{ flexShrink: 0, background: "var(--bg-panel)" }}>
         <div style={{ display: "flex", alignItems: "center", position: "relative", borderBottom: "1px solid var(--border)", height: "calc(36px + env(safe-area-inset-top))", paddingTop: "env(safe-area-inset-top)" }}>
           <button
@@ -2557,6 +2564,7 @@ export function AppShell() {
         </div>
         {isMobile && renderProjectTrustWarning(true)}
         </div>
+        )}
 
         {/* Chat content */}
         <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>

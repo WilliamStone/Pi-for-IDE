@@ -304,6 +304,14 @@ export function embedExtVersion(): string | null {
   return entryParams.get("extVer");
 }
 
+/**
+ * 宿主指定的页面形态（`?view=`）——目前只有 "chat"：原生侧栏持有导航权
+ * 的宿主把页面收敛为纯会话区（无应用侧栏、无顶栏）。未指定返回 null。
+ */
+export function embedView(): string | null {
+  return entryParams.get("view");
+}
+
 // Resolvers waiting for host responses, keyed by request id.
 type ResponseResolver = (response: unknown) => void;
 const pendingResponses = new Map<string, ResponseResolver>();

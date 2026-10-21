@@ -86,5 +86,6 @@ test("relTime: 阶梯文案", () => {
   assert.equal(relTime("2026-10-20T11:40:00Z", now), "20m ago");
   assert.equal(relTime("2026-10-20T08:00:00Z", now), "4h ago");
   assert.equal(relTime("2026-10-17T12:00:00Z", now), "3d ago");
+  assert.equal(relTime("2026-10-06T12:00:00Z", now), "2w ago");
   assert.equal(relTime("2026-08-20T12:00:00Z", now), "2mo ago");
 });

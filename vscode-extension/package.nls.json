@@ -34,5 +34,10 @@
   "cmd.sessions.refresh": "Refresh Sessions",
   "cmd.sessions.filterWorkspace": "Show Workspace Sessions Only",
   "cmd.sessions.showAll": "Show All Sessions",
-  "cmd.sessions.cycleViewMode": "Toggle Grouped/Recent View"
+  "cmd.sessions.cycleViewMode": "Toggle Grouped/Recent View",
+  "cmd.sessions.find": "Find in Sessions",
+  "cmd.project.pin": "Pin Project",
+  "cmd.project.unpin": "Unpin Project",
+  "cmd.project.rename": "Rename Project",
+  "cmd.project.newSession": "New Session in Project"
 }

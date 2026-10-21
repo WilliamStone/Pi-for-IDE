@@ -291,7 +291,11 @@ export class PiWebWebviewPanel extends vscode.Disposable {
     const url = new URL(server.origin);
     url.searchParams.set("embed", "vscode");
     if (this.currentCwd) url.searchParams.set("cwd", this.currentCwd);
-    if (this.sessionId) url.searchParams.set("session", this.sessionId);
+    if (this.sessionId) {
+      url.searchParams.set("session", this.sessionId);
+      // 会话深链由原生侧栏发起——页面收敛为纯会话区（无应用侧栏/顶栏）。
+      url.searchParams.set("view", "chat");
+    }
     url.searchParams.set("extVer", this.extensionVersion);
     // 实例标识进 URL：同端口重启的新实例 URL 仍不同——shell 的
     // loadedUrl 判重不会把它当"同一地址"吞掉，iframe 必然换新页。

@@ -226,6 +226,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (!cwd) cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "";
         await provider!.reveal(cwd, openViewColumn(), id);
       },
+      openProject: async (cwd: string) => {
+        void ensureServer();
+        await provider!.reveal(cwd, openViewColumn());
+      },
     });
   }
 

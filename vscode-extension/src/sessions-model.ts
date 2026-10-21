@@ -95,7 +95,8 @@ export function relTime(iso: string, now = Date.now()): string {
   const h = Math.floor(m / 60);
   if (h < 24) return `${h}h ago`;
   const d = Math.floor(h / 24);
-  if (d < 30) return `${d}d ago`;
+  if (d < 7) return `${d}d ago`;
+  if (d < 30) return `${Math.floor(d / 7)}w ago`;
   const mo = Math.floor(d / 30);
   return mo < 12 ? `${mo}mo ago` : `${Math.floor(mo / 12)}y ago`;
 }
