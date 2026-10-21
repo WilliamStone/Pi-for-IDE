@@ -184,8 +184,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // TreeDataProvider 直连本地 API 替代；点开会话经 ?session= 深链导航面板。
   // -------------------------------------------------------------------------
   {
+    // 服务 origin 的权威顺序：本窗口 ensureServer 的实例 → 共享实例标记
+    // （别窗口/独立启动/扩展宿主重启后 server 变量为空，但服务其实活着）。
+    const sessionsBaseUrl = async (): Promise<string | undefined> => {
+      const s = server ? await server : undefined;
+      if (s?.origin) return s.origin;
+      try {
+        const marker = JSON.parse(
+          fs.readFileSync(path.join(managedRuntimeRoot(context), "server-instance.json"), "utf8"),
+        ) as { origin?: string };
+        return marker.origin;
+      } catch {
+        return undefined;
+      }
+    };
     const sessionsProvider = new SessionsTreeProvider(
-      async () => (server ? (await server)?.origin : undefined),
+      sessionsBaseUrl,
       context.workspaceState,
       () => (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath),
     );
@@ -204,7 +218,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       "setContext", "piIde.sessions.workspaceOnly", sessionsProvider.isWorkspaceOnly(),
     );
     registerSessionCommands(context, {
-      getBaseUrl: async () => (server ? (await server)?.origin : undefined),
+      getBaseUrl: sessionsBaseUrl,
       ensureServer,
       provider: sessionsProvider,
       openSession: async (id: string) => {
