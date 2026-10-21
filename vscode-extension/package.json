@@ -26,12 +26,7 @@
     "agent"
   ],
   "activationEvents": [
-    "onStartupFinished",
-    "onCommand:piIde.open",
-    "onCommand:piIde.start",
-    "onCommand:piIde.reveal",
-    "onCommand:piIde.mentionFile",
-    "onCommand:piIde.mentionSelection"
+    "onStartupFinished"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -395,22 +390,22 @@
         },
         {
           "command": "piIde.session.pin",
-          "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session/ && viewItem !~ /pinned/",
+          "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session/ && !(viewItem =~ /\\.pinned/)",
           "group": "piweb@3"
         },
         {
           "command": "piIde.session.unpin",
-          "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session\\.pinned/",
+          "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session.*\\.pinned/",
           "group": "piweb@3"
         },
         {
           "command": "piIde.session.archive",
-          "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session/ && viewItem !~ /archived/",
+          "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session/ && !(viewItem =~ /\\.archived/)",
           "group": "piweb@4"
         },
         {
           "command": "piIde.session.unarchive",
-          "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session\\.archived/",
+          "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session.*\\.archived/",
           "group": "piweb@4"
         },
         {
