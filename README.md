@@ -35,7 +35,7 @@ Requires Node.js ≥ 22.19.0.
 **Step 1 — install @william_stone/pi-web-for-ide globally (pnpm recommended):**
 
 ```bash
-pnpm add -g @william_stone/pi-web-for-ide   # npm i -g works too; local: pnpm i -g ./pi-web-for-ide-0.12.1.tgz
+pnpm add -g @william_stone/pi-web-for-ide   # npm i -g works too; local: pnpm i -g ./pi-web-for-ide-0.12.2-2.tgz
 ```
 
 > Why pnpm: it surfaces the package's postinstall for interactive approval (`pnpm approve-builds`) — needed to link the standalone external packages. npm's script blocking has no equivalent escape hatch. Fallback anyway: `pi-web` self-heals the links on startup (≥0.12.2); see `docs/vscode-extension-deploy.md`.

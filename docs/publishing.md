@@ -19,6 +19,15 @@ npm version patch        # 或 minor/major——先抬版本号（npm 不允许�
 npm publish              # prepack 自动跑构建+standalone 组装（约 2-3 分钟）
 ```
 
+### 版本号单点更新
+
+```bash
+npm run bump 0.12.2-3        # 根目录：npm 包（<上游base>-<迭代号>）
+cd vscode-extension && npm run bump 0.2.1-dev   # 扩展目录：vsix 版本
+```
+
+各自把权威版本写进对应 `package.json`（打包名、build 戳、`extVer` 运行时值全读这里），并把文档里硬编码的 `pi-web-for-ide-<ver>.tgz` / `pi-for-ide-<ver>.vsix` 字面量同步换新——升版只敲一条命令，文档不再滞留旧文件名。
+
 ### 发包前指纹校验（任何渠道发布前都跑）
 
 ```bash

@@ -33,7 +33,7 @@ pi-web 本体的能力（会话管理、流式对话、模型/OAuth/MCP/技能/�
 **第一步：全局安装 @william_stone/pi-web-for-ide（推荐 pnpm）：**
 
 ```bash
-pnpm add -g @william_stone/pi-web-for-ide   # 也可用 npm i -g；本地包：pnpm i -g ./pi-web-for-ide-0.12.1.tgz
+pnpm add -g @william_stone/pi-web-for-ide   # 也可用 npm i -g；本地包：pnpm i -g ./pi-web-for-ide-0.12.2-2.tgz
 ```
 
 > 推荐 pnpm 的原因：它装完会列出待批准的构建脚本并可交互勾选确认（`pnpm approve-builds`）——包的 postinstall 要把 standalone 外部包接成 junction；npm 的脚本拦截则没有对应入口。被拦了也有兜底：`pi-web` 启动时会自检补链（≥0.12.2），见 `docs/vscode-extension-deploy.md` 排障节。

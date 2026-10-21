@@ -19,9 +19,9 @@
 
 ```bash
 # 在仓库根目录：构建 + 打包（prepack 自动产出 standalone 自包含树，约 2-3 分钟）
-npm pack                    # → pi-web-for-ide-0.12.1.tgz（约 46MB）
+npm pack                    # → pi-web-for-ide-0.12.2-2.tgz（约 46MB）
 
-npm i -g ./pi-web-for-ide-0.12.1.tgz
+npm i -g ./pi-web-for-ide-0.12.2-2.tgz
 ```
 
 验证：
