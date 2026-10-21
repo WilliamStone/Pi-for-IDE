@@ -2166,8 +2166,9 @@ export function AppShell() {
       />
       )}
 
-      {/* Left sidebar — chat 视图由宿主侧栏接管导航，整个应用侧栏不渲染 */}
-      {!chatOnlyView && (
+      {/* Left sidebar — chat 视图下仍挂载 display:none：?session= 深链解析
+          与 /api/agent/running 轮询（重启横幅的载体）都住在侧栏组件里，
+          不挂载会让深链落在首页、横幅失效。 */}
       <div
         ref={sidebarResizer.panelRef}
         id="session-sidebar"
@@ -2177,7 +2178,7 @@ export function AppShell() {
           "--sidebar-width": `${sidebarResizer.width}px`,
           background: "var(--bg-panel)",
           borderRight: "1px solid var(--border)",
-          display: "flex",
+          display: chatOnlyView ? "none" : "flex",
           flexDirection: "column",
           flexShrink: 0,
           paddingTop: "env(safe-area-inset-top)",
@@ -2187,7 +2188,6 @@ export function AppShell() {
       >
         {sidebarContent}
       </div>
-      )}
       {!chatOnlyView && sidebarOpen && (
         <div
           {...sidebarResizer.separatorProps}

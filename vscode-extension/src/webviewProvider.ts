@@ -30,6 +30,14 @@ export class PiWebWebviewPanel extends vscode.Disposable {
   private currentCwd: string | undefined;
   /** 宿主钉住的会话——原生侧栏点选后 URL 带 ?session= 深链。 */
   private sessionId: string | undefined;
+  /** 会话面板用会话名作 tab 标题；未设时回退 "Pi for IDE — <cwd>"。 */
+  private titleOverride: string | undefined;
+
+  /** 更新面板标题（会话面板 = 会话名）。 */
+  setTitleOverride(title: string): void {
+    this.titleOverride = title;
+    if (this.panel) this.panel.title = title;
+  }
   /** 上次渲染 iframe 用的服务器实例与 URL——变了才重载 iframe。 */
   private lastServer: PiIdeServer | undefined;
   private lastUrl: string | undefined;
@@ -82,6 +90,8 @@ export class PiWebWebviewPanel extends vscode.Disposable {
     private readonly ensureServer: () => Promise<PiIdeServer | undefined>,
     private readonly bridge: Bridge,
     private readonly extensionVersion: string,
+    /** 面板销毁回调——会话面板注册表据此清掉映射（tab 对应 session）。 */
+    private readonly onDisposed?: () => void,
   ) {
     super(() => this.dispose());
     // 服务器阶段状态（下载/启动）实时推到面板——等待页/门页据此换文案。
@@ -167,6 +177,7 @@ export class PiWebWebviewPanel extends vscode.Disposable {
         this.lastUrl = undefined;
         // 面板没了，等"上屏"的浮窗也收掉。
         for (const r of this.shellReadyWaiters.splice(0)) r();
+        this.onDisposed?.();
       });
 
       // Bridge messages from the pi-web iframe to VSCode APIs and relay
@@ -273,7 +284,7 @@ export class PiWebWebviewPanel extends vscode.Disposable {
     }
     logLifecycle(`refresh: server ready origin=${server?.resolvedOrigin ?? "undefined"}`);
 
-    const title = this.currentCwd ? `Pi for IDE — ${shortPath(this.currentCwd)}` : "Pi for IDE";
+    const title = this.titleOverride ?? (this.currentCwd ? `Pi for IDE — ${shortPath(this.currentCwd)}` : "Pi for IDE");
     this.panel.title = title;
 
     if (!server) {

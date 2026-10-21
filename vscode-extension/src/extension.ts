@@ -104,6 +104,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   context.subscriptions.push(provider);
 
+  // 会话面板注册表：tab 对应 session——点同一 session 复用其 tab，
+  // 不同 session 各开各的。单面板模式（sessionTabs=single）时不开表。
+  const sessionPanels = new Map<string, PiWebWebviewPanel>();
+  const sessionPanelFor = (id: string): PiWebWebviewPanel => {
+    let p = sessionPanels.get(id);
+    if (!p) {
+      p = new PiWebWebviewPanel(
+        context.extensionUri,
+        () => server,
+        () => ensureServer(),
+        bridge,
+        context.extension.packageJSON.version as string,
+        () => sessionPanels.delete(id),
+      );
+      sessionPanels.set(id, p);
+      context.subscriptions.push(p);
+    }
+    return p;
+  };
+  const refreshAllPanels = async () => {
+    await Promise.all([provider, ...sessionPanels.values()].map((p) => p?.refreshIfOpen()));
+  };
+
   // -------------------------------------------------------------------------
   // 共享实例标记 watch：任一窗口的宿主拉起新服务器（升级换包/重启）时写
   // <runtime>/server-instance.json——本宿主据此停掉过期引用并刷新已开面板。
@@ -126,7 +149,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             return; // 文件半截/已删——等下一次事件
           }
           await PiIdeServer.invalidateIfBootMismatch(boot);
-          await provider?.refreshIfOpen();
+          await refreshAllPanels();
         })();
       }, 300);
     };
@@ -221,10 +244,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       getBaseUrl: sessionsBaseUrl,
       ensureServer,
       provider: sessionsProvider,
-      openSession: async (id: string) => {
-        let cwd = resolveConfiguredCwd();
-        if (!cwd) cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "";
-        await provider!.reveal(cwd, openViewColumn(), id);
+      openSession: async (id: string, title?: string) => {
+        // 面板 cwd 用会话自己的目录——跨项目点开不受当前配置 cwd 影响。
+        const cwd = sessionsProvider.sessionById(id)?.cwd
+          ?? resolveConfiguredCwd()
+          ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
+          ?? "";
+        const perSession = vscode.workspace
+          .getConfiguration("Pi for IDE")
+          .get<string>("sessionTabs", "perSession") === "perSession";
+        if (!perSession) {
+          void ensureServer();
+          await provider!.reveal(cwd, openViewColumn(), id);
+          return;
+        }
+        const panel = sessionPanelFor(id);
+        void ensureServer();
+        await panel.reveal(cwd, openViewColumn(), id);
+        if (title) panel.setTitleOverride(`Pi — ${title}`);
       },
       openProject: async (cwd: string) => {
         void ensureServer();
@@ -407,7 +444,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await ensureServer();
         // 实例已换——已打开的面板重指到新 origin（refresh 内部判断
         // 实例变化才重推 URL，shell 探测后就绪了再换 iframe）。
-        await provider?.refreshIfOpen();
+        await refreshAllPanels();
       }
       // 其他窗口的面板经实例标记自动刷新（需那边也跑新版扩展）；
       // 浏览器里打开的 tab 扩展够不着——提示用户手动 reload。

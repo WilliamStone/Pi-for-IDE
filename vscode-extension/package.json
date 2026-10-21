@@ -231,6 +231,12 @@
           "default": "",
           "description": "%config.workspaceRoot%"
         },
+        "Pi for IDE.sessionTabs": {
+          "type": "string",
+          "enum": ["perSession", "single"],
+          "default": "perSession",
+          "description": "%config.sessionTabs%"
+        },
         "Pi for IDE.openBeside": {
           "type": "boolean",
           "default": true,

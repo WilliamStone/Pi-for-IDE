@@ -11,6 +11,7 @@
   "config.executablePath": "Absolute path to the pi-web server entry: a standalone server.js or the bin/pi-web.js inside the package. Leave empty for automatic resolution: built-in → global npm install → managed runtime.",
   "config.package": "The pi-web package name used for managed/global install lookups (must be the build with IDE integration patches, not upstream pi-web).",
   "config.workspaceRoot": "Project directory (cwd) passed to pi-web sessions. Leave empty to use the current workspace folder.",
+  "config.sessionTabs": "How clicking a session in the Sessions sidebar opens chat: perSession = each session gets its own tab (clicking again focuses it); single = reuse one panel, switching sessions inside it.",
   "config.openBeside": "Open the Pi for IDE panel in the adjacent column instead of the active one.",
   "config.port": "Preferred starting port for the Pi for IDE server (default 3030). If occupied, the next free port is used.",
   "config.autoStart": "Start the local pi-web server in the background when the extension activates (before the panel is first opened). Keep off if unused to avoid a resident process.",

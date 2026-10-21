@@ -83,6 +83,10 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
     return this.workspaceOnly;
   }
 
+  sessionById(id: string): ApiSession | undefined {
+    return this.sessions.find((s) => s.id === id);
+  }
+
   setVisible(visible: boolean): void {
     this.visible = visible;
     if (visible) void this.tick();
@@ -254,7 +258,7 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
     item.command = {
       command: "piIde.session.open",
       title: "Open session",
-      arguments: [s.id],
+      arguments: [s.id, sessionTitle(s)],
     };
     return item;
   }
@@ -285,7 +289,7 @@ export function registerSessionCommands(
     getBaseUrl: () => Promise<string | undefined>;
     ensureServer: () => Promise<unknown>;
     provider: SessionsTreeProvider;
-    openSession: (id: string) => Promise<void>;
+    openSession: (id: string, title?: string) => Promise<void>;
     /** 在该项目目录打开新会话（composer cwd=projectRoot，无 session 深链）。 */
     openProject: (cwd: string) => Promise<void>;
   },
@@ -302,9 +306,9 @@ export function registerSessionCommands(
   };
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("piIde.session.open", async (id: string) => {
+    vscode.commands.registerCommand("piIde.session.open", async (id: string, title?: string) => {
       void deps.ensureServer();
-      await deps.openSession(id);
+      await deps.openSession(id, title);
     }),
 
     vscode.commands.registerCommand("piIde.session.rename", async (item: vscode.TreeItem) => {
