@@ -140,10 +140,16 @@
         "icon": "$(refresh)"
       },
       {
-        "command": "piIde.sessions.toggleWorkspaceOnly",
-        "title": "%cmd.sessions.toggleWorkspaceOnly%",
+        "command": "piIde.sessions.filterWorkspace",
+        "title": "%cmd.sessions.filterWorkspace%",
         "category": "Pi for IDE",
-        "icon": "$(home)"
+        "icon": "$(list-filter)"
+      },
+      {
+        "command": "piIde.sessions.showAll",
+        "title": "%cmd.sessions.showAll%",
+        "category": "Pi for IDE",
+        "icon": "$(globe)"
       },
       {
         "command": "piIde.sessions.cycleViewMode",
@@ -157,7 +163,7 @@
         {
           "id": "piIde",
           "title": "%view.container.piIde%",
-          "icon": "resources/icons/icon-128.png"
+          "icon": "resources/icons/activity.svg"
         }
       ]
     },
@@ -306,7 +312,11 @@
           "when": "false"
         },
         {
-          "command": "piIde.sessions.toggleWorkspaceOnly",
+          "command": "piIde.sessions.filterWorkspace",
+          "when": "false"
+        },
+        {
+          "command": "piIde.sessions.showAll",
           "when": "false"
         },
         {
@@ -357,12 +367,12 @@
           "group": "navigation@0"
         },
         {
-          "command": "piIde.sessions.toggleWorkspaceOnly",
+          "command": "piIde.sessions.filterWorkspace",
           "when": "view == 'piIde.sessions' && !piIde.sessions.workspaceOnly",
           "group": "navigation@1"
         },
         {
-          "command": "piIde.sessions.toggleWorkspaceOnly",
+          "command": "piIde.sessions.showAll",
           "when": "view == 'piIde.sessions' && piIde.sessions.workspaceOnly",
           "group": "navigation@1"
         },

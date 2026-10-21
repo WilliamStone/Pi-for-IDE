@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { outputChannel } from "./server-status";
 import {
   groupByProject,
   isInWorkspace,
@@ -136,9 +137,16 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
       this.awaitingIds = nextAwaiting;
 
       if (snap.sessionListVersion !== this.listVersion) {
-        const raw = await apiJson<ApiSession[]>(base, "/api/sessions");
-        this.sessions = topLevelSessions(raw);
+        const raw = await apiJson<{
+          sessions: ApiSession[];
+          runningSessionIds?: string[];
+          awaitingInputSessionIds?: string[];
+        }>(base, "/api/sessions");
+        this.sessions = topLevelSessions(raw.sessions ?? []);
         this.listVersion = snap.sessionListVersion;
+        // 会话清单自带 running 快照——顺手刷新，不用等下一轮 running 轮询。
+        this.runningIds = new Set(raw.runningSessionIds ?? []);
+        this.awaitingIds = new Set(raw.awaitingInputSessionIds ?? []);
       }
       const rev = snap.sessionUiStateRevision ?? null;
       if (rev !== this.uiRevision) {
@@ -149,8 +157,9 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
         this.uiRevision = rev;
       }
       if (flagsChanged) this.changeEmitter.fire();
-    } catch {
-      // 服务器未就绪/正在重启——保旧数据，下一轮再来。
+    } catch (error) {
+      // 服务器未就绪/正在重启——保旧数据，下一轮再来；记录一笔便于诊断。
+      outputChannel().appendLine(`[sessions-tree] poll failed: ${error}`);
     } finally {
       this.polling = false;
     }
@@ -324,11 +333,14 @@ export function registerSessionCommands(
     }),
 
     vscode.commands.registerCommand("piIde.sessions.refresh", () => provider.reload()),
-    vscode.commands.registerCommand("piIde.sessions.toggleWorkspaceOnly", async () => {
-      await provider.setWorkspaceOnly(!provider.isWorkspaceOnly());
-      await vscode.commands.executeCommand(
-        "setContext", "piIde.sessions.workspaceOnly", provider.isWorkspaceOnly(),
-      );
+    // 两个命令图标化同一个开关：过滤态显示 $(list-filter)，全部态显示 $(globe)。
+    vscode.commands.registerCommand("piIde.sessions.filterWorkspace", async () => {
+      await provider.setWorkspaceOnly(true);
+      await vscode.commands.executeCommand("setContext", "piIde.sessions.workspaceOnly", true);
+    }),
+    vscode.commands.registerCommand("piIde.sessions.showAll", async () => {
+      await provider.setWorkspaceOnly(false);
+      await vscode.commands.executeCommand("setContext", "piIde.sessions.workspaceOnly", false);
     }),
     vscode.commands.registerCommand("piIde.sessions.cycleViewMode", () => provider.cycleViewMode()),
   );
