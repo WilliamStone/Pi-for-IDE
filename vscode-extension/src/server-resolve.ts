@@ -484,7 +484,9 @@ export async function resolveServerTarget(
             void vscode.window
               .showWarningMessage(`Pi for IDE: ${warn}.`, "Upgrade", "Later")
               .then((pick) => {
-                if (pick === "Upgrade") void vscode.commands.executeCommand("piIde.upgrade");
+                // direct：用户已在警告层同意，命令直接执行安装，不再弹
+                // 第二层确认（之前要连点两次才真装，像"点了没反应"）。
+                if (pick === "Upgrade") void vscode.commands.executeCommand("piIde.upgrade", { direct: true });
               });
           } else {
             channel.appendLine("  (same upgrade already prompted this session — notification skipped)");

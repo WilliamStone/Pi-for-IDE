@@ -633,7 +633,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // 结论 → 确认 → 安装 → 重启本窗口服务器。托管运行时走版本目录
   // （不碰运行中的旧目录）；全局安装走包管理器原地升级。
   context.subscriptions.push(
-    vscode.commands.registerCommand("piIde.upgrade", async () => {
+    vscode.commands.registerCommand("piIde.upgrade", async (opts?: { direct?: boolean }) => {
       const cfg = vscode.workspace.getConfiguration("Pi for IDE");
       const pkg = (cfg.get<string>("package") ?? "").trim() || "@william_stone/pi-web-for-ide";
       // 安装来源选择（Pi for IDE.installSource）：
@@ -667,6 +667,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       const a = plan.action;
       if (a.kind !== "none") markUpgradeSurfaced(upgradeSig(a));
+      // direct 模式（resolve 警告等上游入口）：动作确定就直接装——用户
+      // 已经在警告框里同意过升级，再弹一层确认是重复打扰。
+      if (opts?.direct && (a.kind === "registry" || (a.kind === "local" && a.recommended))) {
+        await applyUpgradeAction(a, pkg, localTgz);
+        return;
+      }
       if (a.kind === "none") {
         // 本地侧有具体失败原因时优先呈现——"already at latest" 只描述
         // registry 半边的结论，本地包缺失/被拒的真相被埋在 Details 里
