@@ -630,11 +630,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       const a = plan.action;
       if (a.kind === "none") {
-        const msg = `${pkg}: ${a.reason}.`;
+        // 本地侧有具体失败原因时优先呈现——"already at latest" 只描述
+        // registry 半边的结论，本地包缺失/被拒的真相被埋在 Details 里
+        // 会误导（曾踩：tgz 消失→提示已最新，实际是本地侧空）。
+        const localReason = plan.local?.reason;
+        const msg = `${pkg}: ${localReason ? `local: ${localReason}; ` : ""}${a.reason}.`;
         showDetails(
-          await (a.reason.startsWith("already at")
+          await (a.reason.startsWith("already at") && !localReason
             ? vscode.window.showInformationMessage(msg, DETAILS)
-            : a.reason.includes("requires a newer") || a.reason.includes("refused")
+            : a.reason.includes("requires a newer") || a.reason.includes("refused") || localReason
               ? vscode.window.showWarningMessage(msg, DETAILS)
               : vscode.window.showErrorMessage(msg, DETAILS)),
         );
