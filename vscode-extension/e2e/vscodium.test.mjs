@@ -330,10 +330,10 @@ test("VSCodium E: session-tree click opens deep-linked session tab", { timeout: 
 
     // 该 tab 的 iframe URL 必须带 ?session=e2e-seed-01——深链契约的
     // 关键断言：[object Object] 形态会在这里以非 e2e-seed-01 现形。
-    const webviewHost = await waitForFrame(win, (u) => /vscode-webview:\/\//i.test(u), 60000);
-    const shellFrame = await waitForFrame(webviewHost, (u) => /fake\.html/i.test(u), 60000);
+    // Page.frames() 是全树扁平列表（含 OOPIF 嵌套）——不能先锚"第一个
+    // webview 壳"再下探：主面板的壳也在列表里，会话 tab 是第二个 webview。
     const sessionFrame = await waitForFrame(
-      shellFrame,
+      win,
       (u) => /^http:\/\/127\.0\.0\.1:\d+\//.test(u) && u.includes("session=e2e-seed-01"),
       60000,
     );
