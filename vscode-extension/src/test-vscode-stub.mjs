@@ -15,8 +15,28 @@ export const FileType = { Unknown: 0, File: 1, Directory: 2, SymbolicLink: 64 };
 
 // 类继承面：模块求值就要（extends vscode.Disposable），实例语义用不到。
 export class Disposable {
-  dispose() {}
+  constructor(fn) { this._fn = fn; }
+  dispose() { this._fn?.(); }
 }
+
+// 事件面：EventEmitter.event 是可订阅函数，fire 广播。
+export class EventEmitter {
+  constructor() { this._ls = new Set(); this.event = (cb) => { this._ls.add(cb); return { dispose: () => this._ls.delete(cb) }; }; }
+  fire(v) { for (const cb of this._ls) cb(v); }
+  dispose() { this._ls.clear(); }
+}
+
+export class TreeItem {
+  constructor(label, collapsibleState) {
+    this.label = label;
+    this.collapsibleState = collapsibleState;
+  }
+}
+export const TreeItemCollapsibleState = { None: 0, Collapsed: 1, Expanded: 2 };
+export class ThemeIcon {
+  constructor(id, color) { this.id = id; this.color = color; }
+}
+export const ViewColumn = { Active: -1, Beside: -2, One: 1, Two: 2, Three: 3 };
 
 function toFsType(s) {
   if (s.isSymbolicLink()) return FileType.SymbolicLink;
@@ -64,6 +84,10 @@ const notify = (level) => async (text) => {
 
 export const window = {
   activeTextEditor: undefined,
+  createOutputChannel: () => ({ appendLine: () => {}, show: () => {}, dispose: () => {} }),
+  createStatusBarItem: () => ({ show() {}, hide() {}, dispose() {} }),
+  createTreeView: () => ({ dispose() {}, onDidChangeVisibility: () => ({ dispose() {} }), visible: false }),
+  onDidChangeActiveTextEditor: () => ({ dispose() {} }),
   showErrorMessage: notify("error"),
   showWarningMessage: notify("warning"),
   showInformationMessage: notify("info"),

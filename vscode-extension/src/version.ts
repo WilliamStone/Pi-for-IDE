@@ -24,6 +24,21 @@ export function packageLevel(pkgDir: string): number | undefined {
   }
 }
 
+/** 同一时刻只跑一份：并发调用共享 in-flight Promise，结束后复位。
+ * 典型场景：Upgrade 命令与 +8s 后台检查同时触发 planUpgrade——
+ * registry fetch/tgz 解析跑一遍，两边等同一个结果。 */
+export function singleFlight<A extends unknown[], R>(
+  fn: (...args: A) => Promise<R>,
+): (...args: A) => Promise<R> {
+  let inflight: Promise<R> | undefined;
+  return (...args: A) => {
+    inflight ??= fn(...args).finally(() => {
+      inflight = undefined;
+    });
+    return inflight;
+  };
+}
+
 /** 构建戳的短展示：ISO `2026-10-22T17:28:…` → ` built 2026-10-22 17:28`。 */
 export const formatBuildStamp = (b?: string) =>
   b ? ` built ${b.slice(0, 16).replace("T", " ")}` : "";

@@ -63,13 +63,21 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
   private polling = false;
   private visible = false;
 
+  /** 已解析的服务 origin；未启动 → undefined（绝不 spawn）。 */
+  private readonly getBaseUrl: () => Promise<string | undefined>;
+  private readonly memento: vscode.Memento;
+  private readonly workspaceRoots: () => string[];
+
+  // strip-types 不支持构造器参数属性——显式字段（可直测）。
   constructor(
-    /** 已解析的服务 origin；未启动 → undefined（绝不 spawn）。 */
-    private readonly getBaseUrl: () => Promise<string | undefined>,
-    private readonly memento: vscode.Memento,
-    private readonly workspaceRoots: () => string[],
+    getBaseUrl: () => Promise<string | undefined>,
+    memento: vscode.Memento,
+    workspaceRoots: () => string[],
   ) {
     super(() => this.dispose());
+    this.getBaseUrl = getBaseUrl;
+    this.memento = memento;
+    this.workspaceRoots = workspaceRoots;
     this.workspaceOnly = memento.get("piIde.sessions.workspaceOnly", false);
     this.mode = memento.get<SessionsViewMode>("piIde.sessions.viewMode", "byProject");
   }
@@ -281,12 +289,13 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
 }
 
 class ProjectItem extends vscode.TreeItem {
-  constructor(
-    label: string,
-    readonly sessionItems: vscode.TreeItem[],
-    readonly group: ProjectGroup,
-  ) {
+  readonly sessionItems: vscode.TreeItem[];
+  readonly group: ProjectGroup;
+
+  constructor(label: string, sessionItems: vscode.TreeItem[], group: ProjectGroup) {
     super(label, vscode.TreeItemCollapsibleState.Expanded);
+    this.sessionItems = sessionItems;
+    this.group = group;
   }
 }
 

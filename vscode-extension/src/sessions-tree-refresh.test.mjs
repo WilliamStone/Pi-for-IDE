@@ -1,0 +1,118 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { registerHooks } from "node:module";
+
+// sessions-tree.ts → "vscode"（Disposable/EventEmitter/TreeItem 面）
+registerHooks({
+  resolve(specifier, context, next) {
+    if (specifier === "vscode") {
+      return {
+        url: new URL("./test-vscode-stub.mjs", import.meta.url).href,
+        shortCircuit: true,
+      };
+    }
+    if (
+      specifier.startsWith("./") &&
+      !specifier.endsWith(".ts") &&
+      !specifier.endsWith(".mjs")
+    ) {
+      return { url: new URL(specifier + ".ts", context.parentURL).href, shortCircuit: true };
+    }
+    return next(specifier, context);
+  },
+});
+
+const { SessionsTreeProvider } = await import("./sessions-tree.ts");
+
+const session = (id, cwd = "/repo") => ({
+  id,
+  name: `name-${id}`,
+  firstMessage: `msg-${id}`,
+  cwd,
+  projectRoot: cwd,
+  created: "2026-01-01T00:00:00Z",
+  modified: "2026-01-01T00:00:00Z",
+});
+
+const memento = () => ({ get: (_k, d) => d, update: async () => {} });
+
+/** 可变快照的假服务——版本号/清单由场景脚本驱动。 */
+function fakeServer() {
+  const state = {
+    listVersion: 1,
+    uiRevision: 1,
+    sessions: [session("s1")],
+    running: [],
+    awaiting: [],
+  };
+  const orig = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    const json = (v) => ({ ok: true, json: async () => v });
+    if (u.endsWith("/api/agent/running"))
+      return json({
+        sessionListVersion: state.listVersion,
+        sessionUiStateRevision: state.uiRevision,
+        runningSessionIds: state.running,
+        awaitingInputSessionIds: state.awaiting,
+      });
+    if (u.endsWith("/api/sessions"))
+      return json({
+        sessions: state.sessions,
+        runningSessionIds: state.running,
+        awaitingInputSessionIds: state.awaiting,
+      });
+    if (u.endsWith("/api/sessions/ui-state")) return json({ state: {} });
+    return { ok: false, status: 404 };
+  };
+  return { state, restore: () => { globalThis.fetch = orig; } };
+}
+
+test("回归：清单变了但 running/awaiting 没变，也必须 fire 重绘", async (t) => {
+  // 曾踩：fire() 只在标志变化时调用 → 新会话拉到数据但树一直停旧视图。
+  const { state, restore } = fakeServer();
+  t.after(restore);
+  const p = new SessionsTreeProvider(async () => "http://x", memento(), () => []);
+  let fires = 0;
+  p.onDidChangeTreeData(() => fires++);
+
+  await p.reload();
+  assert.equal(p.sessionById("s1")?.name, "name-s1");
+  const firesAfterFirst = fires;
+  assert.ok(firesAfterFirst > 0, "首次拉取应 fire");
+
+  // 快照元数据不变、清单版本变 → 树必须重绘且拿到新数据。
+  state.listVersion = 2;
+  state.sessions = [session("s1"), session("s2")];
+  await p.reload();
+  assert.equal(p.sessionById("s2")?.name, "name-s2", "新会话进模型");
+  assert.ok(fires > firesAfterFirst, "清单变化必须 fire——这正是坏掉的回归面");
+});
+
+test("awaiting/running 快照随轮询更新（状态栏指示器数据源）", async (t) => {
+  const { state, restore } = fakeServer();
+  t.after(restore);
+  const p = new SessionsTreeProvider(async () => "http://x", memento(), () => []);
+  state.running = ["s1"];
+  state.awaiting = ["s1"];
+  await p.reload();
+  assert.deepEqual([...p.runningSessionIds], ["s1"]);
+  assert.deepEqual([...p.awaitingSessionIds], ["s1"]);
+});
+
+test("服务下线 → 清空会话且 fire（不滞旧）", async (t) => {
+  const { restore } = fakeServer();
+  t.after(restore);
+  // 同一 provider：先有数据，再断 base——清空必须通知视图。
+  let base = "http://x";
+  const p = new SessionsTreeProvider(async () => base, memento(), () => []);
+  await p.reload();
+  assert.equal(p.sessionById("s1") !== undefined, true);
+
+  base = undefined; // 服务下线——getBaseUrl 返空
+  let fired = false;
+  p.onDidChangeTreeData(() => (fired = true));
+  await p.reload();
+  assert.equal(p.sessionById("s1"), undefined, "下线后清单清空");
+  assert.equal(fired, true, "下线转换也要通知视图");
+});

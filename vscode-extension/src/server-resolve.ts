@@ -22,7 +22,7 @@ import {
 } from "./managedRuntime";
 import { readTgzIdentity, resolveLocalPackagePath, type BuildIdentity } from "./tgz";
 import { emitServerStatus } from "./server-status";
-import { formatBuildStamp } from "./version";
+import { formatBuildStamp, singleFlight } from "./version";
 import { piConfig } from "./config";
 import { localUpgradeSig } from "./upgradeNotice";
 
@@ -306,21 +306,8 @@ export type RemoteCheck = NonNullable<Awaited<ReturnType<typeof checkPiWebUpdate
 const fmtBuild = formatBuildStamp;
 
 // 并发去重：命令入口与 +8s 后台检查常同时起跑——registry fetch 10s
-// 超时 + 全量 gunzip tgz 读身份都不便宜，同一份计划没必要跑两遍；
-// 共享同一 in-flight Promise，两个调用方等同一个结果。
-let planInflight: Promise<UpgradePlan> | undefined;
-
-export function planUpgrade(
-  context: vscode.ExtensionContext,
-  pkg: string,
-  installSource: string,
-  localTgz: string,
-): Promise<UpgradePlan> {
-  planInflight ??= planUpgradeUncached(context, pkg, installSource, localTgz).finally(() => {
-    planInflight = undefined;
-  });
-  return planInflight;
-}
+// 超时 + 全量 gunzip tgz 读身份都不便宜，同一份计划没必要跑两遍。
+export const planUpgrade: typeof planUpgradeUncached = singleFlight(planUpgradeUncached);
 
 async function planUpgradeUncached(
   context: vscode.ExtensionContext,

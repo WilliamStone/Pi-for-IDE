@@ -111,3 +111,32 @@ test("pickNewestSupported with stampOf: same-version build stamp decides", () =>
   // 不传 stampOf → 行为不变（同版本池序）。
   assert.equal(pickNewestSupported([mk("global", "0.12.2"), mk("managed", "0.12.2")], v, l)?.name, "global");
 });
+
+const { singleFlight } = await import("./version.ts");
+
+test("singleFlight：并发调用共享一份执行，结束后复位", async () => {
+  let runs = 0;
+  const slow = singleFlight(async () => {
+    runs++;
+    await new Promise((r) => setTimeout(r, 30));
+    return runs;
+  });
+  const [a, b, c] = await Promise.all([slow(), slow(), slow()]);
+  assert.equal(runs, 1, "三个并发只跑一份");
+  assert.equal(a, 1);
+  assert.equal(b, a);
+  // 结束后复位——下一轮重新执行。
+  await slow();
+  assert.equal(runs, 2);
+});
+
+test("singleFlight：执行失败也复位（错误不粘连后续调用）", async () => {
+  let runs = 0;
+  const flaky = singleFlight(async () => {
+    runs++;
+    if (runs === 1) throw new Error("boom");
+    return "ok";
+  });
+  await assert.rejects(flaky(), /boom/);
+  assert.equal(await flaky(), "ok");
+});

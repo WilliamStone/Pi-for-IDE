@@ -753,6 +753,29 @@ export function AppShell() {
     return () => controller.abort();
   }, [initialNavigation, router]);
 
+  // ?session= 深链的 AppShell 级兜底：解析本来住在侧栏组件里——view=chat
+  // 把侧栏 display:none 挂载（其内部分支仍可跑），但不把深链的命系在
+  // 视觉组件上：这里独立解析一次，命中即选中。与侧栏路径互为冗余，先
+  // 到者置 initialSessionRestored，另一方自然跳过。
+  // 位置约束：必须在 restoreWorkspaceContext 等切片锚点 callback 之前——
+  // workspace-memory 测试按 `const X = useCallback` 边界切源码进 vm，
+  // 落在切片区间内的裸语句会断引用。
+  useEffect(() => {
+    const deepLinkSessionId = initialNavigation.sessionId;
+    if (!deepLinkSessionId || initialSessionRestored || selectedSession?.id === deepLinkSessionId) return;
+    let cancelled = false;
+    void fetch("/api/sessions")
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((data: { sessions?: SessionInfo[] }) => {
+        if (cancelled) return;
+        const target = (data.sessions ?? []).find((s) => s.id === deepLinkSessionId);
+        if (target) handleSelectSession(target, true);
+        else setInitialSessionRestored(true);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [initialNavigation.sessionId, initialSessionRestored, selectedSession?.id, handleSelectSession]);
+
   // Restore the workspace's last open session after switching to it. Called
   // from handleCwdChange once the outgoing context has been reset. The session
   // is looked up against the live list so a deleted or drifted session falls
@@ -934,26 +957,6 @@ export function AppShell() {
       router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
     }
   }, [activeCwd, changeFileWorkspace, invalidateWorkspaceRestore, router, isMobile, newSessionCwd, selectedSession]);
-
-  // ?session= 深链的 AppShell 级兜底：解析本来住在侧栏组件里——view=chat
-  // 把侧栏 display:none 挂载（其内部分支仍可跑），但不把深链的命系在
-  // 视觉组件上：这里独立解析一次，命中即选中。与侧栏路径互为冗余，先
-  // 到者置 initialSessionRestored，另一方自然跳过。
-  const deepLinkSessionId = initialNavigation.sessionId;
-  useEffect(() => {
-    if (!deepLinkSessionId || initialSessionRestored || selectedSession?.id === deepLinkSessionId) return;
-    let cancelled = false;
-    void fetch("/api/sessions")
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((data: { sessions?: SessionInfo[] }) => {
-        if (cancelled) return;
-        const target = (data.sessions ?? []).find((s) => s.id === deepLinkSessionId);
-        if (target) handleSelectSession(target, true);
-        else setInitialSessionRestored(true);
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [deepLinkSessionId, initialSessionRestored, selectedSession?.id, handleSelectSession]);
 
   const handleNewSession = useCallback((sessionId: string, cwd: string, projectKey?: string | null, options?: NewSessionOptions) => {
     invalidateWorkspaceRestore();
