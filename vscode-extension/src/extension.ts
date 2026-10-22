@@ -106,6 +106,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // 会话面板注册表：tab 对应 session——点同一 session 复用其 tab，
   // 不同 session 各开各的。单面板模式（sessionTabs=single）时不开表。
+  // 升级提示去重：同一动作（local build / registry 版本）本会话内只弹
+  // 一次框——手动命令弹过后，+8s 的后台检查不再重复打扰（报告照写）。
+  let surfacedUpgrade: string | undefined;
+  const upgradeSig = (a: UpgradeAction): string =>
+    a.kind === "local"
+      ? `local:${a.label}`
+      : a.kind === "registry"
+        ? `registry:${a.version}`
+        : `none:${a.reason}`;
+
   const sessionPanels = new Map<string, PiWebWebviewPanel>();
   // 面板 → 注册表键的当前归属。new:<cwd> composer 面板落地成真会话后
   // 要改挂到 sessionId 键下，dispose 也要按当前键删（闭包里的旧键已失效）。
@@ -655,6 +665,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const curLabel = plan.current ? `${plan.current.version}${fmtBuild(plan.current.builtAt)}` : "none";
 
       const a = plan.action;
+      if (a.kind !== "none") surfacedUpgrade = upgradeSig(a);
       if (a.kind === "none") {
         // 本地侧有具体失败原因时优先呈现——"already at latest" 只描述
         // registry 半边的结论，本地包缺失/被拒的真相被埋在 Details 里
@@ -766,6 +777,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const ch = outputChannel();
       ch.appendLine(`\n=== upgrade check (auto) — installSource: ${installSource} ===`);
       for (const l of plan.report) ch.appendLine(`  ${l}`);
+      // 同一动作刚由手动命令/上一轮提示过 → 只留报告不再弹框。
+      const sig = upgradeSig(a);
+      if (a.kind !== "none" && sig === surfacedUpgrade) {
+        ch.appendLine("  (same upgrade already prompted this session — notification skipped)");
+        return;
+      }
+      if (a.kind !== "none") surfacedUpgrade = sig;
       const DETAILS = "Details…";
       const showDetails = (pick?: string) => {
         if (pick === DETAILS) ch.show();
