@@ -7,6 +7,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
 import { managedPackageBin } from "./managedRuntime";
+import { piConfig } from "./config";
 import { scanPortOccupiers } from "./port-scan";
 import { resolveGlobalPackageBin, resolvePathShimBin, SpawnTarget } from "./server-resolve";
 
@@ -28,8 +29,7 @@ export async function reportStartupFailure(
   channel.appendLine(`pnpm@PATH: ${await tryCmd("pnpm -v")}`);
 
   // 解析链各环节现状——指出哪条腿能用、哪条断了。
-  const configured = vscode.workspace
-    .getConfiguration("Pi for IDE")
+  const configured = piConfig()
     .get<string>("executablePath")
     ?.trim();
   channel.appendLine(

@@ -24,6 +24,10 @@ export function packageLevel(pkgDir: string): number | undefined {
   }
 }
 
+/** 构建戳的短展示：ISO `2026-10-22T17:28:…` → ` built 2026-10-22 17:28`。 */
+export const formatBuildStamp = (b?: string) =>
+  b ? ` built ${b.slice(0, 16).replace("T", " ")}` : "";
+
 /** 级别判定：缺失按 1 计（历史包均无字段且实现 v1）。 */
 export function levelSupported(level: number | undefined): boolean {
   const lv = level ?? 1;

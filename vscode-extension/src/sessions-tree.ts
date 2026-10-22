@@ -439,8 +439,4 @@ export function registerSessionCommands(
   );
 }
 
-function sessionIdOf(item: vscode.TreeItem): string {
-  const id = item.id?.replace(/^piIde\.session\./, "");
-  if (!id) throw new Error("session item missing id");
-  return id;
-}
+import { sessionIdOf } from "./session-id";

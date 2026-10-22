@@ -13,6 +13,11 @@ export const Uri = {
 
 export const FileType = { Unknown: 0, File: 1, Directory: 2, SymbolicLink: 64 };
 
+// 类继承面：模块求值就要（extends vscode.Disposable），实例语义用不到。
+export class Disposable {
+  dispose() {}
+}
+
 function toFsType(s) {
   if (s.isSymbolicLink()) return FileType.SymbolicLink;
   if (s.isDirectory()) return FileType.Directory;

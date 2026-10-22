@@ -2,6 +2,8 @@ import * as vscode from "vscode";
 import type { PiIdeServer } from "./piIdeServer";
 import { currentServerStatus, logLifecycle, onServerStatus } from "./server-status";
 import type { Bridge } from "./bridge";
+import { buildEmbedUrl } from "./embedUrl";
+import { piConfig } from "./config";
 
 /**
  * Webview panel that hosts the pi-web UI inside a VSCode editor column.
@@ -329,33 +331,20 @@ export class PiWebWebviewPanel extends vscode.Disposable {
       return;
     }
 
-    const url = new URL(server.origin);
-    url.searchParams.set("embed", "vscode");
-    if (this.sessionId) {
-      url.searchParams.set("session", this.sessionId);
-      // 深链不可带 cwd：页面把 ?cwd= 解释为"该目录的新会话草稿"，
-      // 与 session 深链同传时草稿会盖掉解析结果、停在首页。
-    } else if (this.currentCwd) {
-      url.searchParams.set("cwd", this.currentCwd);
-    }
-    // 精简视图面板（chat 会话区 / settings 设置页）——应用侧栏与多余
-    // 顶栏入口由宿主原生 UI 取代。browserBtn 传 chat 顶栏"在浏览器中打开"
-    // 的可见性配置（仅 chat 视图消费）。
-    if (this.panelView) url.searchParams.set("view", this.panelView);
-    if (this.panelView === "settings" && this.panelSection) {
-      url.searchParams.set("section", this.panelSection);
-    }
-    if (this.panelView === "chat") {
-      url.searchParams.set(
-        "browserBtn",
-        vscode.workspace.getConfiguration("Pi for IDE").get<boolean>("showOpenInBrowser", true) ? "1" : "0",
-      );
-    }
-    url.searchParams.set("extVer", this.extensionVersion);
-    // 实例标识进 URL：同端口重启的新实例 URL 仍不同——shell 的
-    // loadedUrl 判重不会把它当"同一地址"吞掉，iframe 必然换新页。
-    url.searchParams.set("inst", server.embedBoot ?? "");
-    const urlStr = url.toString();
+    // 参数契约集中在 embedUrl.ts（session/cwd 互斥、view 族参数的消费
+    // 边界都在那里注释+测试）——本处只喂当前面板状态。
+    const urlStr = buildEmbedUrl(server.origin, {
+      inst: server.embedBoot ?? "",
+      extVer: this.extensionVersion,
+      sessionId: this.sessionId,
+      cwd: this.currentCwd,
+      view: this.panelView,
+      section: this.panelSection,
+      browserBtn:
+        this.panelView === "chat"
+          ? piConfig().get<boolean>("showOpenInBrowser", true)
+          : undefined,
+    });
 
     // 服务器实例与 URL 都没变就不重推——避免每次点状态栏都重载 iframe
     // 丢失页面状态；stop 后再 start 实例必变，shell 收到新 url 会重新探测。

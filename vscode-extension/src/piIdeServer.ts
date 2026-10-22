@@ -12,6 +12,7 @@ import {
   SpawnTarget,
 } from "./server-resolve";
 import { logLifecycle, outputChannel } from "./server-status";
+import { piConfig } from "./config";
 
 /**
  * 管理 pi-web 服务器的生命周期（独立进程）。
@@ -296,7 +297,7 @@ export class PiIdeServer {
   }
 
   private packageName(): string {
-    const config = vscode.workspace.getConfiguration("Pi for IDE");
+    const config = piConfig();
     return (config.get<string>("package") ?? DEFAULT_PACKAGE).trim() || DEFAULT_PACKAGE;
   }
 
@@ -325,8 +326,7 @@ export class PiIdeServer {
           // attach 只扫 303x——用户显式配置了别的起始端口时，接上的实例
           // 可能不是他们以为的那份（别的窗口/手动起的）。给个可见提示，
           // 让"配了端口却连上旧实例"不再静默。
-          const preferred = vscode.workspace
-            .getConfiguration("Pi for IDE")
+          const preferred = piConfig()
             .get<number>("port", DEFAULT_PORT);
           if (preferred !== o.port) {
             void vscode.window.showInformationMessage(
@@ -352,7 +352,7 @@ export class PiIdeServer {
   /** 探测空闲端口后按目标模式启动服务器，等待 stdout 打印的 URL。 */
   private async spawn(target: SpawnTarget): Promise<string | undefined> {
     // 读取用户配置的起始端口（默认 3030），探测第一个空闲端口。
-    const config = vscode.workspace.getConfiguration("Pi for IDE");
+    const config = piConfig();
     const preferred =
       typeof config.get<number>("port") === "number"
         ? config.get<number>("port", DEFAULT_PORT)

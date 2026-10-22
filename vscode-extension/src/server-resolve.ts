@@ -22,7 +22,31 @@ import {
 } from "./managedRuntime";
 import { readTgzIdentity, resolveLocalPackagePath, type BuildIdentity } from "./tgz";
 import { emitServerStatus } from "./server-status";
-import { markUpgradeSurfaced, wasUpgradeSurfaced } from "./upgradeNotice";
+import { formatBuildStamp } from "./version";
+import { piConfig } from "./config";
+import { localUpgradeSig } from "./upgradeNotice";
+
+// ---------------------------------------------------------------------------
+// 降级发现事件：解析层只产出"解析副本比本地包旧"的事实——提示去哪条路径
+// 打扰用户归扩展层的 upgrade 编排（三条触达路径共用去重）。解析层弹
+// UI 是分层违例，第四条提示路径就是从这里长出来的。
+// ---------------------------------------------------------------------------
+
+export interface DowngradeWarning {
+  /** 用户可读的一行警告。 */
+  warn: string;
+  /** 与 upgradeActionSig 同口径的 local: 签名（去重凭据）。 */
+  sig: string;
+}
+
+const downgradeListeners = new Set<(w: DowngradeWarning) => void>();
+export function onDowngradeWarning(cb: (w: DowngradeWarning) => void): vscode.Disposable {
+  downgradeListeners.add(cb);
+  return { dispose: () => void downgradeListeners.delete(cb) };
+}
+function emitDowngradeWarning(w: DowngradeWarning): void {
+  for (const cb of downgradeListeners) cb(w);
+}
 
 export type SpawnTarget =
   /** node <server.js>——standalone 产物，只认 PORT/HOSTNAME 环境变量。 */
@@ -279,7 +303,6 @@ export type LocalCheck = NonNullable<ReturnType<typeof checkLocalPackageUpdate>>
 export type RemoteCheck = NonNullable<Awaited<ReturnType<typeof checkPiWebUpdate>>>;
 
 /** "2026-10-20T02:46:13.857Z" → " built 2026-10-20 02:46"（空则空串）——升级报告/通知/版本列表共用。 */
-export const formatBuildStamp = (b?: string) => (b ? ` built ${b.slice(0, 16).replace("T", " ")}` : "");
 const fmtBuild = formatBuildStamp;
 
 // 并发去重：命令入口与 +8s 后台检查常同时起跑——registry fetch 10s
@@ -428,7 +451,7 @@ export async function resolveServerTarget(
   channel: vscode.OutputChannel,
   pkg: string,
 ): Promise<SpawnTarget | undefined> {
-  const config = vscode.workspace.getConfiguration("Pi for IDE");
+  const config = piConfig();
 
   // 1) 显式配置：接受 standalone server.js 或包内 bin/pi-web.js。
   const configured = config.get<string>("executablePath")?.trim();
@@ -493,21 +516,9 @@ export async function resolveServerTarget(
         if (newer) {
           const warn = `resolved server copy ${resolvedVer}${fmtBuild(stamp)} is older than local package ${c.version}${fmtBuild(c.builtAt)}`;
           channel.appendLine(`⚠ ${warn} — run "Pi for IDE: Upgrade Server Component".`);
-          // 与升级计划同一签名（local:${label}）——这条警告若已弹过就不再
-          // 弹（例如 +8s 后台检查先触达），反之亦然。
-          const sig = `local:${c.version}${fmtBuild(c.builtAt)}${c.gitSha ? ` (${c.gitSha})` : ""}`;
-          if (!wasUpgradeSurfaced(sig)) {
-            markUpgradeSurfaced(sig);
-            void vscode.window
-              .showWarningMessage(`Pi for IDE: ${warn}.`, "Upgrade", "Later")
-              .then((pick) => {
-                // direct：用户已在警告层同意，命令直接执行安装，不再弹
-                // 第二层确认（之前要连点两次才真装，像"点了没反应"）。
-                if (pick === "Upgrade") void vscode.commands.executeCommand("piIde.upgrade", { direct: true });
-              });
-          } else {
-            channel.appendLine("  (same upgrade already prompted this session — notification skipped)");
-          }
+          // 与升级计划同一签名（localUpgradeSig = local:${a.label}）——
+          // UI 弹不弹由监听方（upgrade 编排层）按共享标记定。
+          emitDowngradeWarning({ warn, sig: localUpgradeSig(c) });
         }
       }
     }
