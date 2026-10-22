@@ -6,10 +6,10 @@
     <!-- 红绿灯与横条：从标题栏灰底中挖去的真镂空——任何单灰度渲染下都透出底色 -->
     <mask id="bandHoles">
       <rect x="0.4" y="1" width="23.2" height="5.9" fill="#fff"/>
-      <circle cx="2.22" cy="3.95" r="1.26" fill="#000"/>
+      <circle cx="2.85" cy="3.95" r="1.26" fill="#000"/>
       <circle cx="6.63" cy="3.95" r="1.26" fill="#000"/>
-      <circle cx="11.04" cy="3.95" r="1.26" fill="#000"/>
-      <rect x="14.86" y="3.15" width="7.8" height="1.6" rx="0.8" fill="#000"/>
+      <circle cx="10.41" cy="3.95" r="1.26" fill="#000"/>
+      <rect x="14.23" y="3.15" width="7.8" height="1.6" rx="0.8" fill="#000"/>
     </mask>
   </defs>
   <!-- 标题栏：灰底，镂空控件，裁进窗框上圆角 -->
