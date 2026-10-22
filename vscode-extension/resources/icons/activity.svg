@@ -6,8 +6,8 @@
     <!-- 红绿灯与横条：从标题栏灰底中挖去的真镂空——任何单灰度渲染下都透出底色 -->
     <mask id="bandHoles">
       <rect x="0.4" y="1" width="23.2" height="6.6" fill="#fff"/>
-      <circle cx="4.18" cy="4.3" r="1.4" fill="#000"/>
-      <circle cx="6.98" cy="4.3" r="1.4" fill="#000"/>
+      <circle cx="3.48" cy="4.3" r="1.4" fill="#000"/>
+      <circle cx="6.63" cy="4.3" r="1.4" fill="#000"/>
       <circle cx="9.78" cy="4.3" r="1.4" fill="#000"/>
       <rect x="13.6" y="3.3" width="7.8" height="2" rx="1" fill="#000"/>
     </mask>
@@ -18,6 +18,6 @@
   <!-- 窗体外框：细边线，体部透明 -->
   <rect x="0.4" y="1" width="23.2" height="22" rx="2.6" fill="none" stroke="#8f8f8f" stroke-width="0.4"/>
   <!-- π：Segoe UI Semibold——scripts/generate-icon.py 生成 logo 用的同一字体 -->
-  <text x="12" y="13.7" font-family="'Segoe UI Semibold', 'Segoe UI', sans-serif" font-weight="600" font-size="16.8"
+  <text x="12" y="12.3" font-family="'Segoe UI Semibold', 'Segoe UI', sans-serif" font-weight="600" font-size="20.2"
         text-anchor="middle" dominant-baseline="central" fill="#8f8f8f">π</text>
 </svg>
