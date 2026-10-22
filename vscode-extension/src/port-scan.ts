@@ -11,16 +11,31 @@ import { logLifecycle } from "./server-status";
 const exec = (cmd: string, timeout = 10_000): Promise<string> =>
   new Promise((r) => cp.exec(cmd, { timeout, windowsHide: true }, (_e, out) => r(out)));
 
-/** 扫描 303x 端口上的监听者，解析 PID→命令行并分类。 */
+/** attach 扫描范围：环境变量 PI_IDE_ATTACH_RANGE="from-to" 覆盖（e2e
+ *  隔离用——测试把范围指到 fixture 口，303x 上的真身实例完全不被碰）；
+ *  未配/非法回落默认 3030–3039。 */
+export function attachScanRange(): { from: number; to: number } {
+  const raw = process.env.PI_IDE_ATTACH_RANGE?.trim();
+  const m = raw?.match(/^(\d+)\s*[-:]\s*(\d+)$/);
+  if (m) {
+    const from = Number(m[1]);
+    const to = Number(m[2]);
+    if (from >= 1 && to >= from && to <= 65535) return { from, to };
+  }
+  return { from: 3030, to: 3039 };
+}
+
+/** 扫描 from–to 端口上的监听者，解析 PID→命令行并分类。 */
 export async function scanPortOccupiers(
   from = 3030,
   to = 3039,
   pkgName?: string,
 ): Promise<PortOccupier[]> {
-  // 1) 拿 303x 监听者的 port→pid 表。
+  // 1) 拿监听者的 port→pid 表（netstat 不预过滤——前缀过滤只对 3xxx 成立，
+  //    可配的 attach 范围可能在任意段位）。
   const listeners: { port: number; pid: number }[] = [];
   if (process.platform === "win32") {
-    const out = await exec('netstat -ano | findstr "LISTENING" | findstr ":303"');
+    const out = await exec('netstat -ano | findstr "LISTENING"');
     for (const m of out.matchAll(/:(\d+)\s+[\d.:*]+\s+LISTENING\s+(\d+)/g)) {
       const port = Number(m[1]);
       if (port >= from && port <= to) listeners.push({ port, pid: Number(m[2]) });

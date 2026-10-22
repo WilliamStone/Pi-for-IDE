@@ -15,6 +15,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFil
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 /**
  * VSCodium 路径：环境变量 PI_E2E_VSCODIUM 优先；否则按平台惯例猜。
@@ -38,7 +39,9 @@ export function findVscodium() {
 /** vscode-extension 目录下最新的 pi-for-ide-*.vsix。 */
 export function latestVsix(extDir) {
   const files = readdirSync(extDir)
-    .filter((f) => /^pi-for-ide-\d+\.\d+\.\d+\.vsix$/.test(f))
+    // -dev/-rc 等后缀也要收——0.2.1-dev 被过滤会静默默认到旧 vsix
+    // （曾因此 attach 到 303x 真身实例：老包不认 PI_IDE_ATTACH_RANGE）。
+    .filter((f) => /^pi-for-ide-\d+\.\d+\.\d+(?:-[\w.-]+)?\.vsix$/.test(f))
     .map((f) => ({ f, m: statSync(path.join(extDir, f)).mtimeMs }))
     .sort((a, b) => b.m - a.m);
   return files[0] ? path.join(extDir, files[0].f) : null;
@@ -57,10 +60,19 @@ export function makeFixture() {
   const settingsDir = path.join(workspace, ".vscode");
   mkdirSync(settingsDir, { recursive: true });
   writeFileSync(path.join(workspace, "hello.txt"), "hello e2e\n");
-  writeFileSync(
-    path.join(settingsDir, "settings.json"),
-    JSON.stringify({ "Pi for IDE.autoStart": true, "Pi for IDE.port": port }, null, 2),
-  );
+  // 本地 tgz 优先：免 registry 下载（45s+/次），且本地安装本来就是主分发
+  // 路径。仓库根的 william_stone-pi-web-for-ide-*.tgz 由 npm run pack 产出。
+  const extDir = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
+  const repoRoot = path.dirname(extDir);
+  const tgz = readdirSync(repoRoot).find((f) => /^william_stone-pi-web-for-ide-.*\.tgz$/.test(f));
+  const settings = {
+    "Pi for IDE.autoStart": true,
+    "Pi for IDE.port": port,
+    ...(tgz
+      ? { "Pi for IDE.installSource": "local", "Pi for IDE.localPackage": path.join(repoRoot, tgz) }
+      : {}),
+  };
+  writeFileSync(path.join(settingsDir, "settings.json"), JSON.stringify(settings, null, 2));
   return {
     root,
     port,
@@ -90,16 +102,19 @@ export function installVsix(cli, vsix, { userDataDir, extensionsDir }) {
 }
 
 /**
- * attach-first 隔离器：ensureStarted 先扫 3030–3039 找 ours 实例直接 attach
- * ——测试期真身实例若在跑就会被接上（隔离即破，还会把会话写进真目录）。
- * 用法：launch 前调用。占住该区间所有空闲口（attach 只认 cmdline 含本包
- * 路径的 ours，哑监听者被滤掉）；返回 holders 供 finally 关闭。
+ * attach-first 隔离器：ensureStarted 先扫 attach 范围找 ours 实例直接
+ * attach——测试期真身实例若在跑就会被接上（隔离即破，还会把会话写进
+ * 真目录）。e2e 走 PI_IDE_ATTACH_RANGE 把范围指到 fixture 端口——
+ * 303x 的真身实例扩展根本不扫，不用停。
+ * 用法：launch 前调用（参数 = fixture 的 attach 范围）。占住该区间
+ * 所有空闲口（attach 只认 cmdline 含本包路径的 ours，哑监听者被滤
+ * 掉）；返回 holders 供 finally 关闭。
  * 若某口已有真在跑的 ours 实例（/api/embed 应答 200）→ 返回 oursPort →
- * 测试应 skip：隔离不了，也不该打扰用户实例。
+ * 测试应 skip：隔离不了，也不该打扰它。
  */
-export async function guardAttachRange() {
+export async function guardAttachRange(from = 3030, to = 3039) {
   const holders = [];
-  for (let port = 3030; port <= 3039; port++) {
+  for (let port = from; port <= to; port++) {
     const srv = net.createServer();
     const held = await new Promise((resolve) => {
       srv.once("error", () => resolve(false));

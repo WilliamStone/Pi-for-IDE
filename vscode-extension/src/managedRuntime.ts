@@ -293,9 +293,15 @@ function spawnNpmInstall(
   spec: string,
 ): Promise<boolean> {
   return new Promise((resolve) => {
+    // npm ≥11 在 project-scoped install 上拒绝 --ignore-scripts CLI
+    // （EALLOWSCRIPTS），.npmrc 同键也进 policy 报错——但 -g 是
+    // 非 project 上下文（npm.global → 检查短路），--ignore-scripts
+    // 恢复合法。产物布局一致：<prefix>/node_modules/<pkg>/（多出来的
+    // 顶层 .cmd/.ps1 shim 无妨）。preinstall-guard 若跑了会在实例
+    // 在跑时整单中止（Windows）——版本槽安装不碰运行目录，必须跳过。
     const child = cp.spawn(
       "npm",
-      ["i", "--prefix", versionRoot, `"${spec}"`, "--ignore-scripts", "--no-audit", "--no-fund"],
+      ["i", "-g", "--prefix", versionRoot, `"${spec}"`, "--ignore-scripts", "--no-audit", "--no-fund"],
       { shell: true, windowsHide: true },
     );
     child.stdout?.on("data", (d: Buffer) => channel.append(d.toString()));
@@ -449,7 +455,7 @@ export async function installManagedPackage(
     context,
     pkg,
     targetVersion,
-    `npm i --prefix "${versionRoot}" ${spec} --ignore-scripts --no-audit --no-fund`,
+    `npm i -g --prefix "${versionRoot}" ${spec} --ignore-scripts --no-audit --no-fund`,
     () => spawnNpmInstall(channel, versionRoot, spec),
     onProgress,
   );

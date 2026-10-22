@@ -5,7 +5,7 @@ import * as vscode from "vscode";
 import { EMBED_PROTOCOL_SUPPORTED, managedRuntimeRoot } from "./managedRuntime";
 import { DEFAULT_PACKAGE } from "./occupier";
 import { reportStartupFailure } from "./diagnostics";
-import { findFreePort, reportPortOccupiers, scanPortOccupiers } from "./port-scan";
+import { attachScanRange, findFreePort, reportPortOccupiers, scanPortOccupiers } from "./port-scan";
 import {
   installPiWebPackage,
   resolveServerTarget,
@@ -284,7 +284,7 @@ export class PiIdeServer {
    * 读写同一 ~/.pi 状态目录更会互相踩（run-records/ui-state/快照）。
    */
   private async spawnUnlessOursOccupier(target: SpawnTarget): Promise<string | undefined> {
-    const ours = (await scanPortOccupiers(undefined, undefined, this.packageName()))
+    const ours = (await scanPortOccupiers(attachScanRange().from, attachScanRange().to, this.packageName()))
       .filter((o) => o.kind === "ours");
     if (ours.length) {
       logLifecycle(
@@ -312,7 +312,7 @@ export class PiIdeServer {
     const deadline = Date.now() + graceMs;
     let waitLogged = false;
     do {
-      const ours = (await scanPortOccupiers(undefined, undefined, this.packageName())).filter((o) => o.kind === "ours");
+      const ours = (await scanPortOccupiers(attachScanRange().from, attachScanRange().to, this.packageName())).filter((o) => o.kind === "ours");
       if (!ours.length && !waitLogged) return undefined;
       for (const o of ours) {
         const origin = `http://127.0.0.1:${o.port}`;

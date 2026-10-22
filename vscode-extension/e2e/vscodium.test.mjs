@@ -6,7 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   cleanElectronEnv, findVscodium, guardAttachRange, installVsix, latestVsix,
-  makeFixture, openPiPanelViaEditorTitle, releaseAttachGuard, waitForFrame,
+  makeFixture, openPiPanelViaEditorTitle, releaseAttachGuard, runCommand, waitForFrame,
 } from "./helpers.mjs";
 import { seedAgentConfig, seedSession } from "./session-fixture.mjs";
 
@@ -66,7 +66,7 @@ async function reachPiFrame({ exe, cli, vsix }, fixture, extraEnv = {}) {
   installVsix(cli, vsix, fixture);
   const app = await electron.launch({
     executablePath: exe,
-    env: { ...cleanElectronEnv(), ...extraEnv },
+    env: { ...cleanElectronEnv(), PI_IDE_ATTACH_RANGE: `${fixture.port}-${fixture.port + 9}`, ...extraEnv },
     args: [
       "--user-data-dir", fixture.userDataDir,
       "--extensions-dir", fixture.extensionsDir,
@@ -99,7 +99,7 @@ test("VSCodium: panel opens and iframe reaches pi-web", { timeout: 300_000 }, as
   if (!ctx) return;
   const fixture = makeFixture();
   // attach-first 隔离：占住 303x 空口；真身实例在跑则 skip（不打扰/不污染）
-  const guard = await guardAttachRange();
+  const guard = await guardAttachRange(fixture.port, fixture.port + 9);
   if (guard.oursPort) {
     releaseAttachGuard(guard);
     coverSkip(t, "A panel-open", `real pi-web instance on :${guard.oursPort}`);
@@ -124,7 +124,7 @@ test("VSCodium B: file-review actions drive host diff/open/patch-fallback", { ti
   const fixture = makeFixture();
   // 独立 agent 目录预置一份 write+edit+drifted-edit 会话——不用真跑模型
   const seed = seedSession(fixture.root, fixture.workspace);
-  const guard = await guardAttachRange();
+  const guard = await guardAttachRange(fixture.port, fixture.port + 9);
   if (guard.oursPort) {
     releaseAttachGuard(guard);
     coverSkip(t, "B file-review", `real pi-web instance on :${guard.oursPort}`);
@@ -144,7 +144,16 @@ test("VSCodium B: file-review actions drive host diff/open/patch-fallback", { ti
     // cwd 参数优先于 session（getInitialNavigation）——URL 直跳带 cwd 时
     // session 被忽略。必须走 SPA 内部导航：点会话树条目。
     const entry = piFrame.locator('a.session-tree-main:has-text("e2e seed turn")').first();
-    await entry.waitFor({ timeout: 60000 });
+    try {
+      await entry.waitFor({ timeout: 60000 });
+    } catch (e) {
+      const dump = await piFrame.evaluate(() => ({
+        url: location.href.slice(0, 200),
+        text: document.body?.innerText?.slice(0, 1200),
+      })).catch((err) => String(err));
+      console.log("pi-frame on entry-timeout:", JSON.stringify(dump, null, 2));
+      throw e;
+    }
     await entry.scrollIntoViewIfNeeded().catch(() => {});
     try {
       await entry.click({ timeout: 8000 });
@@ -213,7 +222,7 @@ test("VSCodium C: live prompt turn → revert restores files", { timeout: 480_00
     return;
   }
   console.log(`    live model: ${agentSeed.model}`);
-  const guard = await guardAttachRange();
+  const guard = await guardAttachRange(fixture.port, fixture.port + 9);
   if (guard.oursPort) {
     releaseAttachGuard(guard);
     coverSkip(t, "C live-revert", `real pi-web instance on :${guard.oursPort}`);
@@ -291,7 +300,7 @@ test("VSCodium E: session-tree click opens deep-linked session tab", { timeout: 
   if (!ctx) return;
   const fixture = makeFixture();
   const seed = seedSession(fixture.root, fixture.workspace); // 会话 id e2e-seed-01
-  const guard = await guardAttachRange();
+  const guard = await guardAttachRange(fixture.port, fixture.port + 9);
   if (guard.oursPort) {
     releaseAttachGuard(guard);
     coverSkip(t, "E session-tree", `real pi-web instance on :${guard.oursPort}`);
@@ -301,10 +310,14 @@ test("VSCodium E: session-tree click opens deep-linked session tab", { timeout: 
     PI_CODING_AGENT_DIR: seed.agentDir,
   });
   try {
-    // 打开 Pi Sessions 视图容器（activity bar），等树渲染出 seed 会话行。
+    // 打开 Pi Sessions 视图容器：activity bar 图标优先，找不到走命令面板
+    // （视图命令 = 容器名"Pi Sessions"——aria-label 形态随版本漂移）。
     const actBar = win.locator('.activitybar [aria-label*="Pi Sessions"]').first();
-    await actBar.waitFor({ state: "visible", timeout: 30000 });
-    await actBar.click();
+    if (await actBar.count()) {
+      await actBar.click();
+    } else {
+      await runCommand(win, "Pi Sessions");
+    }
     const row = win.locator('.monaco-list-row:has-text("e2e seed turn")').first();
     await row.waitFor({ state: "visible", timeout: 60000 });
     await row.click();
@@ -341,13 +354,13 @@ test("VSCodium F: hotkey passthrough reaches workbench", { timeout: 300_000 }, a
   const ctx = prerequisites(t, "F hotkey");
   if (!ctx) return;
   const fixture = makeFixture();
-  const guard = await guardAttachRange();
+  const guard = await guardAttachRange(fixture.port, fixture.port + 9);
   if (guard.oursPort) {
     releaseAttachGuard(guard);
     coverSkip(t, "F hotkey", `real pi-web instance on :${guard.oursPort}`);
     return;
   }
-  const { app, piFrame } = await reachPiFrame(ctx, fixture);
+  const { app, win, piFrame } = await reachPiFrame(ctx, fixture);
   try {
     // 焦点进页面正文（不在输入框——输入框内组合键按设计不转发）。
     await piFrame.waitForSelector("textarea", { timeout: 60000 });
@@ -400,7 +413,7 @@ test("VSCodium D: spawned server self-stops after window closes", { timeout: 300
   const fixture = makeFixture();
   // 本测试断言的是"我们 spawn 的实例自退"——attach 到真身实例会让
   // 断言对象错成别人的 server，先隔离。
-  const guard = await guardAttachRange();
+  const guard = await guardAttachRange(fixture.port, fixture.port + 9);
   if (guard.oursPort) {
     releaseAttachGuard(guard);
     coverSkip(t, "D watchdog", `real pi-web instance on :${guard.oursPort}`);
