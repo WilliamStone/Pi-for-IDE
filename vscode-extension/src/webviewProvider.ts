@@ -123,9 +123,9 @@ export class PiWebWebviewPanel extends vscode.Disposable {
     this.sessionId = sessionId;
 
     if (this.panel && !cwdChanged) {
-      // Same cwd — 聚焦面板（保留自身列：reveal("Beside") 会把已定位的
-      // 面板重新相对活动编辑器排布，多会话面板互点时会互换位置）。
-      this.panel.reveal(this.panel.viewColumn ?? viewColumn, false);
+      // Same cwd — 聚焦面板（不传列：reveal("Beside") 会把已定位的面板重新
+      // 相对活动编辑器排布，多会话面板互点时会成对搬家、原组塌缩）。
+      this.panel.reveal(undefined, false);
       await this.refresh();
       return;
     }
@@ -206,7 +206,7 @@ export class PiWebWebviewPanel extends vscode.Disposable {
         }
       });
     } else {
-      this.panel.reveal(viewColumn, false);
+      this.panel.reveal(undefined, false);
     }
 
     await this.refresh();

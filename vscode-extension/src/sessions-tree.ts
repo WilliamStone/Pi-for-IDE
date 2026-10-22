@@ -306,10 +306,19 @@ export function registerSessionCommands(
   };
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("piIde.session.open", async (id: string, title?: string) => {
-      void deps.ensureServer();
-      await deps.openSession(id, title);
-    }),
+    // 节点点击走 item.command.arguments=[id,title]；右键/inline 按钮由
+    // view/item/context 触发，VS Code 传的是整个 TreeItem——两种都归一到
+    // 会话 id，否则 inline 图标会每次新开一个 ?session=[object Object] 的
+    // tab（首页+错误标题，且不与会话对应）。
+    vscode.commands.registerCommand(
+      "piIde.session.open",
+      async (arg: string | vscode.TreeItem, title?: string) => {
+        const id = typeof arg === "string" ? arg : sessionIdOf(arg);
+        const name = title ?? (typeof arg !== "string" && typeof arg.label === "string" ? arg.label : undefined);
+        void deps.ensureServer();
+        await deps.openSession(id, name);
+      },
+    ),
 
     vscode.commands.registerCommand("piIde.session.rename", async (item: vscode.TreeItem) => {
       const id = sessionIdOf(item);
