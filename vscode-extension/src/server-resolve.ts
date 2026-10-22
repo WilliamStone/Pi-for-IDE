@@ -22,6 +22,7 @@ import {
 } from "./managedRuntime";
 import { readTgzIdentity, resolveLocalPackagePath, type BuildIdentity } from "./tgz";
 import { emitServerStatus } from "./server-status";
+import { markUpgradeSurfaced, wasUpgradeSurfaced } from "./upgradeNotice";
 
 export type SpawnTarget =
   /** node <server.js>——standalone 产物，只认 PORT/HOSTNAME 环境变量。 */
@@ -475,11 +476,19 @@ export async function resolveServerTarget(
         if (newer) {
           const warn = `resolved server copy ${resolvedVer}${fmtBuild(stamp)} is older than local package ${c.version}${fmtBuild(c.builtAt)}`;
           channel.appendLine(`⚠ ${warn} — run "Pi for IDE: Upgrade Server Component".`);
-          void vscode.window
-            .showWarningMessage(`Pi for IDE: ${warn}.`, "Upgrade", "Later")
-            .then((pick) => {
-              if (pick === "Upgrade") void vscode.commands.executeCommand("piIde.upgrade");
-            });
+          // 与升级计划同一签名（local:${label}）——这条警告若已弹过就不再
+          // 弹（例如 +8s 后台检查先触达），反之亦然。
+          const sig = `local:${c.version}${fmtBuild(c.builtAt)}${c.gitSha ? ` (${c.gitSha})` : ""}`;
+          if (!wasUpgradeSurfaced(sig)) {
+            markUpgradeSurfaced(sig);
+            void vscode.window
+              .showWarningMessage(`Pi for IDE: ${warn}.`, "Upgrade", "Later")
+              .then((pick) => {
+                if (pick === "Upgrade") void vscode.commands.executeCommand("piIde.upgrade");
+              });
+          } else {
+            channel.appendLine("  (same upgrade already prompted this session — notification skipped)");
+          }
         }
       }
     }
