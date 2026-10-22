@@ -16,8 +16,8 @@
   <rect x="3.05" y="3.55" width="17.9" height="3.4" fill="#9a9a9a" fill-opacity="0.55"
         clip-path="url(#frame)" mask="url(#bandHoles)"/>
   <!-- 窗体外框：细边线，体部透明 -->
-  <rect x="3.05" y="3.55" width="17.9" height="16.9" rx="2.2" fill="none" stroke="#8f8f8f" stroke-width="0.8"/>
-  <!-- π：Times New Roman Bold（与 icon-128.png 同款衬线粗体），窗口区中点上移 2px -->
-  <text x="12" y="11.9" font-family="'Times New Roman', Times, serif" font-weight="700" font-size="11"
+  <rect x="3.05" y="3.55" width="17.9" height="16.9" rx="2.2" fill="none" stroke="#8f8f8f" stroke-width="0.4"/>
+  <!-- π：Segoe UI Semibold——scripts/generate-icon.py 生成 logo 用的同一字体 -->
+  <text x="12" y="11.9" font-family="'Segoe UI Semibold', 'Segoe UI', sans-serif" font-weight="600" font-size="11"
         text-anchor="middle" dominant-baseline="central" fill="#8f8f8f">π</text>
 </svg>
