@@ -158,10 +158,16 @@
         "icon": "$(list-tree)"
       },
       {
-        "command": "piIde.sessions.find",
-        "title": "%cmd.sessions.find%",
+        "command": "piIde.sessions.filter",
+        "title": "%cmd.sessions.filter%",
         "category": "Pi for IDE",
         "icon": "$(list-filter)"
+      },
+      {
+        "command": "piIde.sessions.clearFilter",
+        "title": "%cmd.sessions.clearFilter%",
+        "category": "Pi for IDE",
+        "icon": "$(filter-filled)"
       },
       {
         "command": "piIde.project.pin",
@@ -192,6 +198,12 @@
         "title": "%cmd.openOriginal%",
         "category": "Pi for IDE",
         "icon": "$(window)"
+      },
+      {
+        "command": "piIde.settings",
+        "title": "%cmd.settings%",
+        "category": "Pi for IDE",
+        "icon": "$(settings-gear)"
       },
       {
         "command": "piIde.session.openFull",
@@ -297,6 +309,16 @@
           ],
           "default": "auto",
           "description": "%config.installSource%"
+        },
+        "Pi for IDE.notifyAwaiting": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.notifyAwaiting%"
+        },
+        "Pi for IDE.showOpenInBrowser": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.showOpenInBrowser%"
         }
       }
     },
@@ -368,7 +390,11 @@
           "when": "false"
         },
         {
-          "command": "piIde.sessions.find",
+          "command": "piIde.sessions.filter",
+          "when": "false"
+        },
+        {
+          "command": "piIde.sessions.clearFilter",
           "when": "false"
         },
         {
@@ -389,6 +415,9 @@
         },
         {
           "command": "piIde.openOriginal"
+        },
+        {
+          "command": "piIde.settings"
         },
         {
           "command": "piIde.session.openFull",
@@ -452,19 +481,29 @@
           "group": "navigation@1"
         },
         {
-          "command": "piIde.sessions.find",
-          "when": "view == 'piIde.sessions'",
+          "command": "piIde.sessions.filter",
+          "when": "view == 'piIde.sessions' && !piIde.sessions.filtering",
+          "group": "navigation@2"
+        },
+        {
+          "command": "piIde.sessions.clearFilter",
+          "when": "view == 'piIde.sessions' && piIde.sessions.filtering",
           "group": "navigation@2"
         },
         {
           "command": "piIde.sessions.cycleViewMode",
           "when": "view == 'piIde.sessions'",
-          "group": "navigation@3"
+          "group": "sessions@0"
         },
         {
           "command": "piIde.openOriginal",
           "when": "view == 'piIde.sessions'",
-          "group": "navigation@4"
+          "group": "sessions@1"
+        },
+        {
+          "command": "piIde.settings",
+          "when": "view == 'piIde.sessions'",
+          "group": "sessions@2"
         }
       ],
       "view/item/context": [

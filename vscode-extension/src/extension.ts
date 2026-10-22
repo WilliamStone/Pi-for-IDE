@@ -117,7 +117,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         bridge,
         context.extension.packageJSON.version as string,
         () => sessionPanels.delete(id),
-        true,
+        "chat",
       );
       sessionPanels.set(id, p);
       context.subscriptions.push(p);
@@ -246,6 +246,65 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     void vscode.commands.executeCommand(
       "setContext", "piIde.sessions.workspaceOnly", sessionsProvider.isWorkspaceOnly(),
     );
+    // 状态栏：待输入会话指示器——树藏起来时"有会话在等"不可见是真盲区；
+    // awaiting 转移顺带 toast（可配关），点击聚焦会话视图/打开会话。
+    const awaitBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 90);
+    awaitBar.command = "workbench.view.extension.piIde";
+    const notifiedAwaiting = new Set<string>();
+    context.subscriptions.push(
+      awaitBar,
+      sessionsProvider.onDidChangeTreeData(() => {
+        const awaiting = sessionsProvider.awaitingSessionIds;
+        if (awaiting.size > 0) {
+          const titles = [...awaiting]
+            .map((id) => sessionsProvider.sessionById(id)?.name ?? id.slice(0, 8))
+            .join("\n");
+          awaitBar.text = `$(bell-dot) Pi: ${awaiting.size}`;
+          awaitBar.tooltip = `${awaiting.size} session(s) awaiting input:\n${titles}`;
+          awaitBar.show();
+        } else {
+          awaitBar.hide();
+        }
+        if (vscode.workspace.getConfiguration("Pi for IDE").get<boolean>("notifyAwaiting", true)) {
+          for (const id of awaiting) {
+            if (notifiedAwaiting.has(id)) continue;
+            notifiedAwaiting.add(id);
+            const title = sessionsProvider.sessionById(id)?.name ?? "A session";
+            void vscode.window
+              .showInformationMessage(`Pi: ${title} is awaiting input`, "View")
+              .then((pick) => {
+                if (pick === "View") void vscode.commands.executeCommand("piIde.session.open", id);
+              });
+          }
+        }
+        for (const id of [...notifiedAwaiting]) {
+          if (!awaiting.has(id)) notifiedAwaiting.delete(id);
+        }
+      }),
+    );
+
+    // 设置页单例面板——?view=settings（加载即弹设置面板的精简壳）。
+    const settingsPanel = new PiWebWebviewPanel(
+      context.extensionUri,
+      () => server,
+      () => ensureServer(),
+      bridge,
+      context.extension.packageJSON.version as string,
+      undefined,
+      "settings",
+    );
+    context.subscriptions.push(settingsPanel);
+    settingsPanel.setTitleOverride("Pi — Settings");
+    context.subscriptions.push(
+      vscode.commands.registerCommand("piIde.settings", async () => {
+        const cwd = resolveConfiguredCwd()
+          ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
+          ?? "";
+        void ensureServer();
+        await settingsPanel.reveal(cwd, openViewColumn());
+      }),
+    );
+
     // 完整应用页入口（无 view=chat）——chat-only tab 精简掉的侧栏/设置/文件
     // 等功能，过渡期从这里够到。
     context.subscriptions.push(

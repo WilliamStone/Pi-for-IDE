@@ -97,8 +97,8 @@ export class PiWebWebviewPanel extends vscode.Disposable {
     private readonly extensionVersion: string,
     /** 面板销毁回调——会话面板注册表据此清掉映射（tab 对应 session）。 */
     private readonly onDisposed?: () => void,
-    /** 会话上下文面板：URL 恒带 view=chat（无应用侧栏/顶栏）。 */
-    private readonly chatMode = false,
+    /** 精简页面形态（"chat"|"settings"）——URL 恒带 view=<值>。 */
+    private readonly panelView?: string,
   ) {
     super(() => this.dispose());
     // 服务器阶段状态（下载/启动）实时推到面板——等待页/门页据此换文案。
@@ -315,9 +315,16 @@ export class PiWebWebviewPanel extends vscode.Disposable {
     } else if (this.currentCwd) {
       url.searchParams.set("cwd", this.currentCwd);
     }
-    // 会话类面板（session 深链 / 项目新会话）收敛为纯会话区——应用侧栏
-    // 与顶栏由宿主原生 UI 取代。
-    if (this.chatMode) url.searchParams.set("view", "chat");
+    // 精简视图面板（chat 会话区 / settings 设置页）——应用侧栏与多余
+    // 顶栏入口由宿主原生 UI 取代。browserBtn 传 chat 顶栏"在浏览器中打开"
+    // 的可见性配置（仅 chat 视图消费）。
+    if (this.panelView) url.searchParams.set("view", this.panelView);
+    if (this.panelView === "chat") {
+      url.searchParams.set(
+        "browserBtn",
+        vscode.workspace.getConfiguration("Pi for IDE").get<boolean>("showOpenInBrowser", true) ? "1" : "0",
+      );
+    }
     url.searchParams.set("extVer", this.extensionVersion);
     // 实例标识进 URL：同端口重启的新实例 URL 仍不同——shell 的
     // loadedUrl 判重不会把它当"同一地址"吞掉，iframe 必然换新页。

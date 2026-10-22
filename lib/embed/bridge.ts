@@ -305,11 +305,17 @@ export function embedExtVersion(): string | null {
 }
 
 /**
- * 宿主指定的页面形态（`?view=`）——目前只有 "chat"：原生侧栏持有导航权
- * 的宿主把页面收敛为纯会话区（无应用侧栏、无顶栏）。未指定返回 null。
+ * 宿主指定的页面形态（`?view=`）——"chat"：宿主原生侧栏持有导航权，
+ * 页面收敛为会话区（无应用侧栏；顶栏只保留会话级入口）；"settings"：
+ * 同样的精简壳，加载即弹出设置面板。未指定返回 null。
  */
 export function embedView(): string | null {
   return entryParams.get("view");
+}
+
+/** `?browserBtn=0` 时 chat 顶栏不渲染"在浏览器中打开"（宿主配置传入）。 */
+export function embedBrowserButton(): boolean {
+  return entryParams.get("browserBtn") !== "0";
 }
 
 // Resolvers waiting for host responses, keyed by request id.

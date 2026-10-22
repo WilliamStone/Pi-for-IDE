@@ -54,7 +54,7 @@ import {
   setLastOpenSession,
   workspaceKeyOf,
 } from "@/lib/workspace-memory";
-import { isEmbedMode, embedView, notifyEmbedHost, installGlobalClipboardInterceptor } from "@/lib/embed/bridge";
+import { isEmbedMode, embedView, embedBrowserButton, notifyEmbedHost, installGlobalClipboardInterceptor } from "@/lib/embed/bridge";
 import { appDisplayName } from "@/lib/brand";
 import { OpenInBrowserButton } from "./embed/OpenInBrowserButton";
 import { IdeHintBadge } from "./IdeHintBadge";
@@ -117,7 +117,10 @@ export function AppShell() {
   const isNarrowMobile = useIsNarrowMobile();
   useViewportHeight();
   // view=chat：宿主（原生侧栏）持有会话导航——应用侧栏/顶栏整层隐藏。
-  const chatOnlyView = embedView() === "chat";
+  // view=settings 与 chat 共享精简壳；区别是加载即弹出设置面板。
+  const settingsView = embedView() === "settings";
+  const chatOnlyView = embedView() === "chat" || settingsView;
+  const chatBrowserBtn = embedBrowserButton();
 
   // Once the user has granted notification permission, register a Web Push
   // subscription so the server can notify backgrounded PWAs (notably iOS,
@@ -228,6 +231,11 @@ export function AppShell() {
   }, []);
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
+  // ?view=settings（嵌入设置页）：精简壳加载即弹出设置面板；关掉后面板
+  // 底下的会话区保持原样，不影响独立模式。
+  useEffect(() => {
+    if (settingsView) setSettingsSection((cur) => cur ?? "general");
+  }, [settingsView]);
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
   const [projectTrust, setProjectTrust] = useState<ProjectTrustStatus | null>(null);
   const [projectTrustDialogOpen, setProjectTrustDialogOpen] = useState(false);
@@ -1726,7 +1734,7 @@ export function AppShell() {
             </button>
           );
         })()}
-        {hasSubagentSessions && (
+        {hasSubagentSessions && !chatOnlyView && (
           <button
             type="button"
             onClick={() => toggleTopPanel("agents", mobile)}
@@ -1765,7 +1773,7 @@ export function AppShell() {
             </span>
           </button>
         )}
-        {sessionHasBranches && (mobile ? (
+        {sessionHasBranches && !chatOnlyView && (mobile ? (
           <button
             type="button"
             onClick={() => toggleTopPanel("branches", true)}
@@ -2221,10 +2229,11 @@ export function AppShell() {
 
       {/* Center: chat */}
       <div inert={rightPanelFullWidth} style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
-        {/* Top bar with sidebar toggle — chat 视图隐藏整层 */}
-        {!chatOnlyView && (
+        {/* Top bar — chat/settings 视图保留会话级入口（历史/标题/系统/工具/
+            token/浏览器按钮），隐藏侧栏开关与主文件开关等已被宿主取代的项。 */}
         <div ref={topBarRef} style={{ flexShrink: 0, background: "var(--bg-panel)" }}>
         <div style={{ display: "flex", alignItems: "center", position: "relative", borderBottom: "1px solid var(--border)", height: "calc(36px + env(safe-area-inset-top))", paddingTop: "env(safe-area-inset-top)" }}>
+          {!chatOnlyView && (
           <button
             onClick={handleSidebarToggle}
              title={sidebarOpen ? translate("sidebar.hide") : translate("sidebar.show")}
@@ -2248,6 +2257,7 @@ export function AppShell() {
               </svg>
             )}
           </button>
+          )}
           {isMobile && (
             <div
               ref={mobileToolbarRef}
@@ -2329,8 +2339,8 @@ export function AppShell() {
               {renderSessionStatsButton(false)}
             </>
           )}
-          {!isMobile && renderMainFileToggle(false)}
-          {!isMobile && <OpenInBrowserButton />}
+          {!isMobile && !chatOnlyView && renderMainFileToggle(false)}
+          {!isMobile && (!chatOnlyView || chatBrowserBtn) && <OpenInBrowserButton />}
           {!isMobile && <IdeHintBadge />}
           {isMobile && sessionHasBranches && (
             <BranchNavigator
@@ -2584,7 +2594,6 @@ export function AppShell() {
         </div>
         {isMobile && renderProjectTrustWarning(true)}
         </div>
-        )}
 
         {/* Chat content */}
         <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
