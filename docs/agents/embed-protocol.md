@@ -111,3 +111,33 @@ already gates the button on `sessionBusy`.
   a reconnect-exhausted "server gone" UI is a future item.
 - In-flight runs don't suppress the watchdog (v1: closing every window means
   die, run or not).
+
+### Extension source layout (post-refactor)
+
+`vscode-extension/src/` keeps `extension.ts` (~394 lines) as pure wiring;
+each subsystem lives in its own module so a bug lands in one file:
+
+- `session-panels.ts` — per-session/composer webview registry; re-keys a
+  `new:<cwd>` composer panel onto the real session id on `sessionSelected`.
+- `sessions-feature.ts` — sessions tree + awaiting status bar + settings
+  panel + Open Original Page + session command wiring.
+- `upgrade.ts` — EVERY upgrade surface: resolve-path downgrade warning
+  (consumed via `onDowngradeWarning` event — `server-resolve.ts` emits, it
+  does not toast), the +8s auto check, and the `piIde.upgrade`/`versions`
+  commands. All three share `upgradeNotice.ts` signatures — one action pops
+  one toast per session, reports still write to Output.
+- `embedUrl.ts` — the `?embed/session/cwd/view/section/browserBtn/extVer/
+  inst` contract; `session` and `cwd` are mutually exclusive (cwd reads as
+  a new-session draft and would shadow the deep link).
+- `config.ts` — `piConfig()`/`CONFIG_SECTION`; no bare
+  `getConfiguration("Pi for IDE")` literals elsewhere.
+
+Test seams: `node --test` + strip-types runs the unit files; a
+`registerHooks` resolver adds `.ts` to extensionless relative imports and
+redirects `vscode` to `test-vscode-stub.mjs`. Modules under test must avoid
+TS constructs strip-types can't strip (constructor parameter properties —
+use explicit fields) and keep vscode usage type-only where possible.
+`AppShell.workspace-memory.test.mjs` slices `AppShell.tsx` source on
+`const X = useCallback` boundaries and evals it in a vm — **bare statements
+between those callbacks land in the slice and break on missing identifiers;
+keep such code before `restoreWorkspaceContext` or inside a callback.**
