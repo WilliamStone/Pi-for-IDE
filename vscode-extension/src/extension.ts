@@ -649,8 +649,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const fmtBuild = formatBuildStamp;
 
       // 升级计划（planUpgrade）：采集→对照报告→flow→动作——与后台检查
-      // 共用同一判定；这里只负责渲染与执行。
-      const plan = await planUpgrade(context, pkg, installSource, localTgz);
+      // 共用同一判定；这里只负责渲染与执行。registry 探测最坏 ~15s 静默，
+      // 先上个进度浮窗（曾踩"点了 Upgrade 半天没反应"）。
+      const plan = await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: "Checking pi-web upgrade sources…",
+          cancellable: false,
+        },
+        () => planUpgrade(context, pkg, installSource, localTgz),
+      );
 
       // 完整对照写输出通道；浮窗单行结论 + Details… 开通道看全表。
       const ch = outputChannel();
