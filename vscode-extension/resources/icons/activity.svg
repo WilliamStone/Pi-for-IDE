@@ -4,16 +4,16 @@
       <rect x="3.05" y="3.55" width="17.9" height="16.9" rx="2.2"/>
     </clipPath>
   </defs>
-  <!-- 标题栏：灰底，高度为常规窗口 logo 标题栏占比的 2 倍，裁进窗框上圆角 -->
-  <rect x="3.05" y="3.55" width="17.9" height="6.1" fill="#9a9a9a" fill-opacity="0.55" clip-path="url(#frame)"/>
+  <!-- 标题栏：灰底，占窗高约 20%，裁进窗框上圆角 -->
+  <rect x="3.05" y="3.55" width="17.9" height="3.4" fill="#9a9a9a" fill-opacity="0.55" clip-path="url(#frame)"/>
   <!-- 窗体外框：细边线，体部透明 -->
   <rect x="3.05" y="3.55" width="17.9" height="16.9" rx="2.2" fill="none" stroke="#8f8f8f" stroke-width="0.8"/>
-  <!-- 红绿灯 + 右侧横条：更深灰，从灰底标题栏中凸显 -->
-  <circle cx="5.5" cy="6.6" r="0.95" fill="#5e5e5e"/>
-  <circle cx="8.1" cy="6.6" r="0.95" fill="#5e5e5e"/>
-  <circle cx="10.7" cy="6.6" r="0.95" fill="#5e5e5e"/>
-  <rect x="14.4" y="5.55" width="5.6" height="2.1" rx="1.05" fill="#5e5e5e"/>
-  <!-- π：现成字符（Georgia 衬线），置于窗口区正中 -->
-  <text x="12" y="15.4" font-family="Georgia, 'Times New Roman', serif" font-size="10"
+  <!-- 红绿灯 + 右侧横条：镂空描边——单灰度渲染下轮廓仍与灰底区分 -->
+  <circle cx="5.4" cy="5.25" r="0.7" fill="none" stroke="#5e5e5e" stroke-width="0.5"/>
+  <circle cx="7.6" cy="5.25" r="0.7" fill="none" stroke="#5e5e5e" stroke-width="0.5"/>
+  <circle cx="9.8" cy="5.25" r="0.7" fill="none" stroke="#5e5e5e" stroke-width="0.5"/>
+  <rect x="13.8" y="4.45" width="5.6" height="1.6" rx="0.8" fill="none" stroke="#5e5e5e" stroke-width="0.5"/>
+  <!-- π：现成字符（Georgia 衬线），窗口区正中 -->
+  <text x="12" y="13.9" font-family="Georgia, 'Times New Roman', serif" font-size="10.5"
         text-anchor="middle" dominant-baseline="central" fill="#8f8f8f">π</text>
 </svg>
