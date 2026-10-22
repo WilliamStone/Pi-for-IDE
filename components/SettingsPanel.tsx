@@ -50,6 +50,9 @@ interface Props {
   onOpenTrustDialog?: () => void;
   /** Settings › MCP added a project server, which changed `cwd`'s trust (and may have trusted a fresh folder). */
   onProjectTrustChanged?: (cwd: string, status: ProjectTrustStatus) => void;
+  /** 嵌入设置页（?view=settings）：面板就是这个 tab 的内容——固定不关，
+   * 挡板点击/× 按钮/Escape 全部失效。 */
+  pinned?: boolean;
 }
 
 export function SettingsSectionIcon({ section, size = 16, strokeWidth = 1.8 }: { section: SettingsSection; size?: number; strokeWidth?: number }) {
@@ -513,6 +516,7 @@ export function SettingsPanel({
   projectTrust,
   onOpenTrustDialog,
   onProjectTrustChanged,
+  pinned,
 }: Props) {
   const { t } = useI18n();
   const [section, setSection] = useState<SettingsSection>(initialSection);
@@ -535,7 +539,7 @@ export function SettingsPanel({
   // Bubble phase, unless something nearer handled the key. The trust dialog,
   // which opens above Settings, takes Escape in the capture phase and stops it,
   // so one Escape closes that dialog and leaves Settings open.
-  useEffect(() => listenForPanelEscape(document, onClose), [onClose]);
+  useEffect(() => (pinned ? () => {} : listenForPanelEscape(document, onClose)), [pinned, onClose]);
 
   // Focus moves into Settings as it opens and back to what had it once it closes. Left
   // on the chat composer (a bare /mcp opens Settings from there), Escape would reach the
@@ -576,7 +580,7 @@ export function SettingsPanel({
       aria-modal="true"
       aria-label={t("settings.title")}
       tabIndex={-1}
-      onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}
+      onClick={(event) => { if (!pinned && event.target === event.currentTarget) onClose(); }}
       className="settings-dialog-backdrop"
     >
       <div className="settings-dialog-surface">
@@ -614,7 +618,7 @@ export function SettingsPanel({
               );
             })}
           </nav>
-          <button type="button" onClick={onClose} title={t("i18n.close")} aria-label={t("i18n.close")} className="config-close-button settings-dialog-close">×</button>
+          {!pinned && <button type="button" onClick={onClose} title={t("i18n.close")} aria-label={t("i18n.close")} className="config-close-button settings-dialog-close">×</button>}
         </div>
 
         <main className="settings-dialog-main">

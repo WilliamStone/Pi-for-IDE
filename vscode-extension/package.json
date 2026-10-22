@@ -213,7 +213,7 @@
       "piIde": [
         {
           "id": "piIde.sessions",
-          "name": "%view.sessions%",
+          "name": "%view.container.piIde%",
           "icon": "resources/icons/activity.svg",
           "contextualTitle": "Pi Sessions"
         }
@@ -232,11 +232,6 @@
           "type": "string",
           "default": "",
           "description": "%config.executablePath%"
-        },
-        "Pi for IDE.package": {
-          "type": "string",
-          "default": "@william_stone/pi-web-for-ide",
-          "description": "%config.package%"
         },
         "Pi for IDE.workspaceRoot": {
           "type": "string",
@@ -281,6 +276,11 @@
           "type": "boolean",
           "default": true,
           "description": "%config.checkForUpdates%"
+        },
+        "Pi for IDE.package": {
+          "type": "string",
+          "default": "@william_stone/pi-web-for-ide",
+          "description": "%config.package%"
         },
         "Pi for IDE.localPackage": {
           "type": "string",

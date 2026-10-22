@@ -107,6 +107,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // 会话面板注册表：tab 对应 session——点同一 session 复用其 tab，
   // 不同 session 各开各的。单面板模式（sessionTabs=single）时不开表。
   const sessionPanels = new Map<string, PiWebWebviewPanel>();
+  // 面板 → 注册表键的当前归属。new:<cwd> composer 面板落地成真会话后
+  // 要改挂到 sessionId 键下，dispose 也要按当前键删（闭包里的旧键已失效）。
+  const deletePanelKey = (panel: PiWebWebviewPanel) => {
+    for (const [k, v] of sessionPanels) if (v === panel) sessionPanels.delete(k);
+  };
   const sessionPanelFor = (id: string): PiWebWebviewPanel => {
     let p = sessionPanels.get(id);
     if (!p) {
@@ -116,8 +121,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         () => ensureServer(),
         bridge,
         context.extension.packageJSON.version as string,
-        () => sessionPanels.delete(id),
+        () => deletePanelKey(p!),
         "chat",
+        // composer 面板（new:<cwd> 键）在页面里真正建起会话 → 重挂到
+        // 会话 id 键——之后点树上的该 session 复用这个 tab，不再开新的。
+        (sessionId, title) => {
+          if (sessionPanels.get(sessionId) === p) return;
+          deletePanelKey(p!);
+          if (!sessionPanels.has(sessionId)) sessionPanels.set(sessionId, p!);
+          if (title) p!.setTitleOverride(`Pi — ${title.slice(0, 50)}`);
+        },
       );
       sessionPanels.set(id, p);
       context.subscriptions.push(p);
@@ -129,9 +142,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const sessionColumn = (): vscode.ViewColumn =>
     [...sessionPanels.values()].map((p) => p.currentViewColumn).find((c) => c !== undefined)
     ?? openViewColumn();
+  let settingsPanel: PiWebWebviewPanel | undefined;
   const refreshAllPanels = async () => {
-    await Promise.all([provider, ...sessionPanels.values()].map((p) => p?.refreshIfOpen()));
+    await Promise.all(
+      [provider, settingsPanel, ...sessionPanels.values()].map((p) => p?.refreshIfOpen()),
+    );
   };
+
+  // 影响 iframe URL 的配置改动对已开面板即改即生效——URL 变了 refresh
+  // 就会重指 iframe（browserBtn 这类参数只在新加载时进入页面）。
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration("Pi for IDE.showOpenInBrowser")) void refreshAllPanels();
+    }),
+  );
 
   // -------------------------------------------------------------------------
   // 共享实例标记 watch：任一窗口的宿主拉起新服务器（升级换包/重启）时写
@@ -284,7 +308,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     );
 
     // 设置页单例面板——?view=settings（加载即弹设置面板的精简壳）。
-    const settingsPanel = new PiWebWebviewPanel(
+    settingsPanel = new PiWebWebviewPanel(
       context.extensionUri,
       () => server,
       () => ensureServer(),
@@ -296,12 +320,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     context.subscriptions.push(settingsPanel);
     settingsPanel.setTitleOverride("Pi — Settings");
     context.subscriptions.push(
-      vscode.commands.registerCommand("piIde.settings", async () => {
+      vscode.commands.registerCommand("piIde.settings", async (section?: string) => {
         const cwd = resolveConfiguredCwd()
           ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
           ?? "";
         void ensureServer();
-        await settingsPanel.reveal(cwd, openViewColumn());
+        settingsPanel!.panelSection =
+          typeof section === "string" && section ? section : undefined;
+        await settingsPanel!.reveal(cwd, openViewColumn());
       }),
     );
 

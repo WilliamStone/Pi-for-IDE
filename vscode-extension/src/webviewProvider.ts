@@ -99,6 +99,9 @@ export class PiWebWebviewPanel extends vscode.Disposable {
     private readonly onDisposed?: () => void,
     /** 精简页面形态（"chat"|"settings"）——URL 恒带 view=<值>。 */
     private readonly panelView?: string,
+    /** 页面落地到具体会话时的回报（new:<cwd> composer → 真会话）——
+     * 宿主侧据此把面板重挂到 sessionId 键下。 */
+    private readonly onSessionBound?: (sessionId: string, title?: string) => void,
   ) {
     super(() => this.dispose());
     // 服务器阶段状态（下载/启动）实时推到面板——等待页/门页据此换文案。
@@ -197,6 +200,13 @@ export class PiWebWebviewPanel extends vscode.Disposable {
           return;
         }
         if (message.source !== "embed") return;
+        // 会话落地通知（notifyEmbedHost 单向投递，无 id、不走
+        // request/response 往返）——先于 bridge.handle 拦截。
+        if (message.request?.kind === "sessionSelected" && typeof message.request.sessionId === "string") {
+          this.bindSession(message.request.sessionId);
+          this.onSessionBound?.(message.request.sessionId, message.request.title);
+          return;
+        }
         try {
           const payload = await this.bridge.handle(message.request);
           this.panel?.webview.postMessage({
@@ -219,6 +229,16 @@ export class PiWebWebviewPanel extends vscode.Disposable {
     await this.refresh();
   }
 
+  /**
+   * 把面板钉到会话 id 上（composer 面板创建会话后由 sessionSelected 触发）——
+   * 之后 refresh 重建的 URL 带 ?session=，刷新/重启都能回到该会话。
+   */
+  bindSession(sessionId: string): void {
+    if (this.sessionId === sessionId) return;
+    this.sessionId = sessionId;
+    this.lastUrl = undefined;
+  }
+
   /** 只聚焦现有面板（不重载）。未创建时为空操作。 */
   focus(): void {
     if (this.panel) {
@@ -230,6 +250,9 @@ export class PiWebWebviewPanel extends vscode.Disposable {
   isReady(): boolean {
     return !!this.panel;
   }
+
+  /** settings 视图的目标小节（piIde.settings 命令参数）。下次刷新随 URL 生效。 */
+  panelSection?: string;
 
   /**
    * 向 pi-web 页面推送一条无 id 的「提及」通知（扩展宿主动发起）。
@@ -319,6 +342,9 @@ export class PiWebWebviewPanel extends vscode.Disposable {
     // 顶栏入口由宿主原生 UI 取代。browserBtn 传 chat 顶栏"在浏览器中打开"
     // 的可见性配置（仅 chat 视图消费）。
     if (this.panelView) url.searchParams.set("view", this.panelView);
+    if (this.panelView === "settings" && this.panelSection) {
+      url.searchParams.set("section", this.panelSection);
+    }
     if (this.panelView === "chat") {
       url.searchParams.set(
         "browserBtn",

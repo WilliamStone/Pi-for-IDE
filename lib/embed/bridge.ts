@@ -172,7 +172,17 @@ export interface EmbedKeyPassthroughRequest {
   repeat: boolean;
 }
 
+/** 页面选中/创建了会话——宿主据此把面板归属钉到该会话 id（composer
+ * 面板 → 会话 tab 的重挂，以及未来基于会话的宿主侧操作）。 */
+export interface EmbedSessionSelectedRequest {
+  kind: "sessionSelected";
+  sessionId: string;
+  /** 会话显示名（name ?? firstMessage 摘要），用于 tab 标题。 */
+  title?: string;
+}
+
 export type EmbedRequest =
+  | EmbedSessionSelectedRequest
   | EmbedOpenFileRequest
   | EmbedCompleteAtRequest
   | EmbedReadFileRequest
@@ -311,6 +321,11 @@ export function embedExtVersion(): string | null {
  */
 export function embedView(): string | null {
   return entryParams.get("view");
+}
+
+/** 任意入口 URL 参数（entryParams 快照）。命名参数各有专用访问器，散装参数走这里。 */
+export function embedParam(name: string): string | null {
+  return entryParams.get(name);
 }
 
 /** `?browserBtn=0` 时 chat 顶栏不渲染"在浏览器中打开"（宿主配置传入）。 */

@@ -54,7 +54,7 @@ import {
   setLastOpenSession,
   workspaceKeyOf,
 } from "@/lib/workspace-memory";
-import { isEmbedMode, embedView, embedBrowserButton, notifyEmbedHost, installGlobalClipboardInterceptor } from "@/lib/embed/bridge";
+import { isEmbedMode, embedView, embedBrowserButton, embedParam, notifyEmbedHost, installGlobalClipboardInterceptor } from "@/lib/embed/bridge";
 import { appDisplayName } from "@/lib/brand";
 import { OpenInBrowserButton } from "./embed/OpenInBrowserButton";
 import { IdeHintBadge } from "./IdeHintBadge";
@@ -79,7 +79,7 @@ import { formatActiveDuration, formatCompactCount, formatCostShort } from "@/lib
 import type { FileViewerState } from "@/lib/file-viewer-state";
 import { PRESET_READ_ONLY, type ToolEntry } from "@/lib/tool-presets";
 import { getSessionFamily } from "@/lib/session-family";
-import { getLastSettingsSection, settingsSectionRequiresProject, type SettingsSection } from "@/lib/settings-navigation";
+import { getLastSettingsSection, settingsSectionRequiresProject, SETTINGS_SECTION_VALUES, type SettingsSection } from "@/lib/settings-navigation";
 
 type SessionCopyField = "file" | "id" | "projectDir" | "gitBranch" | "gitWorktree";
 type AutoNameStatus =
@@ -231,11 +231,27 @@ export function AppShell() {
   }, []);
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
-  // ?view=settings（嵌入设置页）：精简壳加载即弹出设置面板；关掉后面板
-  // 底下的会话区保持原样，不影响独立模式。
+  // ?view=settings（嵌入设置页）：精简壳加载即弹出设置面板，且面板固定
+  // 不可关（关掉底下的空壳没有意义）；?section=<id> 直达指定小节。
   useEffect(() => {
-    if (settingsView) setSettingsSection((cur) => cur ?? "general");
+    if (!settingsView) return;
+    const wanted = embedParam("section");
+    setSettingsSection((cur) =>
+      cur ?? (SETTINGS_SECTION_VALUES.includes(wanted as SettingsSection)
+        ? (wanted as SettingsSection)
+        : "general"),
+    );
   }, [settingsView]);
+  // 嵌入会话/composer 面板落地到具体会话 → 回报宿主，把 tab 挂到该会话
+  // id 键下（之后点树复用这个 tab，刷新深链也带 ?session=）。
+  useEffect(() => {
+    if (!isEmbedMode() || !selectedSession) return;
+    notifyEmbedHost({
+      kind: "sessionSelected",
+      sessionId: selectedSession.id,
+      title: selectedSession.name || selectedSession.firstMessage || undefined,
+    });
+  }, [selectedSession]);
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
   const [projectTrust, setProjectTrust] = useState<ProjectTrustStatus | null>(null);
   const [projectTrustDialogOpen, setProjectTrustDialogOpen] = useState(false);
@@ -2824,6 +2840,7 @@ export function AppShell() {
     </div>
     {settingsSection && (
       <SettingsPanel
+        pinned={settingsView}
         cwd={projectTrustCwd}
         sessionId={selectedSession?.id ?? null}
         initialSection={settingsSection}
