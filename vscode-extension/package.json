@@ -214,7 +214,7 @@
         {
           "id": "piIde.sessions",
           "name": "%view.sessions%",
-          "icon": "$(comment-discussion)",
+          "icon": "resources/icons/activity.svg",
           "contextualTitle": "Pi Sessions"
         }
       ]
