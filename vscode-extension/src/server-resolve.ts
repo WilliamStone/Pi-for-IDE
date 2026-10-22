@@ -460,6 +460,29 @@ export async function resolveServerTarget(
   if (best) {
     const extra = candidates.length > 1 ? ` (newest of ${candidates.length} installed copies)` : "";
     channel.appendLine(`pi-web entry (${best.leg}): ${best.bin}${extra}`);
+    // 解析副本比配置的本地包旧——managed 槽空档时被全局/PATH 残包抢跑
+    // 是无感降级（0.12.2-1 顶班、view=chat 静默失效的实证）。解析点
+    // 直接告警；registry 侧的新旧比较归后台升级检查，不进热路径。
+    const localTgz = config.get<string>("localPackage")?.trim();
+    if (localTgz) {
+      const local = checkLocalPackageUpdate(localTgz, context, pkg);
+      const c = local?.candidate;
+      if (c && !local?.reason) {
+        const stamp = installedBuildStamp(path.resolve(best.bin, "..", "..")).builtAt;
+        const resolvedVer = binVersion(best.bin) ?? "0.0.0";
+        const v = compareVersions(c.version, resolvedVer);
+        const newer = v > 0 || (v === 0 && !!c.builtAt && c.builtAt > (stamp ?? ""));
+        if (newer) {
+          const warn = `resolved server copy ${resolvedVer}${fmtBuild(stamp)} is older than local package ${c.version}${fmtBuild(c.builtAt)}`;
+          channel.appendLine(`⚠ ${warn} — run "Pi for IDE: Upgrade Server Component".`);
+          void vscode.window
+            .showWarningMessage(`Pi for IDE: ${warn}.`, "Upgrade", "Later")
+            .then((pick) => {
+              if (pick === "Upgrade") void vscode.commands.executeCommand("piIde.upgrade");
+            });
+        }
+      }
+    }
     emitServerStatus("Starting local server…");
     return { mode: "bin", path: best.bin };
   }
