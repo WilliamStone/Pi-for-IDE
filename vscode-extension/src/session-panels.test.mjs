@@ -70,7 +70,7 @@ test("composer(new:cwd) 落地成会话 → re-key 后点会话复用同一 tab"
 test("re-key 到已存在会话键不抢（已有 tab 优先）", () => {
   const { registry, created } = makeRegistry();
   const existing = registry.forKey("s-a");
-  const composer = registry.forKey("new:/repo");
+  registry.forKey("new:/repo");
   created[1].fireBound("s-a", "dup");
   assert.equal(registry.forKey("s-a"), existing, "既有会话 tab 不被顶掉");
 });
@@ -80,6 +80,7 @@ test("dispose 的面板从注册表摘除（下次按键新建）", () => {
   registry.forKey("s-a");
   created[0].dispose();
   const fresh = registry.forKey("s-a");
+  assert.equal(created.length, 2);
   assert.notEqual(fresh, created[0]);
   assert.equal(fresh.disposed, false);
 });

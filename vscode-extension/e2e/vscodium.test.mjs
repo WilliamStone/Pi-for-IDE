@@ -281,6 +281,87 @@ test("VSCodium C: live prompt turn → revert restores files", { timeout: 480_00
   }
 });
 
+// ── E 段：原生会话树 → 深链 tab——点击树中会话，验证 tab 标题与 iframe
+//    URL 双命中（会话 id 真进了 ?session=，页面加载的是该会话非首页）。
+//    手工冒烟的历史 bug 面：?session=[object Object] / cwd 盖 session 开首页 /
+//    composer tab 升级后点会话开第二个 tab。
+test("VSCodium E: session-tree click opens deep-linked session tab", { timeout: 300_000 }, async (t) => {
+  markCover("E session-tree", "ran");
+  const ctx = prerequisites(t, "E session-tree");
+  if (!ctx) return;
+  const fixture = makeFixture();
+  const seed = seedSession(fixture.root, fixture.workspace); // 会话 id e2e-seed-01
+  const guard = await guardAttachRange();
+  if (guard.oursPort) {
+    releaseAttachGuard(guard);
+    coverSkip(t, "E session-tree", `real pi-web instance on :${guard.oursPort}`);
+    return;
+  }
+  const { app, win } = await reachPiFrame(ctx, fixture, {
+    PI_CODING_AGENT_DIR: seed.agentDir,
+  });
+  try {
+    // 打开 Pi Sessions 视图容器（activity bar），等树渲染出 seed 会话行。
+    const actBar = win.locator('.activitybar [aria-label*="Pi Sessions"]').first();
+    await actBar.waitFor({ state: "visible", timeout: 30000 });
+    await actBar.click();
+    const row = win.locator('.monaco-list-row:has-text("e2e seed turn")').first();
+    await row.waitFor({ state: "visible", timeout: 60000 });
+    await row.click();
+
+    // tab 标题 = "Pi — <会话名>"（openSession 传名；re-key 同机制）
+    await win.waitForSelector(
+      '.tabs-container .tab:has-text("Pi —"), .monaco-icon-label:has-text("Pi —")',
+      { timeout: 60000 },
+    );
+
+    // 该 tab 的 iframe URL 必须带 ?session=e2e-seed-01——深链契约的
+    // 关键断言：[object Object] 形态会在这里以非 e2e-seed-01 现形。
+    const webviewHost = await waitForFrame(win, (u) => /vscode-webview:\/\//i.test(u), 60000);
+    const shellFrame = await waitForFrame(webviewHost, (u) => /fake\.html/i.test(u), 60000);
+    const sessionFrame = await waitForFrame(
+      shellFrame,
+      (u) => /^http:\/\/127\.0\.0\.1:\d+\//.test(u) && u.includes("session=e2e-seed-01"),
+      60000,
+    );
+    // 内容必须是会话本体（File review 卡）——深链兑现非首页。
+    await sessionFrame.waitForSelector("text=File review", { timeout: 60000 });
+    markCover("E session-tree", "verified");
+  } finally {
+    await app.close().catch(() => {});
+    releaseAttachGuard(guard);
+  }
+});
+
+// ── F 段：热键穿透——iframe 内按 Ctrl+P 应弹出 Quick Open（页面转发 →
+//    shell 合成 KeyboardEvent → workbench 原生解析）。你上次报"穿透没了"
+//    的回归面：能弹就是链路活着，不能弹就是真断了。
+test("VSCodium F: hotkey passthrough reaches workbench", { timeout: 300_000 }, async (t) => {
+  markCover("F hotkey", "ran");
+  const ctx = prerequisites(t, "F hotkey");
+  if (!ctx) return;
+  const fixture = makeFixture();
+  const guard = await guardAttachRange();
+  if (guard.oursPort) {
+    releaseAttachGuard(guard);
+    coverSkip(t, "F hotkey", `real pi-web instance on :${guard.oursPort}`);
+    return;
+  }
+  const { app, piFrame } = await reachPiFrame(ctx, fixture);
+  try {
+    // 焦点进页面正文（不在输入框——输入框内组合键按设计不转发）。
+    await piFrame.waitForSelector("textarea", { timeout: 60000 });
+    await piFrame.locator("body").click({ position: { x: 10, y: 10 } }).catch(() => {});
+    await piFrame.locator("body").press("Control+P");
+    await win.waitForSelector(".quick-input-widget", { state: "visible", timeout: 15000 });
+    await win.keyboard.press("Escape"); // 关 Quick Open
+    markCover("F hotkey", "verified");
+  } finally {
+    await app.close().catch(() => {});
+    releaseAttachGuard(guard);
+  }
+});
+
 /** fixture agentDir 里最新会话文件出现 turn 错误时，提取 errorMessage。 */
 function lastTurnError(agentDir) {
   try {

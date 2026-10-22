@@ -121,7 +121,7 @@ test("singleFlight：并发调用共享一份执行，结束后复位", async ()
     await new Promise((r) => setTimeout(r, 30));
     return runs;
   });
-  const [a, b, c] = await Promise.all([slow(), slow(), slow()]);
+  const [a, b] = await Promise.all([slow(), slow(), slow()]);
   assert.equal(runs, 1, "三个并发只跑一份");
   assert.equal(a, 1);
   assert.equal(b, a);

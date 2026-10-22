@@ -55,6 +55,7 @@ import {
   workspaceKeyOf,
 } from "@/lib/workspace-memory";
 import { isEmbedMode, embedView, embedBrowserButton, embedParam, notifyEmbedHost, installGlobalClipboardInterceptor } from "@/lib/embed/bridge";
+import { initEmbedKeyRouter } from "@/lib/embed/keyroute";
 import { appDisplayName } from "@/lib/brand";
 import { OpenInBrowserButton } from "./embed/OpenInBrowserButton";
 import { IdeHintBadge } from "./IdeHintBadge";
@@ -230,6 +231,10 @@ export function AppShell() {
     setSearchTarget((current) => current === target ? null : current);
   }, []);
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
+  // 热键穿透挂页面级：原在 ChatWindow 内挂载——首页/设置页（view=settings
+  // 下恰无 ChatWindow）上组合键全死。AppShell 级一次挂载覆盖所有视图；
+  // initEmbedKeyRouter 自带 installed 幂等守卫，embed 外为空操作。
+  useEffect(() => initEmbedKeyRouter(), []);
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
   // ?view=settings（嵌入设置页）：精简壳加载即弹出设置面板，且面板固定
   // 不可关（关掉底下的空壳没有意义）；?section=<id> 直达指定小节。
@@ -753,29 +758,6 @@ export function AppShell() {
     return () => controller.abort();
   }, [initialNavigation, router]);
 
-  // ?session= 深链的 AppShell 级兜底：解析本来住在侧栏组件里——view=chat
-  // 把侧栏 display:none 挂载（其内部分支仍可跑），但不把深链的命系在
-  // 视觉组件上：这里独立解析一次，命中即选中。与侧栏路径互为冗余，先
-  // 到者置 initialSessionRestored，另一方自然跳过。
-  // 位置约束：必须在 restoreWorkspaceContext 等切片锚点 callback 之前——
-  // workspace-memory 测试按 `const X = useCallback` 边界切源码进 vm，
-  // 落在切片区间内的裸语句会断引用。
-  useEffect(() => {
-    const deepLinkSessionId = initialNavigation.sessionId;
-    if (!deepLinkSessionId || initialSessionRestored || selectedSession?.id === deepLinkSessionId) return;
-    let cancelled = false;
-    void fetch("/api/sessions")
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((data: { sessions?: SessionInfo[] }) => {
-        if (cancelled) return;
-        const target = (data.sessions ?? []).find((s) => s.id === deepLinkSessionId);
-        if (target) handleSelectSession(target, true);
-        else setInitialSessionRestored(true);
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [initialNavigation.sessionId, initialSessionRestored, selectedSession?.id, handleSelectSession]);
-
   // Restore the workspace's last open session after switching to it. Called
   // from handleCwdChange once the outgoing context has been reset. The session
   // is looked up against the live list so a deleted or drifted session falls
@@ -1026,6 +1008,29 @@ export function AppShell() {
       })
       .catch(() => {});
   }, []);
+
+  // ?session= 深链的 AppShell 级兜底：解析本来住在侧栏组件里——view=chat
+  // 把侧栏 display:none 挂载（其内部分支仍可跑），但不把深链的命系在
+  // 视觉组件上：这里独立解析一次，命中即选中。与侧栏路径互为冗余，先
+  // 到者置 initialSessionRestored，另一方自然跳过。
+  // 位置约束：必须在 hydrateSelectedSession（切片锚点序列的收尾）之后——
+  // workspace-memory 测试按 `const X = useCallback` 边界切源码进 vm，
+  // 落在切片区间内的裸语句会断引用；同样不能早于 handleSelectSession。
+  useEffect(() => {
+    const deepLinkSessionId = initialNavigation.sessionId;
+    if (!deepLinkSessionId || initialSessionRestored || selectedSession?.id === deepLinkSessionId) return;
+    let cancelled = false;
+    void fetch("/api/sessions")
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((data: { sessions?: SessionInfo[] }) => {
+        if (cancelled) return;
+        const target = (data.sessions ?? []).find((s) => s.id === deepLinkSessionId);
+        if (target) handleSelectSession(target, true);
+        else setInitialSessionRestored(true);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [initialNavigation.sessionId, initialSessionRestored, selectedSession?.id, handleSelectSession]);
 
   // Called by ChatWindow when a new session gets its real id from pi
   const handleSessionCreated = useCallback((session: SessionInfo, sourceDraftKey: string) => {

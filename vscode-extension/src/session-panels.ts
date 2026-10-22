@@ -31,6 +31,7 @@ export class SessionPanels implements vscode.Disposable {
     const existing = this.panels.get(key);
     if (existing) return existing;
     // 回调只会在面板生命周期事件里异步触发——p 必然已赋值。
+    // eslint-disable-next-line prefer-const -- 闭包先行声明，构造后回填。
     let p!: PiWebWebviewPanel;
     p = this.deps.createPanel(
       () => this.deleteKeyOf(p),
