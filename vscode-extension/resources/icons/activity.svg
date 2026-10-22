@@ -3,17 +3,21 @@
     <clipPath id="frame">
       <rect x="3.05" y="3.55" width="17.9" height="16.9" rx="2.2"/>
     </clipPath>
+    <!-- 红绿灯与横条：从标题栏灰底中挖去的真镂空——任何单灰度渲染下都透出底色 -->
+    <mask id="bandHoles">
+      <rect x="3.05" y="3.55" width="17.9" height="3.4" fill="#fff"/>
+      <circle cx="5.4" cy="5.25" r="0.75" fill="#000"/>
+      <circle cx="7.6" cy="5.25" r="0.75" fill="#000"/>
+      <circle cx="9.8" cy="5.25" r="0.75" fill="#000"/>
+      <rect x="13.6" y="4.45" width="5.8" height="1.6" rx="0.8" fill="#000"/>
+    </mask>
   </defs>
-  <!-- 标题栏：灰底，占窗高约 20%，裁进窗框上圆角 -->
-  <rect x="3.05" y="3.55" width="17.9" height="3.4" fill="#9a9a9a" fill-opacity="0.55" clip-path="url(#frame)"/>
+  <!-- 标题栏：灰底 20% 高，镂空控件，裁进窗框上圆角 -->
+  <rect x="3.05" y="3.55" width="17.9" height="3.4" fill="#9a9a9a" fill-opacity="0.55"
+        clip-path="url(#frame)" mask="url(#bandHoles)"/>
   <!-- 窗体外框：细边线，体部透明 -->
   <rect x="3.05" y="3.55" width="17.9" height="16.9" rx="2.2" fill="none" stroke="#8f8f8f" stroke-width="0.8"/>
-  <!-- 红绿灯 + 右侧横条：镂空描边——单灰度渲染下轮廓仍与灰底区分 -->
-  <circle cx="5.4" cy="5.25" r="0.7" fill="none" stroke="#5e5e5e" stroke-width="0.5"/>
-  <circle cx="7.6" cy="5.25" r="0.7" fill="none" stroke="#5e5e5e" stroke-width="0.5"/>
-  <circle cx="9.8" cy="5.25" r="0.7" fill="none" stroke="#5e5e5e" stroke-width="0.5"/>
-  <rect x="13.8" y="4.45" width="5.6" height="1.6" rx="0.8" fill="none" stroke="#5e5e5e" stroke-width="0.5"/>
-  <!-- π：现成字符（Georgia 衬线），窗口区正中 -->
-  <text x="12" y="13.9" font-family="Georgia, 'Times New Roman', serif" font-size="10.5"
+  <!-- π：Times New Roman Bold（与 icon-128.png 同款衬线粗体），窗口区中点上移 2px -->
+  <text x="12" y="11.9" font-family="'Times New Roman', Times, serif" font-weight="700" font-size="11"
         text-anchor="middle" dominant-baseline="central" fill="#8f8f8f">π</text>
 </svg>
