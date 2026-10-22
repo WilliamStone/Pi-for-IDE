@@ -32,6 +32,8 @@
   "cmd.session.unpin": "Unpin Session",
   "cmd.session.archive": "Archive Session",
   "cmd.session.unarchive": "Unarchive Session",
+  "cmd.session.openFull": "Open in Original Page",
+  "cmd.openOriginal": "Open Original Page",
   "cmd.sessions.refresh": "Refresh Sessions",
   "cmd.sessions.filterWorkspace": "Show Workspace Sessions Only",
   "cmd.sessions.showAll": "Show All Sessions",

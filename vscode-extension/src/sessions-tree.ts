@@ -87,6 +87,11 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
     return this.sessions.find((s) => s.id === id);
   }
 
+  /** ui-state 的项目显示名（rename-project 写入），未命名时 undefined。 */
+  projectDisplayName(key: string): string | undefined {
+    return this.projectNames.get(key);
+  }
+
   setVisible(visible: boolean): void {
     this.visible = visible;
     if (visible) void this.tick();
@@ -291,7 +296,9 @@ export function registerSessionCommands(
     provider: SessionsTreeProvider;
     openSession: (id: string, title?: string) => Promise<void>;
     /** 在该项目目录打开新会话（composer cwd=projectRoot，无 session 深链）。 */
-    openProject: (cwd: string) => Promise<void>;
+    openProject: (cwd: string, label?: string) => Promise<void>;
+    /** 会话在完整页面打开（不带 view=chat）——精简掉的入口的过渡通道。 */
+    openSessionFull: (id: string) => Promise<void>;
   },
 ): void {
   const { getBaseUrl, provider } = deps;
@@ -396,7 +403,15 @@ export function registerSessionCommands(
     }),
     vscode.commands.registerCommand("piIde.project.newSession", async (item: ProjectItem) => {
       void deps.ensureServer();
-      await deps.openProject(item.group.root || item.group.sessions[0]?.cwd || "");
+      await deps.openProject(
+        item.group.root || item.group.sessions[0]?.cwd || "",
+        provider.projectDisplayName(item.group.key) ?? item.group.label,
+      );
+    }),
+    vscode.commands.registerCommand("piIde.session.openFull", async (arg: string | vscode.TreeItem) => {
+      const id = typeof arg === "string" ? arg : sessionIdOf(arg);
+      void deps.ensureServer();
+      await deps.openSessionFull(id);
     }),
 
     vscode.commands.registerCommand("piIde.sessions.refresh", () => provider.reload()),

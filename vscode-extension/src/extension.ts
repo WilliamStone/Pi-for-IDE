@@ -117,12 +117,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         bridge,
         context.extension.packageJSON.version as string,
         () => sessionPanels.delete(id),
+        true,
       );
       sessionPanels.set(id, p);
       context.subscriptions.push(p);
     }
     return p;
   };
+  // 会话 tab 的固定落点：任一已开会话面板所在组——首个面板 Beside 开列，
+  // 后续全进同一组（tab 叠放），不随活动编辑器漂移。
+  const sessionColumn = (): vscode.ViewColumn =>
+    [...sessionPanels.values()].map((p) => p.currentViewColumn).find((c) => c !== undefined)
+    ?? openViewColumn();
   const refreshAllPanels = async () => {
     await Promise.all([provider, ...sessionPanels.values()].map((p) => p?.refreshIfOpen()));
   };
@@ -240,10 +246,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     void vscode.commands.executeCommand(
       "setContext", "piIde.sessions.workspaceOnly", sessionsProvider.isWorkspaceOnly(),
     );
+    // 完整应用页入口（无 view=chat）——chat-only tab 精简掉的侧栏/设置/文件
+    // 等功能，过渡期从这里够到。
+    context.subscriptions.push(
+      vscode.commands.registerCommand("piIde.openOriginal", async () => {
+        const cwd = resolveConfiguredCwd()
+          ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
+          ?? "";
+        void ensureServer();
+        await provider!.reveal(cwd, openViewColumn());
+      }),
+    );
+
     registerSessionCommands(context, {
       getBaseUrl: sessionsBaseUrl,
       ensureServer,
       provider: sessionsProvider,
+      // 会话在完整页面打开——chat 视图精简掉的设置/文件/技能等入口的
+      // 过渡通道：主面板 + ?session= 深链，不带 view=chat。
+      openSessionFull: async (id: string) => {
+        const cwd = sessionsProvider.sessionById(id)?.cwd
+          ?? resolveConfiguredCwd()
+          ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
+          ?? "";
+        void ensureServer();
+        await provider!.reveal(cwd, openViewColumn(), id);
+      },
       openSession: async (id: string, title?: string) => {
         // 面板 cwd 用会话自己的目录——跨项目点开不受当前配置 cwd 影响。
         const cwd = sessionsProvider.sessionById(id)?.cwd
@@ -260,12 +288,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
         const panel = sessionPanelFor(id);
         void ensureServer();
-        await panel.reveal(cwd, openViewColumn(), id);
+        await panel.reveal(cwd, sessionColumn(), id);
         if (title) panel.setTitleOverride(`Pi — ${title}`);
       },
-      openProject: async (cwd: string) => {
+      openProject: async (cwd: string, label?: string) => {
+        // 项目新建会话也是会话上下文面板——同一 chatMode、tab 对应项目，
+        // cwd 参数把 composer 钉在项目目录。
+        const key = `new:${cwd}`;
+        const panel = sessionPanelFor(key);
         void ensureServer();
-        await provider!.reveal(cwd, openViewColumn());
+        await panel.reveal(cwd, sessionColumn());
+        panel.setTitleOverride(`Pi — ${label ?? "New session"}`);
       },
     });
   }

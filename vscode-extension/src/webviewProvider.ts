@@ -38,6 +38,11 @@ export class PiWebWebviewPanel extends vscode.Disposable {
     this.titleOverride = title;
     if (this.panel) this.panel.title = title;
   }
+
+  /** 面板当前所在列——会话 tab 组锚定用（未打开时 undefined）。 */
+  get currentViewColumn(): vscode.ViewColumn | undefined {
+    return this.panel?.viewColumn;
+  }
   /** 上次渲染 iframe 用的服务器实例与 URL——变了才重载 iframe。 */
   private lastServer: PiIdeServer | undefined;
   private lastUrl: string | undefined;
@@ -92,6 +97,8 @@ export class PiWebWebviewPanel extends vscode.Disposable {
     private readonly extensionVersion: string,
     /** 面板销毁回调——会话面板注册表据此清掉映射（tab 对应 session）。 */
     private readonly onDisposed?: () => void,
+    /** 会话上下文面板：URL 恒带 view=chat（无应用侧栏/顶栏）。 */
+    private readonly chatMode = false,
   ) {
     super(() => this.dispose());
     // 服务器阶段状态（下载/启动）实时推到面板——等待页/门页据此换文案。
@@ -303,13 +310,14 @@ export class PiWebWebviewPanel extends vscode.Disposable {
     url.searchParams.set("embed", "vscode");
     if (this.sessionId) {
       url.searchParams.set("session", this.sessionId);
-      // 会话深链由原生侧栏发起——页面收敛为纯会话区（无应用侧栏/顶栏）。
-      url.searchParams.set("view", "chat");
       // 深链不可带 cwd：页面把 ?cwd= 解释为"该目录的新会话草稿"，
       // 与 session 深链同传时草稿会盖掉解析结果、停在首页。
     } else if (this.currentCwd) {
       url.searchParams.set("cwd", this.currentCwd);
     }
+    // 会话类面板（session 深链 / 项目新会话）收敛为纯会话区——应用侧栏
+    // 与顶栏由宿主原生 UI 取代。
+    if (this.chatMode) url.searchParams.set("view", "chat");
     url.searchParams.set("extVer", this.extensionVersion);
     // 实例标识进 URL：同端口重启的新实例 URL 仍不同——shell 的
     // loadedUrl 判重不会把它当"同一地址"吞掉，iframe 必然换新页。

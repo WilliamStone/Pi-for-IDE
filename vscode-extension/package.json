@@ -186,6 +186,18 @@
         "title": "%cmd.project.newSession%",
         "category": "Pi for IDE",
         "icon": "$(add)"
+      },
+      {
+        "command": "piIde.openOriginal",
+        "title": "%cmd.openOriginal%",
+        "category": "Pi for IDE",
+        "icon": "$(window)"
+      },
+      {
+        "command": "piIde.session.openFull",
+        "title": "%cmd.session.openFull%",
+        "category": "Pi for IDE",
+        "icon": "$(layout)"
       }
     ],
     "viewsContainers": {
@@ -376,6 +388,13 @@
           "when": "false"
         },
         {
+          "command": "piIde.openOriginal"
+        },
+        {
+          "command": "piIde.session.openFull",
+          "when": "false"
+        },
+        {
           "command": "piIde.sessions.cycleViewMode",
           "when": "false"
         }
@@ -441,6 +460,11 @@
           "command": "piIde.sessions.cycleViewMode",
           "when": "view == 'piIde.sessions'",
           "group": "navigation@3"
+        },
+        {
+          "command": "piIde.openOriginal",
+          "when": "view == 'piIde.sessions'",
+          "group": "navigation@4"
         }
       ],
       "view/item/context": [
@@ -448,6 +472,11 @@
           "command": "piIde.session.open",
           "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session/",
           "group": "inline@0"
+        },
+        {
+          "command": "piIde.session.openFull",
+          "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session/",
+          "group": "piweb@0"
         },
         {
           "command": "piIde.session.rename",

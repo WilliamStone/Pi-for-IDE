@@ -32,6 +32,8 @@
   "cmd.session.unpin": "取消置顶",
   "cmd.session.archive": "归档会话",
   "cmd.session.unarchive": "取消归档",
+  "cmd.session.openFull": "在原始页面打开",
+  "cmd.openOriginal": "打开原始页面",
   "cmd.sessions.refresh": "刷新会话列表",
   "cmd.sessions.filterWorkspace": "只看本工作区会话",
   "cmd.sessions.showAll": "显示全部会话",
