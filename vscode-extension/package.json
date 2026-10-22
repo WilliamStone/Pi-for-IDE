@@ -158,18 +158,6 @@
         "icon": "$(list-tree)"
       },
       {
-        "command": "piIde.sessions.filter",
-        "title": "%cmd.sessions.filter%",
-        "category": "Pi for IDE",
-        "icon": "$(list-filter)"
-      },
-      {
-        "command": "piIde.sessions.clearFilter",
-        "title": "%cmd.sessions.clearFilter%",
-        "category": "Pi for IDE",
-        "icon": "$(filter-filled)"
-      },
-      {
         "command": "piIde.project.pin",
         "title": "%cmd.project.pin%",
         "category": "Pi for IDE",
@@ -390,14 +378,6 @@
           "when": "false"
         },
         {
-          "command": "piIde.sessions.filter",
-          "when": "false"
-        },
-        {
-          "command": "piIde.sessions.clearFilter",
-          "when": "false"
-        },
-        {
           "command": "piIde.project.pin",
           "when": "false"
         },
@@ -479,16 +459,6 @@
           "command": "piIde.sessions.showAll",
           "when": "view == 'piIde.sessions' && piIde.sessions.workspaceOnly",
           "group": "navigation@1"
-        },
-        {
-          "command": "piIde.sessions.filter",
-          "when": "view == 'piIde.sessions' && !piIde.sessions.filtering",
-          "group": "navigation@2"
-        },
-        {
-          "command": "piIde.sessions.clearFilter",
-          "when": "view == 'piIde.sessions' && piIde.sessions.filtering",
-          "group": "navigation@2"
         },
         {
           "command": "piIde.sessions.cycleViewMode",

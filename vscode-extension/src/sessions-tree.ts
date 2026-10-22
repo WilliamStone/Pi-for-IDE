@@ -184,39 +184,11 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
     }
   }
 
-  /** 文本过滤串（find 命令写入）——空串 = 不过滤。 */
-  private filterQuery = "";
-
-  get filter(): string {
-    return this.filterQuery;
-  }
-
-  setFilter(query: string): void {
-    this.filterQuery = query.trim();
-    void vscode.commands.executeCommand(
-      "setContext",
-      "piIde.sessions.filtering",
-      !!this.filterQuery,
-    );
-    this.changeEmitter.fire();
-  }
-
-  /** 会话标题/cwd/项目名任一段包含过滤串（大小写不敏感）。 */
-  private matchesQuery(s: ApiSession): boolean {
-    const q = this.filterQuery.toLowerCase();
-    if (!q) return true;
-    return [sessionTitle(s), s.cwd, s.projectRoot, this.projectNames.get(s.projectRoot ?? s.cwd ?? "")]
-      .filter((v): v is string => !!v)
-      .some((v) => v.toLowerCase().includes(q));
-  }
-
   private filteredSessions(): ApiSession[] {
-    const base = !this.workspaceOnly
-      ? this.sessions
-      : !this.workspaceRoots().length
-        ? []
-        : this.sessions.filter((s) => isInWorkspace(s, this.workspaceRoots()));
-    return base.filter((s) => this.matchesQuery(s));
+    if (!this.workspaceOnly) return this.sessions;
+    const roots = this.workspaceRoots();
+    if (!roots.length) return [];
+    return this.sessions.filter((s) => isInWorkspace(s, roots));
   }
 
   getTreeItem(element: vscode.TreeItem): vscode.TreeItem {
@@ -276,9 +248,7 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
     const awaiting = this.awaitingIds.has(s.id);
     const pinned = this.pinnedIds.has(s.id);
     const archived = this.archivedIds.has(s.id);
-    // pinned 用图钉 codicon 进 label 前缀（TreeItem label 会渲染 $(icon)），
-    // 描述栏只留数据——文字 "pinned" 与图标重复还占宽度。
-    const item = new vscode.TreeItem(`${pinned ? "$(pinned) " : ""}${sessionTitle(s)}`);
+    const item = new vscode.TreeItem(sessionTitle(s));
     item.id = `piIde.session.${s.id}`;
     const desc: string[] = [];
     if (flat && (s.projectRoot ?? s.cwd)) desc.push(s.projectRoot ? s.projectRoot.split(/[\\/]/).pop()! : s.cwd!);
@@ -288,13 +258,17 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
     item.tooltip = new vscode.MarkdownString(
       `**${sessionTitle(s)}**\n\n${s.cwd ?? ""}\n\n${s.created.slice(0, 16)} · ${relTime(s.modified)}`,
     );
+    // 状态图标优先（running/awaiting 是活状态），否则 pinned 给图钉。
+    // TreeItem 单 iconPath——pinned+running 时图钉让位，pin 仍靠排序置前。
     item.iconPath = new vscode.ThemeIcon(
-      running ? "pulse" : awaiting ? "bell-dot" : "comment",
+      running ? "pulse" : awaiting ? "bell-dot" : pinned ? "pinned" : "comment",
       running
         ? new vscode.ThemeColor("testing.iconPassed")
         : awaiting
           ? new vscode.ThemeColor("testing.iconQueued")
-          : undefined,
+          : pinned
+            ? new vscode.ThemeColor("textLink.foreground")
+            : undefined,
     );
     item.contextValue = `piIde.session${running ? ".running" : ""}${pinned ? ".pinned" : ""}${archived ? ".archived" : ""}`;
     item.command = {
@@ -451,18 +425,6 @@ export function registerSessionCommands(
       await deps.openSessionFull(id);
     }),
 
-    // 过滤栏：list.toggleFind 依赖树焦点不可靠，走自己的输入框——
-    // 语义就是过滤出列（不只是高亮）。clear 命令在过滤态出现。
-    vscode.commands.registerCommand("piIde.sessions.filter", async () => {
-      const q = await vscode.window.showInputBox({
-        title: "Filter Sessions",
-        prompt: "Session title, project, or path",
-        value: provider.filter,
-      });
-      if (q === undefined) return;
-      provider.setFilter(q);
-    }),
-    vscode.commands.registerCommand("piIde.sessions.clearFilter", () => provider.setFilter("")),
     vscode.commands.registerCommand("piIde.sessions.refresh", () => provider.reload()),
     // 两个命令图标化同一个开关：过滤态显示 $(list-filter)，全部态显示 $(globe)。
     vscode.commands.registerCommand("piIde.sessions.filterWorkspace", async () => {

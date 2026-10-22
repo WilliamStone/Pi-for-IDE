@@ -41,8 +41,7 @@
   "cmd.sessions.filterWorkspace": "只看本工作区会话",
   "cmd.sessions.showAll": "显示全部会话",
   "cmd.sessions.cycleViewMode": "切换 分组/最近 视图",
-  "cmd.sessions.filter": "筛选会话…",
-  "cmd.sessions.clearFilter": "清除会话筛选",
+
   "cmd.project.pin": "置顶项目",
   "cmd.project.unpin": "取消项目置顶",
   "cmd.project.rename": "重命名项目",
