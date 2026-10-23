@@ -80,10 +80,17 @@ owners. Nobody kills anyone — the server dies of silence.
   cheaper than risking a kill of a server another window is using.
   `Pi for IDE: Stop Server` still force-kills the spawned child, and asks an
   attached (not-owned) server to exit via `lifecycle.shutdown`.
-- **Attach, not adopt:** `ensureStarted` prefers a healthy `kind==="ours"`
-  server on ports 303x (handshake OK) over spawning a duplicate — one server
-  serves many windows/workspaces (sessions keyed by cwd; pages are views of
-  the same server, as in the standalone product).
+- **Attach, not adopt:** `ensureStarted` prefers a healthy ours server on
+  ports 303x (handshake OK) over spawning a duplicate — one server serves
+  many windows/workspaces (sessions keyed by cwd; pages are views of the
+  same server, as in the standalone product). Identity is proven by the
+  `/api/embed` handshake itself, not by `classifyOccupier` cmdline
+  heuristics — junction installs (`npm link`, global→repo) and install
+  dirs whose names lack the package name misclassify our own server as
+  `upstream`, which once caused sibling windows to spawn duplicates on
+  fresh ports. Attach candidates are therefore every pi-web-shaped
+  occupier (`kind !== "unknown"`); the cmdline kind survives only for
+  warning text and cleanup decisions.
 
 ### Rejected: client registry
 

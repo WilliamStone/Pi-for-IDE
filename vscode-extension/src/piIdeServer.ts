@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
 import { EMBED_PROTOCOL_SUPPORTED, managedRuntimeRoot } from "./managedRuntime";
-import { DEFAULT_PACKAGE } from "./occupier";
+import { DEFAULT_PACKAGE, type PortOccupier } from "./occupier";
 import { reportStartupFailure } from "./diagnostics";
 import { attachScanRange, findFreePort, reportPortOccupiers, scanPortOccupiers } from "./port-scan";
 import {
@@ -284,8 +284,15 @@ export class PiIdeServer {
    * 读写同一 ~/.pi 状态目录更会互相踩（run-records/ui-state/快照）。
    */
   private async spawnUnlessOursOccupier(target: SpawnTarget): Promise<string | undefined> {
-    const ours = (await scanPortOccupiers(attachScanRange().from, attachScanRange().to, this.packageName()))
-      .filter((o) => o.kind === "ours");
+    // cmdline 分类会漏（junction 回仓库、目录名不含包名等）：对所有
+    // pi-web 形态的占用者再做一次握手兜底，响应者无论归哪类都是自己人。
+    const cands = (await scanPortOccupiers(attachScanRange().from, attachScanRange().to, this.packageName()))
+      .filter((o) => o.kind !== "unknown");
+    for (const o of cands) {
+      const origin = await this.tryAttach(o);
+      if (origin) return origin;
+    }
+    const ours = cands.filter((o) => o.kind === "ours");
     if (ours.length) {
       logLifecycle(
         `port race lost to our instance on :${ours.map((o) => o.port).join("/")} — not spawning a duplicate; retry after it finishes starting.`,
@@ -312,41 +319,49 @@ export class PiIdeServer {
     const deadline = Date.now() + graceMs;
     let waitLogged = false;
     do {
-      const ours = (await scanPortOccupiers(attachScanRange().from, attachScanRange().to, this.packageName())).filter((o) => o.kind === "ours");
-      if (!ours.length && !waitLogged) return undefined;
-      for (const o of ours) {
-        const origin = `http://127.0.0.1:${o.port}`;
-        try {
-          const res = await fetch(`${origin}/api/embed`, { signal: AbortSignal.timeout(4_000) });
-          if (!res.ok) continue;
-          this.channel.appendLine(
-            `attached to running Pi Web server on :${o.port} (PID ${o.pid}) — skipping duplicate spawn.`,
-          );
-          logLifecycle(`attached ours: origin=${origin}, pid=${o.pid}`);
-          // attach 只扫 303x——用户显式配置了别的起始端口时，接上的实例
-          // 可能不是他们以为的那份（别的窗口/手动起的）。给个可见提示，
-          // 让"配了端口却连上旧实例"不再静默。
-          const preferred = piConfig()
-            .get<number>("port", DEFAULT_PORT);
-          if (preferred !== o.port) {
-            void vscode.window.showInformationMessage(
-              `Pi for IDE attached to a running server on :${o.port} (configured port ${preferred}). It shares its session/agent data with whoever started it.`,
-            );
-          }
-          return origin;
-        } catch {
-          // 还在启动：下一轮再试。
-        }
+      // 候选 = 所有 pi-web 形态占用者（kind !== "unknown"）：embed 握手
+      // 本身即身份证明，cmdline 分类只供文案——junction/dev 路径常被误判。
+      const cands = (await scanPortOccupiers(attachScanRange().from, attachScanRange().to, this.packageName())).filter((o) => o.kind !== "unknown");
+      if (!cands.length && !waitLogged) return undefined;
+      for (const o of cands) {
+        const origin = await this.tryAttach(o);
+        if (origin) return origin;
       }
-      if (ours.length && !waitLogged) {
+      if (cands.length && !waitLogged) {
         waitLogged = true;
         this.channel.appendLine(
-          `our pi-web on :${ours.map((o) => o.port).join("/")} is still starting — waiting to attach…`,
+          `pi-web on :${cands.map((o) => o.port).join("/")} is still starting — waiting to attach…`,
         );
       }
       if (Date.now() < deadline) await new Promise((r) => setTimeout(r, 2_000));
     } while (Date.now() < deadline);
     return undefined;
+  }
+
+  /** 对单个占用者试 embed 握手；响应即证明是本扩展系实例 → attach。 */
+  private async tryAttach(o: PortOccupier): Promise<string | undefined> {
+    const origin = `http://127.0.0.1:${o.port}`;
+    try {
+      const res = await fetch(`${origin}/api/embed`, { signal: AbortSignal.timeout(4_000) });
+      if (!res.ok) return undefined;
+    } catch {
+      return undefined;
+    }
+    this.channel.appendLine(
+      `attached to running Pi Web server on :${o.port} (PID ${o.pid}) — skipping duplicate spawn.`,
+    );
+    logLifecycle(`attached: origin=${origin}, pid=${o.pid}, kind=${o.kind}`);
+    // attach 只扫 303x——用户显式配置了别的起始端口时，接上的实例
+    // 可能不是他们以为的那份（别的窗口/手动起的）。给个可见提示，
+    // 让"配了端口却连上旧实例"不再静默。
+    const preferred = piConfig()
+      .get<number>("port", DEFAULT_PORT);
+    if (preferred !== o.port) {
+      void vscode.window.showInformationMessage(
+        `Pi for IDE attached to a running server on :${o.port} (configured port ${preferred}). It shares its session/agent data with whoever started it.`,
+      );
+    }
+    return origin;
   }
 
   /** 探测空闲端口后按目标模式启动服务器，等待 stdout 打印的 URL。 */
