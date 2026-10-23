@@ -54,6 +54,28 @@ code --install-extension vscode-extension\pi-for-ide-0.1.8.vsix
 `<repo>\bin\pi-web.js`（repo 内的 standalone 就是新构建）——
 解析链腿 1，最高优先。
 
+## 扩展本地安装的坑（实测）
+
+- **`-dev` 后缀会被 prerelease 迁移吃掉**。`0.2.1-dev` 是 semver
+  prerelease；VSCodium 的 `MigrateFromPreRelease`（sharedprocess.log
+  里 `operation:3` + `installPreReleaseVersion:false`）在扩展卸载/
+  变更后拉 gallery release 版重装——2026-10-23 实测：uninstall 后
+  2s 发 manifest 查询，gallery 0.2.0 的安装与 vsix 安装并发，后者
+  落地后 4s 被前者标记 `.obsolete` 覆盖，装了跟没装一样。触发时序
+  不保证（此前多轮 uninstall→vsix 未撞上），别赌运气。
+- **dev 版本号用 `X.Y.Z+dev`**（`+` 是构建元数据，不是 prerelease：
+  `semver.prerelease("0.2.1+dev") === null`，且 `0.2.1+dev` >
+  gallery release，无版本可回滚到）。发布时去掉 `+dev` 即正式号。
+- **扩展安装/卸载要全窗关闭**。多窗口各自跑扩展管理服务，一侧的
+  操作会以另一侧视角回写（manifest 查询、gallery reconcile）——
+  与 `-dev` 迁移叠加就是"装了又被吃"。
+- **排查看三处**：`%USERPROFILE%\.vscode-oss\extensions\extensions.json`
+  （注册的到底是哪份）、同目录 `.obsolete`（被标记待删的目录）、
+  `%APPDATA%\VSCodium\logs\<date>\sharedprocess.log`（谁在 install/
+  uninstall/manifest——含 `operation` 枚举可直接判迁移路径）。
+- **gallery 有 release 时 pinned/"Auto Update 关" 不防迁移**——
+  pin 只挡自动升级，prerelease→release 纠正是另一条路径。
+
 ## 实机验证清单
 
 - **面板链路**：`Pi for IDE: Open` → 等待页 → iframe 出页面。

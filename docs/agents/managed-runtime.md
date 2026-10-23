@@ -84,6 +84,13 @@ piIde.executablePath（显式 pin，最高优先）→ 内置 resources（过渡
 executablePath。包的 `package.json.piIde.embedProtocol` 超出支持
 区间的候选：记日志 + 跳过，不静默启动不兼容副本。
 
+**junction 全局安装是特例的反面教材**：`npm i -g <repo>`/`npm link`
+产生的全局条目是 junction 指回仓库——spawn 出的进程 cmdline 落在
+仓库路径（目录名不含包名 → occupier 分类误判 upstream，已由握手
+身份修复）；其构建戳随每次重打即变新 → 池内永远"最新" → 永久
+影子化托管槽；且运行中的 junction 服务会锁死 `.next` 让 pack
+EBUSY。开发机装过这类 junction 后 `npm rm -g` 拆掉是正解。
+
 ## 4. 目录布局与版本选择
 
 ```
@@ -117,10 +124,17 @@ executablePath。包的 `package.json.piIde.embedProtocol` 超出支持
 
 ## 6. 安装与升级
 
-- `installManagedPackage(pkg, ver)`：`npm i --prefix
+- `installManagedPackage(pkg, ver)`：`npm i -g --prefix
   versions/<ver> pkg@ver --ignore-scripts` → 成功且 bin 存在 →
-  写 marker → 触发 §7 清理。
-- **跨窗口互斥**（三级防线）：
+  写 marker → 触发 §7 清理。**npm 11 起项目级 `--prefix` 安装下
+  `--ignore-scripts`/`--allow-scripts` 报 EALLOWSCRIPTS**（脚本
+  策略只许在 global 上下文禁用脚本）——`-g --prefix` 是唯一还
+  合法的形态，且产物布局相同（`<prefix>/node_modules`）。禁脚本
+  同时跳过 `preinstall-guard.js` 的运行中实例检查——版本槽安装
+  不碰运行目录，跳过是正确的；全局安装路径仍走 guard。
+- **跨窗口互斥**（三级防线；上游另有总闸门 `src/server-lock.ts`
+  的 `ide-server.lock`——串行化 attach→resolve→spawn 决策与
+  planUpgrade 检查，见 embed-protocol.md "One operator"）：
   1. `.installing` 原子锁串行化安装动作；后到者等待装完复用，
      残留 >10min 按失效清理；
   2. marker 只**向前翻**（新 > 旧才写）——后到者发现 marker
