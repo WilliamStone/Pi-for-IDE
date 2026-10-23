@@ -192,6 +192,7 @@ vscode-extension/src/
   server-resolve.ts       resolve chain legs (executablePath/bundled/global/shim/managed) + install/checkUpdate + SpawnTarget
   diagnostics.ts          startup-failure report (env, resolve legs, port occupants, npm log tail)
   server-status.ts        shared output channel + lifecycle timeline log + stage-status broadcast bus
+  instance-coordination.ts pure: cross-window protocol — instance marker read/write/watch, spawn boot-records, boot-monotonic invalidation
   managedRuntime.ts       versioned managed runtime (version dirs, marker, install lock, registry compat)
   version.ts              pure: level/semver/spec validation/registry base
   paths.ts                pure: cross-platform path normalization for the bridge (win32/POSIX/UNC/relative)

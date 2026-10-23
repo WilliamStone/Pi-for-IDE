@@ -1,6 +1,4 @@
 import * as cp from "child_process";
-import * as fs from "fs";
-import * as path from "path";
 import * as vscode from "vscode";
 import { EMBED_PROTOCOL_SUPPORTED, managedRuntimeRoot } from "./managedRuntime";
 import { DEFAULT_PACKAGE } from "./occupier";
@@ -13,7 +11,12 @@ import {
 } from "./server-resolve";
 import type { SpawnTarget } from "./server-resolve";
 import { logLifecycle, outputChannel } from "./server-status";
-import { ideRunDir, withServerLock } from "./server-lock";
+import {
+  listSpawnBootRecords,
+  recordSpawnBoot,
+  writeInstanceMarker,
+} from "./instance-coordination";
+import { withServerLock } from "./server-lock";
 import { piConfig } from "./config";
 
 /**
@@ -93,53 +96,16 @@ export class PiIdeServer {
 
   async start(): Promise<this | undefined> {
     await this.ready;
-    if (this.resolvedOrigin && this.child) this.writeInstanceMarker();
-    return this.resolvedOrigin ? this : undefined;
-  }
-
-  /**
-   * 本宿主拉起的新实例就绪后在共享运行时目录落「当前实例」标记——
-   * 其他窗口的扩展宿主 watch 此文件，boot 变了就刷新自己的已开面板。
-   * 只在 boot 变化时写（重复 start/attach 复用不触发无谓的 watch 事件）。
-   */
-  private writeInstanceMarker(): void {
-    try {
-      const dir = managedRuntimeRoot(this.context);
-      fs.mkdirSync(dir, { recursive: true });
-      const file = path.join(dir, "server-instance.json");
-      const marker = { boot: this.embedBoot, origin: this.resolvedOrigin, at: Date.now() };
-      const prev = fs.existsSync(file)
-        ? (JSON.parse(fs.readFileSync(file, "utf8")) as { boot?: string }).boot
-        : undefined;
-      if (prev === marker.boot) return;
-      fs.writeFileSync(file, JSON.stringify(marker, null, 2));
-      this.channel.appendLine(`instance marker written: boot=${marker.boot ?? "unknown"} @ ${marker.origin}`);
-    } catch (e) {
-      this.channel.appendLine(`instance marker write failed (non-fatal): ${e}`);
+    // 本宿主拉起的新实例就绪后落「当前实例」标记（attach 来的不写——
+    // 标记语义是"最新 spawn"，见 instance-coordination.ts）。
+    if (this.resolvedOrigin && this.child) {
+      writeInstanceMarker(
+        managedRuntimeRoot(this.context),
+        { boot: this.embedBoot, origin: this.resolvedOrigin },
+        this.channel,
+      );
     }
-  }
-
-  /**
-   * 共享标记声明了一个比本宿主更新的实例 → 本地记录的服务器已过期
-   * （别窗升级/重启换包）。由实例标记 watcher 调用。
-   *
-   * 判据单调：boot = Date.now() 时间戳，仅 marker.boot > 本地 boot 才
-   * 失效——否则竞态下晚写出的旧 spawn 标记会倒踢正在运行的新实例，
-   * 双窗互写即死循环。处置分所有权：自 spawn 的旧实例停掉（被取代的
-   * 清理）；attach 来的共享服务器只丢引用——stop() 对无 child 实例会
-   * POST /api/embed/shutdown，误杀别窗正在使用的实例。
-   */
-  static async invalidateIfBootMismatch(boot: string | undefined): Promise<boolean> {
-    const existing = (globalThis as Record<string, unknown>).__piIdeServer as PiIdeServer | undefined;
-    if (!existing || existing.disposed) return false;
-    if (!boot || existing.embedBoot === boot) return false; // 已是当前实例
-    if (!(Number(boot) > Number(existing.embedBoot ?? "0"))) return false; // 只认更新
-    logLifecycle(
-      `invalidateIfBootMismatch: local boot=${existing.embedBoot ?? "unknown"} vs newer marker boot=${boot} — ${existing.child ? "stopping stale spawned server" : "releasing shared-server reference"}`,
-    );
-    if (existing.child) await existing.stop();
-    else existing.release();
-    return true;
+    return this.resolvedOrigin ? this : undefined;
   }
 
   async stop(): Promise<void> {
@@ -347,7 +313,7 @@ export class PiIdeServer {
       // 启动窗口记录补盲：兄弟窗口 spawn→bind 之间端口扫描全空，但记录
       // 带着目标端口——合成伪占用者交给同一个 tryAttach 握手路径。
       const bound = new Set(cands.map((o) => o.port));
-      const booting = this.spawnBootRecords()
+      const booting = listSpawnBootRecords()
         .filter((b) => !bound.has(b.port))
         .map((b) => ({ port: b.port, pid: b.pid, cmdline: "ide-spawn record", kind: "ours" as const }));
       const all = [...cands, ...booting];
@@ -374,41 +340,6 @@ export class PiIdeServer {
       if (Date.now() < deadline) await new Promise((r) => setTimeout(r, 2_000));
     } while (Date.now() < deadline);
     return undefined;
-  }
-
-  /**
-   * 读取本机所有"启动窗口"记录（ide-spawn-<pid>.json，spawn() 在 bind 前写）。
-   * 只收进程存活且 <90s 的记录——崩溃残留/过期记录自动失效。
-   */
-  private spawnBootRecords(): Array<{ pid: number; port: number }> {
-    let names: string[];
-    try {
-      names = fs.readdirSync(ideRunDir());
-    } catch {
-      return [];
-    }
-    const records: Array<{ pid: number; port: number }> = [];
-    for (const name of names) {
-      if (!name.startsWith("ide-spawn-") || !name.endsWith(".json")) continue;
-      try {
-        const rec = JSON.parse(fs.readFileSync(path.join(ideRunDir(), name), "utf8")) as {
-          pid?: number;
-          port?: number;
-          startedAt?: string;
-        };
-        const age = Date.now() - Date.parse(rec.startedAt ?? "");
-        if (!rec.pid || !rec.port || !(age >= 0 && age < 90_000)) continue;
-        try {
-          process.kill(rec.pid, 0); // 存活检查——PID 复用由年龄上限兜底
-        } catch {
-          continue;
-        }
-        records.push({ pid: rec.pid, port: rec.port });
-      } catch {
-        // 读不了的记录当不存在——下轮再扫。
-      }
-    }
-    return records;
   }
 
   /** 对单个占用者试 embed 握手；响应即证明是本扩展系实例 → attach。 */
@@ -515,26 +446,9 @@ export class PiIdeServer {
         windowsHide: true,
       });
       this.child = child;
-      // 启动窗口记录：spawn→bind 之间端口扫描看不到任何占用，兄弟窗口
-      // 会误判"无人在跑"而重复 spawn。写一条 ide-spawn-<pid>.json 让
-      // 它们能 attach-等——就绪/退出/超时即删；残留由读取端按年龄过滤。
-      const bootFile = path.join(ideRunDir(), `ide-spawn-${child.pid}.json`);
-      const dropBootRecord = () => {
-        try {
-          fs.rmSync(bootFile, { force: true });
-        } catch {
-          // 尽力而为——读端有年龄/存活双重过滤兜底。
-        }
-      };
-      try {
-        fs.mkdirSync(ideRunDir(), { recursive: true });
-        fs.writeFileSync(
-          bootFile,
-          JSON.stringify({ pid: child.pid, port, url: `http://127.0.0.1:${port}`, startedAt: new Date().toISOString() }),
-        );
-      } catch {
-        // 记录写失败不阻塞 spawn——只是这层协同失效。
-      }
+      // 启动窗口记录：spawn→bind 之间端口扫描全盲，兄弟窗口凭记录
+      // attach-等而不是重复 spawn（协议见 instance-coordination.ts）。
+      const dropBootRecord = recordSpawnBoot(child.pid, port);
       let readyLogged = false;
       const onLine = (line: string) => {
         this.channel.appendLine(line);

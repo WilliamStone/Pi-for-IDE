@@ -3,11 +3,10 @@
 // 同区块还挂：状态栏待输入指示器、设置页单例面板、Open Original Page、
 // 以及会话命令注册（registerSessionCommands 的宿主接线）。
 
-import * as fs from "fs";
-import * as path from "path";
 import * as vscode from "vscode";
 import { Bridge } from "./bridge";
 import { piConfig } from "./config";
+import { readInstanceMarker } from "./instance-coordination";
 import { managedRuntimeRoot } from "./managedRuntime";
 import { PiIdeServer } from "./piIdeServer";
 import { SessionPanels } from "./session-panels";
@@ -45,14 +44,7 @@ export function registerSessionsFeature(
   const sessionsBaseUrl = async (): Promise<string | undefined> => {
     const s = server() ? await server() : undefined;
     if (s?.origin) return s.origin;
-    try {
-      const marker = JSON.parse(
-        fs.readFileSync(path.join(managedRuntimeRoot(context), "server-instance.json"), "utf8"),
-      ) as { origin?: string };
-      return marker.origin;
-    } catch {
-      return undefined;
-    }
+    return readInstanceMarker(managedRuntimeRoot(context))?.origin;
   };
 
   const sessionsProvider = new SessionsTreeProvider(

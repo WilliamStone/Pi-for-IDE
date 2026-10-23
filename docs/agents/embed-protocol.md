@@ -120,7 +120,20 @@ owners. Nobody kills anyone — the server dies of silence.
   superseded **spawned child** is stopped (cleanup), but an **attached**
   instance is only released — `stop()` on it would POST
   `/api/embed/shutdown` and murder the shared server other windows are
-  using (attach ≠ adopt).
+  using (attach ≠ adopt). On a successful invalidation the watcher
+  immediately re-`ensureServer()`s — the sessions tree isn't a panel,
+  so without the re-attach it would sit at "server not running" until
+  someone opened a panel.
+- **Spawn boot records:** `spawn()` writes
+  `ide-spawn-<pid>.json` (pid/port/url) into the shared run dir before
+  the child binds — the spawn→bind window is otherwise invisible to
+  port scans, and a sibling hitting it spawns a duplicate (the observed
+  two-window race). Attach merges live <90s records as candidates and
+  extends its wait to 60s when only records are visible. All marker /
+  boot-record / invalidation logic lives in
+  `vscode-extension/src/instance-coordination.ts` (pure module, no
+  vscode dep — driven by `two-process-coordination.test.mjs`, which
+  races real child processes over real files).
 
 ### Rejected: client registry
 

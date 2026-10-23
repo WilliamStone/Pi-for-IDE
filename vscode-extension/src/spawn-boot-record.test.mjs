@@ -4,31 +4,24 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createRequire } from "node:module";
+import { registerHooks } from "node:module";
 
-const require = createRequire(import.meta.url);
-const { registerHooks } = require("node:module");
-
-// piIdeServer 顶层 import "vscode"——直跑测试时 stub 掉（同 bridge.test.mjs 模式）。
-const VSCODE_STUB = "export default {}; export const window = {};";
+// instance-coordination has no vscode dep — the hook just resolves
+// extensionless .ts imports under strip-types.
 registerHooks({
   resolve(specifier, context, next) {
-    if (specifier === "vscode") return { url: "data:text/javascript," + encodeURIComponent(VSCODE_STUB), shortCircuit: true };
-    try {
-      return next(specifier, context);
-    } catch (e) {
-      if (e && e.code === "ERR_MODULE_NOT_FOUND" && /^\.{1,2}\//.test(specifier)) {
-        return next(specifier + ".ts", context);
-      }
-      throw e;
+    if (
+      (specifier.startsWith("./") || specifier.startsWith("../")) &&
+      !/\.(mjs|cjs|js|ts|json)$/.test(specifier)
+    ) {
+      return next(`${specifier}.ts`, context);
     }
+    return next(specifier, context);
   },
 });
 
-const { PiIdeServer } = await import("./piIdeServer.ts");
-
-// spawnBootRecords 是 private 方法但只用模块函数——脱离实例调用。
-const readBootRecords = () => PiIdeServer.prototype.spawnBootRecords.call({});
+const { listSpawnBootRecords } = await import("./instance-coordination.ts");
+const readBootRecords = listSpawnBootRecords;
 
 let dir;
 let prevAgentDir;

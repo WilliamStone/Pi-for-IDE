@@ -19,14 +19,13 @@
  * 嵌入 URL 契约 → embedUrl.ts；配置段 → config.ts。
  */
 
-import * as fs from "fs";
-import * as path from "path";
 import * as vscode from "vscode";
 import { PiIdeServer } from "./piIdeServer";
 import { sweepLegacyOrphans } from "./port-scan";
 import { CONFIG_SECTION, piConfig } from "./config";
 import { managedRuntimeRoot } from "./managedRuntime";
-import { outputChannel } from "./server-status";
+import { invalidateIfBootMismatch, watchInstanceMarker } from "./instance-coordination";
+import { logLifecycle, outputChannel } from "./server-status";
 import { PiWebWebviewPanel } from "./webviewProvider";
 import { SessionPanels } from "./session-panels";
 import { registerSessionsFeature } from "./sessions-feature";
@@ -173,39 +172,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // 共享实例标记 watch：任一窗口的宿主拉起新服务器（升级换包/重启）时写
   // <runtime>/server-instance.json——本宿主据此停掉过期引用并刷新已开面板。
   // 事件驱动、不轮询；外部重启（非扩展驱动）不写标记、维持原行为。
+  // 协议细节见 instance-coordination.ts。
   // -------------------------------------------------------------------------
   {
-    const runtimeDir = managedRuntimeRoot(context);
-    fs.mkdirSync(runtimeDir, { recursive: true });
-    let markerTimer: ReturnType<typeof setTimeout> | undefined;
-    const onInstanceMarker = () => {
-      clearTimeout(markerTimer);
-      markerTimer = setTimeout(() => {
+    const watcher = watchInstanceMarker(
+      managedRuntimeRoot(context),
+      (boot) => {
         void (async () => {
-          let boot: string | undefined;
-          try {
-            boot = (JSON.parse(
-              fs.readFileSync(path.join(runtimeDir, "server-instance.json"), "utf8"),
-            ) as { boot?: string }).boot;
-          } catch {
-            return; // 文件半截/已删——等下一次事件
-          }
-          const invalidated = await PiIdeServer.invalidateIfBootMismatch(boot);
+          const invalidated = await invalidateIfBootMismatch(boot, { log: logLifecycle });
           // 失效后立即重挂到更新实例——没有打开的面板时 sessions 树/状态栏
           // 靠这一步恢复，否则停在 "server not running" 直到用户手动触发。
           if (invalidated) void ensureServer();
           await refreshAllPanels();
         })();
-      }, 300);
-    };
-    try {
-      const watcher = fs.watch(runtimeDir, (_ev, name) => {
-        if (name === "server-instance.json") onInstanceMarker();
-      });
-      context.subscriptions.push({ dispose: () => watcher.close() });
-    } catch (e) {
-      outputChannel().appendLine(`instance marker watch failed (non-fatal): ${e}`);
-    }
+      },
+      outputChannel(),
+    );
+    if (watcher) context.subscriptions.push(watcher);
   }
 
   // -------------------------------------------------------------------------

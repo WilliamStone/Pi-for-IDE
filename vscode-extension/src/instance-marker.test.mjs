@@ -8,16 +8,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { registerHooks } from "node:module";
 
-// piIdeServer.ts imports "vscode" — redirect to the stub (same pattern as
-// bridge.test.mjs). Hooks must be installed before the dynamic import.
+// instance-coordination imports only fs/path + server-lock (no vscode) — the
+// hook just resolves extensionless .ts imports under strip-types.
 registerHooks({
   resolve(specifier, context, next) {
-    if (specifier === "vscode") {
-      return {
-        url: new URL("./test-vscode-stub.mjs", import.meta.url).href,
-        shortCircuit: true,
-      };
-    }
     if (
       (specifier.startsWith("./") || specifier.startsWith("../")) &&
       !/\.(mjs|cjs|js|ts|json)$/.test(specifier)
@@ -28,7 +22,7 @@ registerHooks({
   },
 });
 
-const { PiIdeServer } = await import("./piIdeServer.ts");
+const { invalidateIfBootMismatch } = await import("./instance-coordination.ts");
 
 const g = /** @type {Record<string, unknown>} */ (globalThis);
 
@@ -47,7 +41,7 @@ function fakeServer({ embedBoot, child }) {
 test("same boot → untouched", async () => {
   const s = fakeServer({ embedBoot: "1000" });
   g.__piIdeServer = s;
-  assert.equal(await PiIdeServer.invalidateIfBootMismatch("1000"), false);
+  assert.equal(await invalidateIfBootMismatch("1000"), false);
   assert.equal(s.stopCalls, 0);
   assert.equal(s.releaseCalls, 0);
 });
@@ -55,7 +49,7 @@ test("same boot → untouched", async () => {
 test("older marker → untouched (stale marker must not evict a newer instance)", async () => {
   const s = fakeServer({ embedBoot: "2000" });
   g.__piIdeServer = s;
-  assert.equal(await PiIdeServer.invalidateIfBootMismatch("1000"), false);
+  assert.equal(await invalidateIfBootMismatch("1000"), false);
   assert.equal(s.stopCalls, 0);
   assert.equal(s.releaseCalls, 0);
 });
@@ -63,7 +57,7 @@ test("older marker → untouched (stale marker must not evict a newer instance)"
 test("newer marker + spawned child → stop (superseded spawn cleanup)", async () => {
   const s = fakeServer({ embedBoot: "1000", child: { pid: 123 } });
   g.__piIdeServer = s;
-  assert.equal(await PiIdeServer.invalidateIfBootMismatch("2000"), true);
+  assert.equal(await invalidateIfBootMismatch("2000"), true);
   assert.equal(s.stopCalls, 1);
   assert.equal(s.releaseCalls, 0);
 });
@@ -71,7 +65,7 @@ test("newer marker + spawned child → stop (superseded spawn cleanup)", async (
 test("newer marker + attached instance → release only, never stop", async () => {
   const s = fakeServer({ embedBoot: "1000" }); // no child = attached
   g.__piIdeServer = s;
-  assert.equal(await PiIdeServer.invalidateIfBootMismatch("2000"), true);
+  assert.equal(await invalidateIfBootMismatch("2000"), true);
   assert.equal(s.releaseCalls, 1);
   assert.equal(s.stopCalls, 0); // 关键：绝不能 shutdown 共享服务器
 });
@@ -79,13 +73,22 @@ test("newer marker + attached instance → release only, never stop", async () =
 test("no boot → untouched", async () => {
   const s = fakeServer({ embedBoot: "1000" });
   g.__piIdeServer = s;
-  assert.equal(await PiIdeServer.invalidateIfBootMismatch(undefined), false);
+  assert.equal(await invalidateIfBootMismatch(undefined), false);
   assert.equal(s.stopCalls + s.releaseCalls, 0);
 });
 
 test("non-numeric boot → untouched (degrade, don't evict)", async () => {
   const s = fakeServer({ embedBoot: "1000" });
   g.__piIdeServer = s;
-  assert.equal(await PiIdeServer.invalidateIfBootMismatch("abc"), false);
+  assert.equal(await invalidateIfBootMismatch("abc"), false);
   assert.equal(s.stopCalls + s.releaseCalls, 0);
+});
+
+test("injected existing option works without the global", async () => {
+  const s = fakeServer({ embedBoot: "1000" });
+  const saved = g.__piIdeServer;
+  delete g.__piIdeServer;
+  assert.equal(await invalidateIfBootMismatch("2000", { existing: s }), true);
+  assert.equal(s.releaseCalls, 1);
+  g.__piIdeServer = saved;
 });
