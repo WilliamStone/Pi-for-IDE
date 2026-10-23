@@ -62,6 +62,7 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
   private timer: NodeJS.Timeout | undefined;
   private polling = false;
   private visible = false;
+  private lastViewSig = "";
 
   /** 已解析的服务 origin；未启动 → undefined（绝不 spawn）。 */
   private readonly getBaseUrl: () => Promise<string | undefined>;
@@ -181,15 +182,40 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
         this.projectNames = new Map(Object.entries(state.projectNames ?? {}));
         this.uiRevision = rev;
       }
-      // 拉取成功即通知视图——只判 running 标志会让清单/ui-state 更新静默
-      // 滞留（曾因此一直停在启动 hint）。TreeView 重绘开销可忽略。
-      this.changeEmitter.fire();
+      // 渲染签名判变才通知视图——每次成功轮询无脑 fire 会让 TreeView
+      // 每 2.5s 闪一次刷新进度条。签名覆盖 getChildren 读的每个字段
+      // （含渲染后的 relTime 文本——"1m ago"→"2m ago"是真变更，该闪）。
+      const sig = this.viewSignature();
+      if (sig !== this.lastViewSig) {
+        this.lastViewSig = sig;
+        this.changeEmitter.fire();
+      }
     } catch (error) {
       // 服务器未就绪/正在重启——保旧数据，下一轮再来；记录一笔便于诊断。
       outputChannel().appendLine(`[sessions-tree] poll failed: ${error}`);
     } finally {
       this.polling = false;
     }
+  }
+
+  /** 渲染会读的字段全打包成签名——未变即视图上无可感差异，不闪刷新。 */
+  private viewSignature(): string {
+    return JSON.stringify({
+      v: this.listVersion,
+      s: this.sessions.map((s) => [
+        s.id,
+        sessionTitle(s),
+        relTime(s.modified),
+        s.messageCount ?? 0,
+        s.projectRoot ?? s.cwd ?? "",
+      ]),
+      r: [...this.runningIds].sort(),
+      a: [...this.awaitingIds].sort(),
+      p: [...this.pinnedIds].sort(),
+      ar: [...this.archivedIds].sort(),
+      pp: [...this.pinnedProjects].sort(),
+      pn: [...this.projectNames.entries()].sort(([a], [b]) => a.localeCompare(b)),
+    });
   }
 
   private filteredSessions(): ApiSession[] {
