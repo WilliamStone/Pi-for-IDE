@@ -111,6 +111,16 @@ owners. Nobody kills anyone — the server dies of silence.
   the managed-runtime install keeps its own per-runtime-root lock
   (`versions/../.installing`) because installs of *different* roots do
   not contend.
+- **Instance marker monotonicity:** `<runtime>/server-instance.json`
+  announces the newest *spawned* instance (boot = `Date.now()` id).
+  Other windows' watchers invalidate their local server only when the
+  marker's boot is **strictly newer** — any-difference comparison lets
+  a late-written stale marker evict a running newer instance, and two
+  windows then ping-pong forever. Disposal follows ownership: a
+  superseded **spawned child** is stopped (cleanup), but an **attached**
+  instance is only released — `stop()` on it would POST
+  `/api/embed/shutdown` and murder the shared server other windows are
+  using (attach ≠ adopt).
 
 ### Rejected: client registry
 
