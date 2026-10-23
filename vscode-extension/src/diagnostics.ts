@@ -9,7 +9,8 @@ import * as vscode from "vscode";
 import { managedPackageBin } from "./managedRuntime";
 import { piConfig } from "./config";
 import { scanPortOccupiers } from "./port-scan";
-import { resolveGlobalPackageBin, resolvePathShimBin, SpawnTarget } from "./server-resolve";
+import { resolveGlobalPackageBin, resolvePathShimBin } from "./server-resolve";
+import type { SpawnTarget } from "./server-resolve";
 
 export async function reportStartupFailure(
   channel: vscode.OutputChannel,

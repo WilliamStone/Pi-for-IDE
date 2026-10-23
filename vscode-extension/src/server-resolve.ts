@@ -22,7 +22,8 @@ import {
   pickNewestSupported,
   queryRegistryCompat,
 } from "./managedRuntime";
-import { readTgzIdentity, resolveLocalPackagePath, type BuildIdentity } from "./tgz";
+import { readTgzIdentity, resolveLocalPackagePath } from "./tgz";
+import type { BuildIdentity } from "./tgz";
 import { emitServerStatus, outputChannel } from "./server-status";
 import { formatBuildStamp, singleFlight } from "./version";
 import { ideRunDir, withServerLock } from "./server-lock";

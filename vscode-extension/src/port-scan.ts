@@ -5,7 +5,8 @@
 import * as cp from "child_process";
 import * as net from "net";
 import * as vscode from "vscode";
-import { classifyOccupier, PortOccupier } from "./occupier";
+import { classifyOccupier } from "./occupier";
+import type { PortOccupier } from "./occupier";
 import { logLifecycle } from "./server-status";
 
 const exec = (cmd: string, timeout = 10_000): Promise<string> =>

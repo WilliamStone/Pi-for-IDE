@@ -3,14 +3,15 @@ import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
 import { EMBED_PROTOCOL_SUPPORTED, managedRuntimeRoot } from "./managedRuntime";
-import { DEFAULT_PACKAGE, type PortOccupier } from "./occupier";
+import { DEFAULT_PACKAGE } from "./occupier";
+import type { PortOccupier } from "./occupier";
 import { reportStartupFailure } from "./diagnostics";
 import { attachScanRange, findFreePort, reportPortOccupiers, scanPortOccupiers } from "./port-scan";
 import {
   installPiWebPackage,
   resolveServerTarget,
-  SpawnTarget,
 } from "./server-resolve";
+import type { SpawnTarget } from "./server-resolve";
 import { logLifecycle, outputChannel } from "./server-status";
 import { withServerLock } from "./server-lock";
 import { piConfig } from "./config";
@@ -119,16 +120,25 @@ export class PiIdeServer {
   }
 
   /**
-   * 共享标记声明了一个与本宿主不同的实例 → 本地记录的服务器已过期
-   * （别窗升级/重启换包）。安全停掉旧引用并清全局，下次 ensureStarted
-   * 会重新 attach/spawn 到新实例。由实例标记 watcher 调用。
+   * 共享标记声明了一个比本宿主更新的实例 → 本地记录的服务器已过期
+   * （别窗升级/重启换包）。由实例标记 watcher 调用。
+   *
+   * 判据单调：boot = Date.now() 时间戳，仅 marker.boot > 本地 boot 才
+   * 失效——否则竞态下晚写出的旧 spawn 标记会倒踢正在运行的新实例，
+   * 双窗互写即死循环。处置分所有权：自 spawn 的旧实例停掉（被取代的
+   * 清理）；attach 来的共享服务器只丢引用——stop() 对无 child 实例会
+   * POST /api/embed/shutdown，误杀别窗正在使用的实例。
    */
   static async invalidateIfBootMismatch(boot: string | undefined): Promise<void> {
     const existing = (globalThis as Record<string, unknown>).__piIdeServer as PiIdeServer | undefined;
     if (!existing || existing.disposed) return;
-    if (boot && existing.embedBoot === boot) return; // 已是当前实例
-    logLifecycle(`invalidateIfBootMismatch: local boot=${existing.embedBoot ?? "unknown"} vs marker boot=${boot ?? "unknown"} — releasing`);
-    await existing.stop();
+    if (!boot || existing.embedBoot === boot) return; // 已是当前实例
+    if (!(Number(boot) > Number(existing.embedBoot ?? "0"))) return; // 只认更新
+    logLifecycle(
+      `invalidateIfBootMismatch: local boot=${existing.embedBoot ?? "unknown"} vs newer marker boot=${boot} — ${existing.child ? "stopping stale spawned server" : "releasing shared-server reference"}`,
+    );
+    if (existing.child) await existing.stop();
+    else existing.release();
   }
 
   async stop(): Promise<void> {
