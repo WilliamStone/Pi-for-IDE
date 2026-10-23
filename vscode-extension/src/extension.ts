@@ -190,7 +190,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           } catch {
             return; // 文件半截/已删——等下一次事件
           }
-          await PiIdeServer.invalidateIfBootMismatch(boot);
+          const invalidated = await PiIdeServer.invalidateIfBootMismatch(boot);
+          // 失效后立即重挂到更新实例——没有打开的面板时 sessions 树/状态栏
+          // 靠这一步恢复，否则停在 "server not running" 直到用户手动触发。
+          if (invalidated) void ensureServer();
           await refreshAllPanels();
         })();
       }, 300);

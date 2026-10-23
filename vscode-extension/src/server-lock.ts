@@ -104,23 +104,25 @@ async function acquireFileLock(
       }
     }
     // EEXIST：判陈旧。owner.json 缺失/读不了 → 视为刚被占（年轻）→ 等。
-    let stale = false;
+    let staleReason: string | undefined;
     try {
       const owner = JSON.parse(fs.readFileSync(ownerFile, "utf8")) as OwnerInfo;
       const age = deps.now() - (owner.at || 0);
       if (owner.pid === process.pid) {
         // 同进程上一个临界区没释放干净（崩在 finally 前）——回收。
-        stale = true;
-      } else if (age > deps.staleMs || !deps.isAlive(owner.pid)) {
-        stale = true;
+        staleReason = "same-pid leftover";
+      } else if (!deps.isAlive(owner.pid)) {
+        staleReason = `owner pid ${owner.pid} is dead`;
+      } else if (age > deps.staleMs) {
+        staleReason = `owner pid ${owner.pid} age ${Math.round(age / 1000)}s > ${Math.round(deps.staleMs / 1000)}s`;
       }
     } catch {
       // 读不出 owner：可能是对方 mkdir 后还没来得及写——当年轻锁等。
     }
-    if (stale) {
+    if (staleReason) {
       try {
         fs.rmSync(lockDir, { recursive: true, force: true });
-        channel?.appendLine(`swept a stale server lock (${op}).`);
+        channel?.appendLine(`swept a stale server lock (${op}; ${staleReason}).`);
       } catch {
         // 抢不过就等下一轮。
       }

@@ -47,7 +47,7 @@ function fakeServer({ embedBoot, child }) {
 test("same boot → untouched", async () => {
   const s = fakeServer({ embedBoot: "1000" });
   g.__piIdeServer = s;
-  await PiIdeServer.invalidateIfBootMismatch("1000");
+  assert.equal(await PiIdeServer.invalidateIfBootMismatch("1000"), false);
   assert.equal(s.stopCalls, 0);
   assert.equal(s.releaseCalls, 0);
 });
@@ -55,7 +55,7 @@ test("same boot → untouched", async () => {
 test("older marker → untouched (stale marker must not evict a newer instance)", async () => {
   const s = fakeServer({ embedBoot: "2000" });
   g.__piIdeServer = s;
-  await PiIdeServer.invalidateIfBootMismatch("1000");
+  assert.equal(await PiIdeServer.invalidateIfBootMismatch("1000"), false);
   assert.equal(s.stopCalls, 0);
   assert.equal(s.releaseCalls, 0);
 });
@@ -63,7 +63,7 @@ test("older marker → untouched (stale marker must not evict a newer instance)"
 test("newer marker + spawned child → stop (superseded spawn cleanup)", async () => {
   const s = fakeServer({ embedBoot: "1000", child: { pid: 123 } });
   g.__piIdeServer = s;
-  await PiIdeServer.invalidateIfBootMismatch("2000");
+  assert.equal(await PiIdeServer.invalidateIfBootMismatch("2000"), true);
   assert.equal(s.stopCalls, 1);
   assert.equal(s.releaseCalls, 0);
 });
@@ -71,7 +71,7 @@ test("newer marker + spawned child → stop (superseded spawn cleanup)", async (
 test("newer marker + attached instance → release only, never stop", async () => {
   const s = fakeServer({ embedBoot: "1000" }); // no child = attached
   g.__piIdeServer = s;
-  await PiIdeServer.invalidateIfBootMismatch("2000");
+  assert.equal(await PiIdeServer.invalidateIfBootMismatch("2000"), true);
   assert.equal(s.releaseCalls, 1);
   assert.equal(s.stopCalls, 0); // 关键：绝不能 shutdown 共享服务器
 });
@@ -79,13 +79,13 @@ test("newer marker + attached instance → release only, never stop", async () =
 test("no boot → untouched", async () => {
   const s = fakeServer({ embedBoot: "1000" });
   g.__piIdeServer = s;
-  await PiIdeServer.invalidateIfBootMismatch(undefined);
+  assert.equal(await PiIdeServer.invalidateIfBootMismatch(undefined), false);
   assert.equal(s.stopCalls + s.releaseCalls, 0);
 });
 
 test("non-numeric boot → untouched (degrade, don't evict)", async () => {
   const s = fakeServer({ embedBoot: "1000" });
   g.__piIdeServer = s;
-  await PiIdeServer.invalidateIfBootMismatch("abc");
+  assert.equal(await PiIdeServer.invalidateIfBootMismatch("abc"), false);
   assert.equal(s.stopCalls + s.releaseCalls, 0);
 });

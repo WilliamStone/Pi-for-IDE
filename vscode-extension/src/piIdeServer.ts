@@ -13,7 +13,7 @@ import {
 } from "./server-resolve";
 import type { SpawnTarget } from "./server-resolve";
 import { logLifecycle, outputChannel } from "./server-status";
-import { withServerLock } from "./server-lock";
+import { ideRunDir, withServerLock } from "./server-lock";
 import { piConfig } from "./config";
 
 /**
@@ -129,16 +129,17 @@ export class PiIdeServer {
    * 清理）；attach 来的共享服务器只丢引用——stop() 对无 child 实例会
    * POST /api/embed/shutdown，误杀别窗正在使用的实例。
    */
-  static async invalidateIfBootMismatch(boot: string | undefined): Promise<void> {
+  static async invalidateIfBootMismatch(boot: string | undefined): Promise<boolean> {
     const existing = (globalThis as Record<string, unknown>).__piIdeServer as PiIdeServer | undefined;
-    if (!existing || existing.disposed) return;
-    if (!boot || existing.embedBoot === boot) return; // 已是当前实例
-    if (!(Number(boot) > Number(existing.embedBoot ?? "0"))) return; // 只认更新
+    if (!existing || existing.disposed) return false;
+    if (!boot || existing.embedBoot === boot) return false; // 已是当前实例
+    if (!(Number(boot) > Number(existing.embedBoot ?? "0"))) return false; // 只认更新
     logLifecycle(
       `invalidateIfBootMismatch: local boot=${existing.embedBoot ?? "unknown"} vs newer marker boot=${boot} — ${existing.child ? "stopping stale spawned server" : "releasing shared-server reference"}`,
     );
     if (existing.child) await existing.stop();
     else existing.release();
+    return true;
   }
 
   async stop(): Promise<void> {
@@ -336,26 +337,78 @@ export class PiIdeServer {
    * 注册存在；this.child 保持 undefined，stop() 不杀非本实例拉起的进程。
    */
   private async attachToRunningServer(graceMs: number): Promise<string | undefined> {
-    const deadline = Date.now() + graceMs;
+    let deadline = Date.now() + graceMs;
     let waitLogged = false;
+    let bootWaitLogged = false;
     do {
       // 候选 = 所有 pi-web 形态占用者（kind !== "unknown"）：embed 握手
       // 本身即身份证明，cmdline 分类只供文案——junction/dev 路径常被误判。
       const cands = (await scanPortOccupiers(attachScanRange().from, attachScanRange().to, this.packageName())).filter((o) => o.kind !== "unknown");
-      if (!cands.length && !waitLogged) return undefined;
-      for (const o of cands) {
+      // 启动窗口记录补盲：兄弟窗口 spawn→bind 之间端口扫描全空，但记录
+      // 带着目标端口——合成伪占用者交给同一个 tryAttach 握手路径。
+      const bound = new Set(cands.map((o) => o.port));
+      const booting = this.spawnBootRecords()
+        .filter((b) => !bound.has(b.port))
+        .map((b) => ({ port: b.port, pid: b.pid, cmdline: "ide-spawn record", kind: "ours" as const }));
+      const all = [...cands, ...booting];
+      if (!all.length && !waitLogged && !bootWaitLogged) return undefined;
+      // 冷启 JIT 下 spawn→就绪可达几十秒：只看到启动记录（端口还没影）
+      // 时把等待窗拉长——这正是重复 spawn 最容易钻进去的空档。
+      if (booting.length && !cands.length && !bootWaitLogged) {
+        bootWaitLogged = true;
+        deadline = Math.max(deadline, Date.now() + 60_000);
+        this.channel.appendLine(
+          `pi-web spawn in progress on :${booting.map((o) => o.port).join("/")} — waiting for it to come up…`,
+        );
+      }
+      for (const o of all) {
         const origin = await this.tryAttach(o);
         if (origin) return origin;
       }
-      if (cands.length && !waitLogged) {
+      if (all.length && !waitLogged) {
         waitLogged = true;
         this.channel.appendLine(
-          `pi-web on :${cands.map((o) => o.port).join("/")} is still starting — waiting to attach…`,
+          `pi-web on :${all.map((o) => o.port).join("/")} is still starting — waiting to attach…`,
         );
       }
       if (Date.now() < deadline) await new Promise((r) => setTimeout(r, 2_000));
     } while (Date.now() < deadline);
     return undefined;
+  }
+
+  /**
+   * 读取本机所有"启动窗口"记录（ide-spawn-<pid>.json，spawn() 在 bind 前写）。
+   * 只收进程存活且 <90s 的记录——崩溃残留/过期记录自动失效。
+   */
+  private spawnBootRecords(): Array<{ pid: number; port: number }> {
+    let names: string[];
+    try {
+      names = fs.readdirSync(ideRunDir());
+    } catch {
+      return [];
+    }
+    const records: Array<{ pid: number; port: number }> = [];
+    for (const name of names) {
+      if (!name.startsWith("ide-spawn-") || !name.endsWith(".json")) continue;
+      try {
+        const rec = JSON.parse(fs.readFileSync(path.join(ideRunDir(), name), "utf8")) as {
+          pid?: number;
+          port?: number;
+          startedAt?: string;
+        };
+        const age = Date.now() - Date.parse(rec.startedAt ?? "");
+        if (!rec.pid || !rec.port || !(age >= 0 && age < 90_000)) continue;
+        try {
+          process.kill(rec.pid, 0); // 存活检查——PID 复用由年龄上限兜底
+        } catch {
+          continue;
+        }
+        records.push({ pid: rec.pid, port: rec.port });
+      } catch {
+        // 读不了的记录当不存在——下轮再扫。
+      }
+    }
+    return records;
   }
 
   /** 对单个占用者试 embed 握手；响应即证明是本扩展系实例 → attach。 */
@@ -462,6 +515,26 @@ export class PiIdeServer {
         windowsHide: true,
       });
       this.child = child;
+      // 启动窗口记录：spawn→bind 之间端口扫描看不到任何占用，兄弟窗口
+      // 会误判"无人在跑"而重复 spawn。写一条 ide-spawn-<pid>.json 让
+      // 它们能 attach-等——就绪/退出/超时即删；残留由读取端按年龄过滤。
+      const bootFile = path.join(ideRunDir(), `ide-spawn-${child.pid}.json`);
+      const dropBootRecord = () => {
+        try {
+          fs.rmSync(bootFile, { force: true });
+        } catch {
+          // 尽力而为——读端有年龄/存活双重过滤兜底。
+        }
+      };
+      try {
+        fs.mkdirSync(ideRunDir(), { recursive: true });
+        fs.writeFileSync(
+          bootFile,
+          JSON.stringify({ pid: child.pid, port, url: `http://127.0.0.1:${port}`, startedAt: new Date().toISOString() }),
+        );
+      } catch {
+        // 记录写失败不阻塞 spawn——只是这层协同失效。
+      }
       let readyLogged = false;
       const onLine = (line: string) => {
         this.channel.appendLine(line);
@@ -470,6 +543,7 @@ export class PiIdeServer {
         const match = line.match(/https?:\/\/(127\.0\.0\.1|localhost):\d+/);
         if (match && !readyLogged) {
           readyLogged = true;
+          dropBootRecord(); // 已监听——端口扫描接管，记录使命完成
           // 归一化成 127.0.0.1，避免 localhost 在严格 CSP 下出问题。
           const origin = match[0].replace("localhost", "127.0.0.1");
           logLifecycle(`spawn ready: origin=${origin}`);
@@ -492,10 +566,12 @@ export class PiIdeServer {
         this.channel.appendLine(chunk.toString());
       });
       child.on("error", (err) => {
+        dropBootRecord();
         this.channel.appendLine(`Pi for IDE process failed to start: ${err.message}`);
         if (this.resolvedOrigin === undefined) resolve(undefined);
       });
       child.on("exit", (code) => {
+        dropBootRecord();
         this.channel.appendLine(`Pi for IDE process exited with code ${code}`);
         // 进程死了（含意外崩溃）：标记并清全局，下次启动拉新进程。
         this.disposed = true;
@@ -503,7 +579,10 @@ export class PiIdeServer {
         if (this.resolvedOrigin === undefined) resolve(undefined);
       });
       setTimeout(() => {
-        if (this.resolvedOrigin === undefined) {
+        // 判据是"URL 打没打出来"（本 promise 的 resolve 条件），不是
+        // resolvedOrigin——那要握手才设，spawn 成功后会误报超时。
+        if (!readyLogged) {
+          dropBootRecord();
           this.channel.appendLine(`Pi for IDE start timed out (${readyTimeoutMs / 1000}s).`);
           resolve(undefined);
         }
