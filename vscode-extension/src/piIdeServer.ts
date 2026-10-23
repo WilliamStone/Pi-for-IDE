@@ -12,6 +12,7 @@ import {
   SpawnTarget,
 } from "./server-resolve";
 import { logLifecycle, outputChannel } from "./server-status";
+import { withServerLock } from "./server-lock";
 import { piConfig } from "./config";
 
 /**
@@ -220,22 +221,42 @@ export class PiIdeServer {
   // 启动
   // ------------------------------------------------------------------
   /** 解析并启动 pi-web 服务器，返回解析后的 origin。 */
-  private async startProcess(): Promise<string | undefined> {
+  private async startProcess(allowInstallPrompt = true): Promise<string | undefined> {
+    // 临界区入锁：跨窗口同时只一个执行者做 attach→resolve→spawn 决策。
     // 先扫 ours 端口再进解析：另一窗口/扩展宿主重启留下的孤儿在跑时直接
     // 接入，省掉整条解析链（尤其 managed 腿缺失时那一次 ~540MB 的安装）。
-    const attached = await this.attachToRunningServer(3_000);
-    if (attached) {
-      await this.verifyEmbedSupport(attached);
-      this.startHeartbeat();
-      return attached;
-    }
-    let target = await resolveServerTarget(this.context, this.channel, this.packageName());
-    logLifecycle(target ? `resolved target: mode=${target.mode}` : "resolved target: all legs failed");
-    // 阶段状态由 resolveServerTarget 各腿自报（managed 腿在 724/742 发
-    // "Starting local server…"；下载腿先发 "Downloading…"再发 Starting）。
-    // 不再这里统一补——双层发同一文案会重复。
-    if (!target) {
-      // 所有解析路径失败（含 npx）→ 引导用户全局安装，成功后重试一次。
+    // 锁内 spawn 会等到监听就绪才返回——后到窗口的 attach 接到的是已就绪
+    // 实例，"端口已绑但 API 未就绪"的竞态窗口随之闭合。
+    const core = await withServerLock(
+      "ensure-started",
+      async (): Promise<{ origin?: string; target?: SpawnTarget; needInstall?: boolean }> => {
+        const attached = await this.attachToRunningServer(3_000);
+        if (attached) return { origin: attached };
+        const target = await resolveServerTarget(this.context, this.channel, this.packageName());
+        logLifecycle(target ? `resolved target: mode=${target.mode}` : "resolved target: all legs failed");
+        if (!target) return { needInstall: true };
+        // spawn 失败也可能就是撞口竞态：对方在 probe→spawn 间隙绑定。三级降级：
+        // ① attach 到赢家（30s 窗口等它就绪）② attach 也不行且赢家不是本系
+        // 实例（standalone/无关服务，永远无法服务我们）才换口重 spawn——
+        // ours 实例在跑时绝不复制第二份：两实例读写同一 ~/.pi 状态目录会互踩。
+        const origin = (await this.spawn(target))
+          ?? (await this.attachToRunningServer(30_000))
+          ?? (await this.spawnUnlessOursOccupier(target));
+        return { origin, target };
+      },
+      undefined,
+      this.channel,
+    );
+
+    // 交互式安装腿在锁外——用户思考时间不占跨窗口互斥。装完重进锁走完整
+    // 流程（此时另一窗口若已就绪，attach 扫描会先命中）。
+    if (core.needInstall) {
+      if (!allowInstallPrompt) {
+        void vscode.window.showErrorMessage(
+          `${this.packageName()} installed but the entry still cannot be resolved; check the output log.`,
+        );
+        return undefined;
+      }
       const pkg = this.packageName();
       this.channel.appendLine("No usable pi-web server found.");
       const pick = await vscode.window.showErrorMessage(
@@ -254,21 +275,10 @@ export class PiIdeServer {
         );
         return undefined;
       }
-      target = await resolveServerTarget(this.context, this.channel, this.packageName());
-      if (!target) {
-        void vscode.window.showErrorMessage(
-          `${pkg} installed but the entry still cannot be resolved; check the output log.`,
-        );
-        return undefined;
-      }
+      return this.startProcess(false);
     }
-    // spawn 失败也可能就是撞口竞态：对方在 probe→spawn 间隙绑定。三级降级：
-    // ① attach 到赢家（30s 窗口等它就绪）② attach 也不行且赢家不是本系
-    // 实例（standalone/无关服务，永远无法服务我们）才换口重 spawn——
-    // ours 实例在跑时绝不复制第二份：两实例读写同一 ~/.pi 状态目录会互踩。
-    const origin = (await this.spawn(target))
-      ?? (await this.attachToRunningServer(30_000))
-      ?? (await this.spawnUnlessOursOccupier(target));
+
+    const { origin, target } = core;
     if (origin) {
       await this.verifyEmbedSupport(origin);
       this.startHeartbeat();
@@ -341,16 +351,29 @@ export class PiIdeServer {
   /** 对单个占用者试 embed 握手；响应即证明是本扩展系实例 → attach。 */
   private async tryAttach(o: PortOccupier): Promise<string | undefined> {
     const origin = `http://127.0.0.1:${o.port}`;
+    let identity = "";
     try {
       const res = await fetch(`${origin}/api/embed`, { signal: AbortSignal.timeout(4_000) });
       if (!res.ok) return undefined;
+      // 握手体带出"这是哪一份"：同版本不同 build/不同安装根在 version
+      // 字段上不可区分——attach 日志必须能回答它。
+      const body = (await res.json()) as {
+        embed?: { version?: string; builtAt?: string; gitSha?: string; installRoot?: string };
+      };
+      const e = body.embed ?? {};
+      identity = [
+        e.version ? `v${e.version}` : "",
+        e.builtAt ? `built ${e.builtAt}` : "",
+        e.gitSha ? `(${e.gitSha})` : "",
+        e.installRoot ?? "",
+      ].filter(Boolean).join(" ");
     } catch {
       return undefined;
     }
     this.channel.appendLine(
-      `attached to running Pi Web server on :${o.port} (PID ${o.pid}) — skipping duplicate spawn.`,
+      `attached to running Pi Web server on :${o.port} (PID ${o.pid})${identity ? ` — ${identity}` : ""} — skipping duplicate spawn.`,
     );
-    logLifecycle(`attached: origin=${origin}, pid=${o.pid}, kind=${o.kind}`);
+    logLifecycle(`attached: origin=${origin}, pid=${o.pid}, kind=${o.kind}, ${identity}`);
     // attach 只扫 303x——用户显式配置了别的起始端口时，接上的实例
     // 可能不是他们以为的那份（别的窗口/手动起的）。给个可见提示，
     // 让"配了端口却连上旧实例"不再静默。

@@ -90,7 +90,27 @@ owners. Nobody kills anyone — the server dies of silence.
   `upstream`, which once caused sibling windows to spawn duplicates on
   fresh ports. Attach candidates are therefore every pi-web-shaped
   occupier (`kind !== "unknown"`); the cmdline kind survives only for
-  warning text and cleanup decisions.
+  warning text and cleanup decisions. The handshake also reports
+  `builtAt`/`gitSha`/`installRoot` — same-version different-build copies
+  are indistinguishable by `version` alone.
+- **One operator (`src/server-lock.ts`):** "check version / resolve /
+  spawn / install" is a cross-window critical section guarded by an
+  `mkdir` file lock at `<agentDir>/pi-web-run/ide-server.lock` (same
+  shared dir as the server's own run-records; honors
+  `PI_CODING_AGENT_DIR`). Serialize, not lock-step: the holder's spawn
+  waits for the port to listen before releasing, so a waiting window's
+  post-lock attach lands on a ready server — this also closes the
+  "bound but API not yet compiled" startup window that pure HTTP
+  probing cannot see. Lock acquisition is degraded-safe: timeout or
+  unwritable dir falls back to unlocked execution (pre-lock behavior);
+  stale locks are swept by holder-PID liveness plus an age cap.
+  `planUpgrade` additionally shares its result via a 60s plan cache in
+  the same dir — expensive read-only work (registry fetch + full-tgz
+  gunzip) runs once across windows. Interactive prompts stay outside
+  the lock (user think-time must not hold a cross-window mutex), and
+  the managed-runtime install keeps its own per-runtime-root lock
+  (`versions/../.installing`) because installs of *different* roots do
+  not contend.
 
 ### Rejected: client registry
 

@@ -15,7 +15,7 @@ export async function reportStartupFailure(
   channel: vscode.OutputChannel,
   context: vscode.ExtensionContext,
   pkg: string,
-  target: SpawnTarget,
+  target: SpawnTarget | undefined,
 ): Promise<void> {
   channel.appendLine("—— startup failure diagnostics ——");
   const tryCmd = (cmd: string): Promise<string> =>
@@ -37,7 +37,7 @@ export async function reportStartupFailure(
       `global package=${(await resolveGlobalPackageBin(pkg)) ?? "not installed"}; ` +
       `shim=${(await resolvePathShimBin(pkg)) ?? "none"}; ` +
       `managed runtime=${managedPackageBin(context, pkg) ?? "missing"}; ` +
-      `mode=${target.mode}`,
+      `mode=${target?.mode ?? "?"}`,
   );
 
   // 端口占用：3030-3039 谁在监听（含 PID/命令行/身份分类）。

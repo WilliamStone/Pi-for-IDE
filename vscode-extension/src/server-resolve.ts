@@ -4,7 +4,8 @@
 // 每条腿校验 piIde.level；解析不出则由 managed 腿现场安装。
 
 import * as cp from "child_process";
-import { existsSync, readFileSync } from "fs";
+import * as crypto from "crypto";
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
 import {
@@ -21,8 +22,9 @@ import {
   queryRegistryCompat,
 } from "./managedRuntime";
 import { readTgzIdentity, resolveLocalPackagePath, type BuildIdentity } from "./tgz";
-import { emitServerStatus } from "./server-status";
+import { emitServerStatus, outputChannel } from "./server-status";
 import { formatBuildStamp, singleFlight } from "./version";
+import { ideRunDir, withServerLock } from "./server-lock";
 import { piConfig } from "./config";
 import { localUpgradeSig } from "./upgradeNotice";
 
@@ -180,7 +182,8 @@ export async function installPiWebPackage(
   const cmd = `${pm} i -g "${spec.replace(/"/g, "")}"`;
   channel.appendLine(`run: ${cmd}`);
   channel.show(true);
-  return new Promise((resolve) => {
+  // 全局安装也是临界区资源：两个窗口并发 npm i -g 同一包会互踩文件。
+  return withServerLock("global-install", () => new Promise<boolean>((resolve) => {
     const child = cp.spawn(pm, ["i", "-g", spec], { shell: true, windowsHide: true });
     child.stdout?.on("data", (d: Buffer) => channel.append(d.toString()));
     child.stderr?.on("data", (d: Buffer) => channel.append(d.toString()));
@@ -192,7 +195,7 @@ export async function installPiWebPackage(
       channel.appendLine(`install process exited with code ${code}`);
       resolve(code === 0);
     });
-  });
+  }), undefined, channel);
 }
 
 /**
@@ -305,9 +308,77 @@ export type RemoteCheck = NonNullable<Awaited<ReturnType<typeof checkPiWebUpdate
 /** "2026-10-20T02:46:13.857Z" → " built 2026-10-20 02:46"（空则空串）——升级报告/通知/版本列表共用。 */
 const fmtBuild = formatBuildStamp;
 
-// 并发去重：命令入口与 +8s 后台检查常同时起跑——registry fetch 10s
-// 超时 + 全量 gunzip tgz 读身份都不便宜，同一份计划没必要跑两遍。
-export const planUpgrade: typeof planUpgradeUncached = singleFlight(planUpgradeUncached);
+// 并发去重两层：singleFlight 挡同进程并发；withServerLock + last-check
+// 计划缓存挡跨窗口重复——"检查版本"是只读但昂贵（registry fetch 10s
+// 超时 + 全量 gunzip tgz 读身份），一窗算完 60s 内他窗直接复用。
+const PLAN_CACHE_TTL_MS = 60_000;
+
+function planCacheKey(
+  context: vscode.ExtensionContext,
+  pkg: string,
+  installSource: string,
+  localTgz: string,
+): string {
+  let tgzId = "absent";
+  try {
+    const st = statSync(localTgz);
+    tgzId = st.isDirectory() ? `d:${st.mtimeMs}` : `f:${st.mtimeMs}:${st.size}`;
+  } catch {
+    // 路径缺失或不可读都按 absent——localTgz 可能是目录（目录 mtime 随
+    // 新 tgz 落盘变化），缓存键只需区分"包内容换没换"。
+  }
+  return crypto
+    .createHash("sha1")
+    .update([pkg, installSource, localTgz, tgzId, context.globalStorageUri.fsPath].join("|"))
+    .digest("hex")
+    .slice(0, 12);
+}
+
+function planCacheFile(key: string): string {
+  return path.join(ideRunDir(), `upgrade-plan-${key}.json`);
+}
+
+function readPlanCache(key: string): UpgradePlan | undefined {
+  try {
+    const raw = JSON.parse(readFileSync(planCacheFile(key), "utf8")) as { at: number; plan: UpgradePlan };
+    if (Date.now() - raw.at < PLAN_CACHE_TTL_MS) {
+      return { ...raw.plan, report: ["(reused a check another window just finished)", ...raw.plan.report] };
+    }
+  } catch {
+    // 缓存缺失/损坏 = miss，静默。
+  }
+  return undefined;
+}
+
+function writePlanCache(key: string, plan: UpgradePlan): void {
+  try {
+    const file = planCacheFile(key);
+    mkdirSync(path.dirname(file), { recursive: true });
+    const tmp = `${file}.${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify({ at: Date.now(), plan }));
+    renameSync(tmp, file);
+  } catch {
+    // 缓存写失败无碍——下次多跑一遍而已。
+  }
+}
+
+export const planUpgrade: typeof planUpgradeUncached = singleFlight(
+  (context, pkg, installSource, localTgz) =>
+    withServerLock(
+      "upgrade-check",
+      async () => {
+        const key = planCacheKey(context, pkg, installSource, localTgz);
+        return readPlanCache(key)
+          ?? (async () => {
+            const plan = await planUpgradeUncached(context, pkg, installSource, localTgz);
+            writePlanCache(key, plan);
+            return plan;
+          })();
+      },
+      undefined,
+      outputChannel(),
+    ),
+);
 
 async function planUpgradeUncached(
   context: vscode.ExtensionContext,
