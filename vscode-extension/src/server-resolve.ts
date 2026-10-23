@@ -413,6 +413,33 @@ async function planUpgradeUncached(
     `current: ${current ? `${current.version}${fmtBuild(current.builtAt)}` : "none"}`,
   ];
 
+  // 结论行：local/registry/current 三渠道同池比"谁最新"。版本号决胜，
+  // 同版再比构建戳——registry 只有版本号没有戳，同版平局天然输给有戳的
+  // （与 pickInstallFlow 的 tie→local 同口径）。
+  const pool: { src: string; version: string; builtAt?: string }[] = [];
+  if (local?.candidate && !local.reason) {
+    pool.push({ src: "local", version: local.candidate.version, builtAt: local.candidate.builtAt });
+  }
+  if (remote?.best) pool.push({ src: "registry", version: remote.best });
+  if (current) pool.push({ src: "current", version: current.version, builtAt: current.builtAt });
+  const newest = [...pool].sort(
+    (a, b) => compareVersions(b.version, a.version) || (b.builtAt ?? "").localeCompare(a.builtAt ?? ""),
+  )[0];
+  if (!newest) {
+    report.push("verdict: no comparable candidates");
+  } else if (newest.src === "current") {
+    report.push(`verdict: current is the newest known copy`);
+  } else {
+    const ahead = current
+      ? compareVersions(newest.version, current.version) > 0
+        || (compareVersions(newest.version, current.version) === 0
+          && (newest.builtAt ?? "") > (current.builtAt ?? ""))
+      : true;
+    report.push(
+      `verdict: newest is ${newest.src} ${newest.version}${fmtBuild(newest.builtAt)}${ahead ? " — current is behind" : "; current already matches"}`,
+    );
+  }
+
   let action: UpgradePlan["action"];
   if (flow === "local") {
     if (!local?.candidate) {
