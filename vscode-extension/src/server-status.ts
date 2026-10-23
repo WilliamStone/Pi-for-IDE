@@ -12,7 +12,13 @@ export function outputChannel(): vscode.OutputChannel {
   return sharedChannel;
 }
 
+/** 同一逻辑事件常被两个并发调用方各打一行（如 ensureServer 踢启动 +
+ *  refresh 内 getServer 同毫秒各写 "reusing"）——连续相同行只留一条。 */
+let lastLogged = "";
+
 export function logLifecycle(msg: string): void {
+  if (msg === lastLogged) return;
+  lastLogged = msg;
   const d = new Date();
   const t =
     `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:` +

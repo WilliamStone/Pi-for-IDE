@@ -28,6 +28,16 @@ import { piConfig } from "./config";
  *     <-- window 'message' listener -- pi-web page (lib/embed/bridge.ts)
  */
 export class PiWebWebviewPanel extends vscode.Disposable {
+  private static nextSeq = 1;
+  private readonly seq = PiWebWebviewPanel.nextSeq++;
+
+  /** 日志身份标签：多面板并存时 refresh/webview 行分不清是谁——
+   *  会话面板按 sessionId 缩写，其余按 view 名 + 实例序号。 */
+  private label(): string {
+    if (this.sessionId) return `s:${this.sessionId.slice(0, 8)}`;
+    return `${this.panelView ?? "main"}#${this.seq}`;
+  }
+
   private panel: vscode.WebviewPanel | undefined;
   private currentCwd: string | undefined;
   /** 宿主钉住的会话——原生侧栏点选后 URL 带 ?session= 深链。 */
@@ -129,7 +139,7 @@ export class PiWebWebviewPanel extends vscode.Disposable {
    * cwd changed or the panel was disposed.
    */
   async reveal(cwd: string, viewColumn: vscode.ViewColumn, sessionId?: string): Promise<void> {
-    logLifecycle(`reveal: cwd=${cwd || "(none)"} session=${sessionId ?? "(latest)"}`);
+    logLifecycle(`reveal[${this.label()}]: cwd=${cwd || "(none)"} session=${sessionId ?? "(latest)"}`);
     const cwdChanged = this.currentCwd !== cwd || this.sessionId !== sessionId;
     this.currentCwd = cwd;
     this.sessionId = sessionId;
@@ -161,11 +171,11 @@ export class PiWebWebviewPanel extends vscode.Disposable {
         "icon-128.png",
       );
 
-      logLifecycle("panel created (createWebviewPanel)");
+      logLifecycle(`panel created[${this.label()}] (createWebviewPanel)`);
       // 单文档外壳只赋一次——后续状态切换全走 postMessage，不再整页 reload。
       this.shellReady = false;
       this.panel.webview.html = this.renderShell(currentServerStatus());
-      logLifecycle("shell rendered (renderShell)");
+      logLifecycle(`shell rendered[${this.label()}] (renderShell)`);
       // webview 冷启动被渲染进程争抢/杀软拖到分钟级时，面板全程空白像
       // 卡死——6s 还没上屏就挂个进度浮窗说明在加载（shell 报到后自动关）。
       const panel = this.panel;
@@ -197,7 +207,7 @@ export class PiWebWebviewPanel extends vscode.Disposable {
       this.panel.webview.onDidReceiveMessage(async (message) => {
         if (!message) return;
         if (message.source === "piIde.log") {
-          logLifecycle(`webview: ${String(message.text ?? "")}`);
+          logLifecycle(`webview[${this.label()}]: ${String(message.text ?? "")}`);
           if (message.text === "shell painted") this.markShellReady();
           return;
         }
@@ -306,15 +316,15 @@ export class PiWebWebviewPanel extends vscode.Disposable {
   private async refresh(): Promise<void> {
     if (!this.panel) return;
 
-    logLifecycle("refresh: awaiting server promise…");
+    logLifecycle(`refresh[${this.label()}]: awaiting server promise…`);
     let server = await this.getServer();
     if (!server) {
       // Try to start it now (covers the case where the user opened the panel
       // before piIde.start finished).
-      logLifecycle("refresh: no instance, triggering ensureServer");
+      logLifecycle(`refresh[${this.label()}]: no instance, triggering ensureServer`);
       server = await this.ensureServer();
     }
-    logLifecycle(`refresh: server ready origin=${server?.resolvedOrigin ?? "undefined"}`);
+    logLifecycle(`refresh[${this.label()}]: server ready origin=${server?.resolvedOrigin ?? "undefined"}`);
 
     const title = this.titleOverride ?? (this.currentCwd ? `Pi for IDE — ${shortPath(this.currentCwd)}` : "Pi for IDE");
     this.panel.title = title;
@@ -356,7 +366,7 @@ export class PiWebWebviewPanel extends vscode.Disposable {
       source: "host",
       payload: { kind: "serverReady", url: urlStr, probe: server.origin },
     });
-    logLifecycle("serverReady posted (shell-side probe)");
+    logLifecycle(`serverReady posted[${this.label()}] (shell-side probe)`);
   }
 
   /**
