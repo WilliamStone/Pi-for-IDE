@@ -11,6 +11,8 @@ interface EmbedLifecycleState {
   timer: ReturnType<typeof setInterval> | null;
   shutdownHooks: Set<() => void>;
   shuttingDown: boolean;
+  /** 有心跳的宿主客户端：clientId → 最近心跳时刻。匿名（无 id）归入 "" 桶。 */
+  clients: Map<string, number>;
 }
 
 const STATE_KEY = Symbol.for("pi-web.embedLifecycle");
@@ -25,6 +27,7 @@ function lifecycleState(): EmbedLifecycleState {
     timer: null,
     shutdownHooks: new Set(),
     shuttingDown: false,
+    clients: new Map(),
   });
 }
 
@@ -42,8 +45,42 @@ const TICK_MS = 15_000;
 // 计时，给扩展留一个完整窗口重新心跳（睡眠宽恕，见协议文档）。
 const DRIFT_MS = TICK_MS * 2.5;
 
-export function recordEmbedHeartbeat(): void {
-  lifecycleState().lastHeartbeat = Date.now();
+export function recordEmbedHeartbeat(clientId = ""): void {
+  const s = lifecycleState();
+  s.lastHeartbeat = Date.now();
+  s.clients.set(clientId, s.lastHeartbeat);
+}
+
+/** 心跳活跃窗口：超 3×15s 不报到的 id 自动过期（窗口死了不拦关停）。 */
+const CLIENT_STALE_MS = 45_000;
+
+export function activeEmbedClients(): string[] {
+  const s = lifecycleState();
+  const now = Date.now();
+  const out: string[] = [];
+  for (const [id, at] of s.clients) {
+    if (now - at <= CLIENT_STALE_MS) out.push(id);
+    else s.clients.delete(id); // 顺手清陈旧条目
+  }
+  return out;
+}
+
+/**
+ * shutdown 许可判据：存在"可证明的另一个使用方"才拒绝——旧版宿主
+ * （≠判据 + attach 也 stop 的谋杀链）对一个共享服务器发 POST 时，
+ * 若另一（新）窗的心跳还在，拒绝让它谋杀失败。
+ * - 具名请求 {client:X}：有任何 *别的* 活跃 id（含匿名桶）→ 拒；
+ * - 匿名请求（旧版无 client 字段）：有任何*具名* id → 拒；只有
+ *   匿名桶 → 放行（老单窗显式 Stop 语义保留）。老+老混杀不可区分
+ *   （同一 "" 桶）——属旧代码自身一致性，不归服务端兜底。
+ */
+export function embedShutdownAllowed(clientId: string | undefined): {
+  allowed: boolean;
+  others: number;
+} {
+  const requester = clientId ?? "";
+  const others = activeEmbedClients().filter((id) => id !== requester).length;
+  return { allowed: others === 0, others };
 }
 
 /** 任何常规 API 轮询（如 agent/running）也算客户端在场——覆盖只挂着

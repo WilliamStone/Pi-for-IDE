@@ -42,6 +42,10 @@ import { piConfig } from "./config";
 /** 默认起始端口：3030，被占用时自动 +1。 */
 export const DEFAULT_PORT = 3030;
 
+/** 本扩展宿主实例 id：心跳/shutdown 用它向服务端证明"谁在请求"——
+ *  服务端据此拒绝"别窗还在用"的谋杀式关停（旧版宿主无 id 归匿名桶）。 */
+const HOST_ID = crypto.randomUUID();
+
 // 默认 npm 包名 DEFAULT_PACKAGE 与端口占位者分类在 ./occupier（纯模块）。
 // 包名可用 `"Pi for IDE.package"` 配置覆盖。
 // 端口扫描/孤儿清扫在 ./port-scan；解析链/包操作在 ./server-resolve；
@@ -117,13 +121,34 @@ export class PiIdeServer {
     if (!child || child.exitCode !== null || child.pid === undefined) {
       // 接入来的服务器不持有进程句柄；声明 lifecycle.shutdown 时让服务端
       // 自行优雅退出（共享服务器的正确关法），老服务器则无法停。
+      // 服务端收权：有别的心跳客户端（含旧版匿名宿主）→ 409，要 force 重试。
       if (this.resolvedOrigin && this.embedCapabilities["lifecycle.shutdown"]) {
         try {
-          await fetch(`${this.resolvedOrigin}/api/embed/shutdown`, {
-            method: "POST",
-            signal: AbortSignal.timeout(5_000),
-          });
-          this.channel.appendLine("asked the shared server to shut down (lifecycle.shutdown).");
+          const post = (force: boolean) =>
+            fetch(`${this.resolvedOrigin}/api/embed/shutdown`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ client: HOST_ID, force }),
+              signal: AbortSignal.timeout(5_000),
+            });
+          let res = await post(false);
+          if (res.status === 409) {
+            const { clients } = (await res.json().catch(() => ({}))) as { clients?: number };
+            const n = clients && clients > 0 ? clients : 1;
+            const pick = await vscode.window.showWarningMessage(
+              `The shared pi-web server is also used by ${n} other window(s). Stop it anyway?`,
+              { modal: true },
+              "Stop Anyway",
+            );
+            if (pick !== "Stop Anyway") {
+              this.channel.appendLine("shared-server stop canceled — still in use by other windows.");
+              return;
+            }
+            res = await post(true);
+          }
+          if (res.ok) {
+            this.channel.appendLine("asked the shared server to shut down (lifecycle.shutdown).");
+          }
         } catch {
           // 已经不在了。
         }
@@ -172,6 +197,8 @@ export class PiIdeServer {
       if (!origin) return;
       fetch(`${origin}/api/embed/heartbeat`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ client: HOST_ID }),
         signal: AbortSignal.timeout(5_000),
       })
         .then(() => {

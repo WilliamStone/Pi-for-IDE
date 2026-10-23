@@ -80,6 +80,20 @@ owners. Nobody kills anyone — the server dies of silence.
   cheaper than risking a kill of a server another window is using.
   `Pi for IDE: Stop Server` still force-kills the spawned child, and asks an
   attached (not-owned) server to exit via `lifecycle.shutdown`.
+- **Server-side shutdown consent:** `POST /api/embed/shutdown` is not an
+  unconditional kill. Heartbeats carry a per-extension-host `client` id
+  (old clients without the field land in the anonymous `""` bucket). The
+  endpoint refuses with `409 {error:"in-use", clients:n}` whenever a
+  **provably different** live client exists — an identified request is
+  refused if any *other* id is beating, an anonymous request is refused
+  if any *identified* client is beating. `force:true` overrides
+  (explicit `Stop Server` re-prompts then forces). Why: users can't be
+  made to reload every window, so a stale-extension window keeps the old
+  any-difference invalidation + attached-`stop()` murder chain; the
+  server is the only enforcement point that works under version skew.
+  Old+old pairs still merge into the `""` bucket (indistinguishable by
+  design — that's self-consistent old behavior); the protection that
+  matters is old-window → new-window murder.
 - **Attach, not adopt:** `ensureStarted` prefers a healthy ours server on
   ports 303x (handshake OK) over spawning a duplicate — one server serves
   many windows/workspaces (sessions keyed by cwd; pages are views of the
