@@ -2,7 +2,7 @@
   "name": "pi-for-ide",
   "displayName": "Pi for IDE",
   "description": "%description%",
-  "version": "0.2.1",
+  "version": "0.2.1+dev",
   "publisher": "WilliamStone",
   "license": "MIT",
   "icon": "resources/icons/icon-128.png",
