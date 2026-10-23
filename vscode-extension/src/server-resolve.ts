@@ -12,6 +12,7 @@ import {
   binLevel,
   binVersion,
   compareVersions,
+  installManagedLocalPackage,
   installManagedPackage,
   installedBuildStamp,
   isNewerVersion,
@@ -584,19 +585,63 @@ export async function resolveServerTarget(
     return { mode: "bin", path: best.bin };
   }
 
-  // 无兼容已装副本→现场安装最高兼容版本（managed 腿兜底）。
-  emitServerStatus("Downloading and installing the server component (~540MB on disk, slower on first run)…");
-  channel.appendLine(`managed runtime missing; running npm --prefix install…`);
-  const installed = await vscode.window.withProgress(
+  // 无兼容已装副本→现场安装（managed 腿兜底）。尊重 installSource：
+  // local 只装本地包（不碰 registry——e2e 与离线环境靠这条）；auto 有
+  // 本地候选优先本地（比 registry 下载更快、dev 下通常更新）；
+  // prefer-remote 先 registry，失败再本地。
+  const installSource = (config.get<string>("installSource") ?? "auto").trim();
+  const localTgzPath = config.get<string>("localPackage")?.trim();
+  const local = localTgzPath && installSource !== "registry"
+    ? checkLocalPackageUpdate(localTgzPath, context, pkg)
+    : undefined;
+  const localUsable = !!local?.candidate && !local.reason;
+  const wantLocal =
+    installSource === "local" ||
+    (installSource === "auto" && localUsable);
+  const runInstall = async (
+    useLocal: boolean,
+    progress: vscode.Progress<{ message: string }>,
+  ): Promise<boolean> =>
+    useLocal
+      ? installManagedLocalPackage(channel, context, localTgzPath!, (msg) =>
+          progress.report({ message: msg }),
+        )
+      : installManagedPackage(channel, context, pkg, undefined, (msg) =>
+          progress.report({ message: msg }),
+        );
+  const statusText = wantLocal
+    ? "Installing the server component from the local package…"
+    : "Downloading and installing the server component (~540MB on disk, slower on first run)…";
+  emitServerStatus(statusText);
+  if (installSource === "local" && !localUsable) {
+    channel.appendLine(
+      `installSource=local but no usable package at ${localTgzPath ?? "(unset)"}: ${local?.reason ?? "no candidate"} — refusing to fall back to the registry.`,
+    );
+    return undefined;
+  }
+  channel.appendLine(
+    wantLocal
+      ? `managed runtime missing; installing from local package…`
+      : `managed runtime missing; running npm --prefix install…`,
+  );
+  let installed = await vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
-      title: "First run: downloading the Pi for IDE server runtime…",
+      title: "First run: preparing the Pi for IDE server runtime…",
     },
-    (progress) =>
-      installManagedPackage(channel, context, pkg, undefined, (msg) =>
-        progress.report({ message: msg }),
-      ),
+    (progress) => runInstall(wantLocal, progress),
   );
+  // prefer-remote：registry 失败后本地包仍可用则兜一手。
+  if (!installed && !wantLocal && installSource !== "registry" && localUsable) {
+    channel.appendLine("registry install failed; falling back to the local package…");
+    installed = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: "First run: installing the Pi for IDE server runtime…",
+      },
+      (progress) => runInstall(true, progress),
+    );
+  }
   const managedBinAfter = managedPackageBin(context, pkg, (l) => channel.appendLine(l));
   if (installed && managedBinAfter) {
     channel.appendLine(`pi-web entry (managed runtime): ${managedBinAfter}`);
