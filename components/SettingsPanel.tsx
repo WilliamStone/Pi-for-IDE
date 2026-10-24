@@ -576,16 +576,16 @@ export function SettingsPanel({
   return (
     <div
       ref={dialogRef}
-      role="dialog"
-      aria-modal="true"
+      role={pinned ? undefined : "dialog"}
+      aria-modal={pinned ? undefined : true}
       aria-label={t("settings.title")}
       tabIndex={-1}
       onClick={(event) => { if (!pinned && event.target === event.currentTarget) onClose(); }}
-      className="settings-dialog-backdrop"
+      className={`settings-dialog-backdrop${pinned ? " settings-dialog-backdrop--bare" : ""}`}
     >
-      <div className="settings-dialog-surface">
+      <div className={`settings-dialog-surface${pinned ? " settings-dialog-surface--bare" : ""}`}>
         <div className="settings-dialog-header">
-          <strong className="settings-dialog-title">{t("settings.title")}</strong>
+          {!pinned && <strong className="settings-dialog-title">{t("settings.title")}</strong>}
           <select
             aria-label={t("settings.title")}
             value={section}

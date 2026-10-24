@@ -2254,8 +2254,9 @@ export function AppShell() {
       {/* Center: chat */}
       <div inert={rightPanelFullWidth} style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
         {/* Top bar — chat/settings 视图保留会话级入口（历史/标题/系统/工具/
-            token/浏览器按钮），隐藏侧栏开关与主文件开关等已被宿主取代的项。 */}
-        <div ref={topBarRef} style={{ flexShrink: 0, background: "var(--bg-panel)" }}>
+            token/浏览器按钮），隐藏侧栏开关与主文件开关等已被宿主取代的项。
+            ?view=settings 下整条隐藏：设置面铺满视口，会话动作在此无意义。 */}
+        <div ref={topBarRef} style={{ flexShrink: 0, background: "var(--bg-panel)", ...(settingsView ? { display: "none" } : {}) }}>
         <div style={{ display: "flex", alignItems: "center", position: "relative", borderBottom: "1px solid var(--border)", height: "calc(36px + env(safe-area-inset-top))", paddingTop: "env(safe-area-inset-top)" }}>
           {!chatOnlyView && (
           <button

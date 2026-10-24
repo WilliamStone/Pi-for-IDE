@@ -2616,3 +2616,31 @@ select.mcp-add-input {
     }
   }
 }
+
+/* Embed (?view=settings) — the settings surface IS the page, not a dialog:
+   opaque backdrop filling the viewport, no border/radius/shadow/max-width,
+   and no header chrome beyond the section tabs (title/close are unpinned-only). */
+.settings-dialog-backdrop--bare {
+  display: block;
+  background: var(--bg);
+}
+
+.settings-dialog-surface--bare {
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* Title hidden in bare mode — the tabs carry the header alone. */
+.settings-dialog-backdrop--bare .settings-section-tabs {
+  margin-left: 0;
+}
+
+/* No close button to reserve space for in bare mode. */
+.settings-dialog-backdrop--bare .settings-dialog-header {
+  padding-right: 18px;
+}
