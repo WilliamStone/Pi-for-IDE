@@ -8,6 +8,7 @@ import { Bridge } from "./bridge";
 import { piConfig } from "./config";
 import { readInstanceMarker } from "./instance-coordination";
 import { managedRuntimeRoot } from "./managedRuntime";
+import { currentServerStatus } from "./server-status";
 import { PiIdeServer } from "./piIdeServer";
 import { SessionPanels } from "./session-panels";
 import { registerSessionCommands, SessionsTreeProvider } from "./sessions-tree";
@@ -52,6 +53,7 @@ export function registerSessionsFeature(
     context.workspaceState,
     () => (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath),
     () => PiIdeServer.starting(),
+    () => currentServerStatus(),
   );
   const sessionsView = vscode.window.createTreeView("piIde.sessions", {
     treeDataProvider: sessionsProvider,

@@ -136,3 +136,33 @@ test("服务下线 → 清空会话且 fire（不滞旧）", async (t) => {
   assert.equal(p.sessionById("s1"), undefined, "下线后清单清空");
   assert.equal(fired, true, "下线转换也要通知视图");
 });
+
+test("启动阶段文案 → hint 带 stage，stage 切换也 fire", async () => {
+  let stage = "Checking for a running server…";
+  const p = new SessionsTreeProvider(
+    async () => undefined,
+    memento(),
+    () => [],
+    () => true,
+    () => stage,
+  );
+  const label = () => String(p.getChildren()[0]?.label);
+  assert.match(label(), /is starting.*Checking for a running server/);
+
+  // 先拉一轮消化初次 off→starting 翻转（它自己就计一次 fire），
+  // 落位 lastStarting/lastStartStage 后才能隔离 stage 变更的贡献。
+  p.setVisible(true);
+  await new Promise((r) => setTimeout(r, 30));
+
+  // stage 变化（仍在启动中）也要通知视图——必须走 setVisible→tick 的
+  // gated 路径才能隔离出来（reload() 自身无条件 fire，测不出）。
+  let fires = 0;
+  p.onDidChangeTreeData(() => fires++);
+  stage = "Waiting for the server API…";
+  p.setVisible(false);
+  p.setVisible(true); // 立刻再踢一轮 tick
+  await new Promise((r) => setTimeout(r, 30));
+  p.setVisible(false);
+  assert.equal(fires > 0, true, "stage 变化必须通知视图");
+  assert.match(label(), /Waiting for the server API/);
+});

@@ -12,7 +12,7 @@ import {
   resolveServerTarget,
 } from "./server-resolve";
 import type { SpawnTarget } from "./server-resolve";
-import { logLifecycle, outputChannel } from "./server-status";
+import { emitServerStatus, logLifecycle, outputChannel } from "./server-status";
 import {
   listSpawnBootRecords,
   recordSpawnBoot,
@@ -254,6 +254,7 @@ export class PiIdeServer {
     const core = await withServerLock(
       "ensure-started",
       async (): Promise<{ origin?: string; target?: SpawnTarget; needInstall?: boolean }> => {
+        emitServerStatus("Checking for a running server…");
         const attached = await this.attachToRunningServer(3_000);
         if (attached) return { origin: attached };
         const target = await resolveServerTarget(this.context, this.channel, this.packageName());
@@ -430,6 +431,7 @@ export class PiIdeServer {
 
   /** 探测空闲端口后按目标模式启动服务器，等待 stdout 打印的 URL。 */
   private async spawn(target: SpawnTarget): Promise<string | undefined> {
+    emitServerStatus("Starting the server process…");
     // 读取用户配置的起始端口（默认 3030），探测第一个空闲端口。
     const config = piConfig();
     const preferred =
@@ -574,6 +576,11 @@ export class PiIdeServer {
     let lastError = "no response";
     let gotHttpResponse = false;
     let saw5xx = false;
+    emitServerStatus("Waiting for the server API…");
+    this.channel.appendLine(
+      "server is bound — waiting for /api/embed to answer (routes lazy-load on first hit)…",
+    );
+    let progressLogged = Date.now();
     while (Date.now() < deadline) {
       try {
         const res = await fetch(`${origin}/api/embed`, { signal: AbortSignal.timeout(5000) });
@@ -600,6 +607,13 @@ export class PiIdeServer {
         lastError = `HTTP ${res.status}`;
       } catch (e) {
         lastError = String(e);
+      }
+      // 静默等待是"卡死"观感的主要来源——每 ~10s 报一次还在等。
+      if (Date.now() - progressLogged >= 10_000) {
+        progressLogged = Date.now();
+        this.channel.appendLine(
+          `still waiting for /api/embed (${Math.round((Date.now() - (deadline - 90_000)) / 1000)}s elapsed, ${lastError})…`,
+        );
       }
       await new Promise((r) => setTimeout(r, 2000));
     }

@@ -65,6 +65,7 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
   private visible = false;
   private lastViewSig = "";
   private lastStarting = false;
+  private lastStartStage: string | undefined;
 
   /** 已解析的服务 origin；未启动 → undefined（绝不 spawn）。 */
   private readonly getBaseUrl: () => Promise<string | undefined>;
@@ -72,6 +73,8 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
   private readonly workspaceRoots: () => string[];
   /** 服务器解析/启动在途（PiIdeServer.starting）——hint 文案据此区分。 */
   private readonly isStarting?: () => boolean;
+  /** 启动链当前阶段文案（currentServerStatus）——starting 时拼进 hint。 */
+  private readonly startingStage?: () => string | undefined;
 
   // strip-types 不支持构造器参数属性——显式字段（可直测）。
   constructor(
@@ -79,12 +82,14 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
     memento: vscode.Memento,
     workspaceRoots: () => string[],
     isStarting?: () => boolean,
+    startingStage?: () => string | undefined,
   ) {
     super(() => this.dispose());
     this.getBaseUrl = getBaseUrl;
     this.memento = memento;
     this.workspaceRoots = workspaceRoots;
     this.isStarting = isStarting;
+    this.startingStage = startingStage;
     this.workspaceOnly = memento.get("piIde.sessions.workspaceOnly", false);
     this.mode = memento.get<SessionsViewMode>("piIde.sessions.viewMode", "byProject");
   }
@@ -158,8 +163,11 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
         // 离线态下 hint 文案由 isStarting 驱动——off↔starting 翻转也要重绘，
         // 否则 "starting" 提示永远出不来。
         const starting = this.isStarting?.() ?? false;
-        const hintFlipped = starting !== this.lastStarting;
+        const stage = starting ? this.startingStage?.() : undefined;
+        const hintFlipped =
+          starting !== this.lastStarting || stage !== this.lastStartStage;
         this.lastStarting = starting;
+        this.lastStartStage = stage;
         if (this.sessions.length || this.listVersion !== -1) {
           this.sessions = [];
           this.listVersion = -1;
@@ -251,7 +259,11 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
     if (element instanceof ProjectItem) return element.sessionItems;
     if (element) return [];
     if (this.listVersion === -1 && this.sessions.length === 0) {
-      return [new HintItem(this.isStarting?.() ? "Server is starting…" : "Server not running or is starting…")];
+      if (this.isStarting?.()) {
+        const stage = this.startingStage?.();
+        return [new HintItem(`Server is starting…${stage ? ` — ${stage}` : ""}`)];
+      }
+      return [new HintItem("Server not running or is starting…")];
     }
     const list = this.filteredSessions();
     if (!list.length) {
