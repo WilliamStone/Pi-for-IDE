@@ -24,7 +24,7 @@ import {
 } from "./managedRuntime";
 import { readTgzIdentity, resolveLocalPackagePath } from "./tgz";
 import type { BuildIdentity } from "./tgz";
-import { emitServerStatus, outputChannel } from "./server-status";
+import { emitServerStatus, logLifecycle, outputChannel } from "./server-status";
 import { formatBuildStamp, singleFlight } from "./version";
 import { ideRunDir, withServerLock } from "./server-lock";
 import { piConfig } from "./config";
@@ -62,17 +62,32 @@ export type SpawnTarget =
  * 用 `npm root -g` 找全局 node_modules，返回其中 `<pkg>/bin/pi-web.js`
  * 的绝对路径（不存在则 undefined）。npm 不在 PATH（如 nvm 未生效）时安静返回 undefined。
  */
-export function resolveGlobalPackageBin(pkg: string): Promise<string | undefined> {
-  return new Promise((resolve) => {
+// `npm root -g` 每次都要 spawn cmd→npm→node 链（Windows+杀软下数秒级），
+// 而结果在宿主生命周期内不变——整会话缓存，重解析零成本。
+let npmGlobalRootCache: Promise<string | undefined> | undefined;
+
+function npmGlobalRoot(): Promise<string | undefined> {
+  npmGlobalRootCache ??= new Promise((resolve) => {
     cp.exec("npm root -g", { timeout: 10_000, windowsHide: true }, (err, stdout) => {
-      if (err) {
-        resolve(undefined);
-        return;
-      }
-      const binPath = path.join(stdout.trim(), pkg, "bin", "pi-web.js");
-      resolve(existsSync(binPath) ? binPath : undefined);
+      resolve(err ? undefined : stdout.trim() || undefined);
     });
   });
+  return npmGlobalRootCache;
+}
+
+export async function resolveGlobalPackageBin(pkg: string): Promise<string | undefined> {
+  const binRel = path.join(pkg, "bin", "pi-web.js");
+  // 快路径：Windows 默认全局根 %APPDATA%\npm\node_modules 直接判存在——
+  // 命中即免掉一次子进程；nvm/scoop 等非默认根落空再退化到 npm root -g。
+  const appData = process.env.APPDATA;
+  if (process.platform === "win32" && appData) {
+    const fast = path.join(appData, "npm", "node_modules", binRel);
+    if (existsSync(fast)) return fast;
+  }
+  const root = await npmGlobalRoot();
+  if (!root) return undefined;
+  const binPath = path.join(root, binRel);
+  return existsSync(binPath) ? binPath : undefined;
 }
 
 /**
@@ -564,10 +579,24 @@ export async function resolveServerTarget(
   // 兼容版本。腿序不是优先级：历史全局安装不该永久影子化托管升级
   // （曾踩"升级后仍跑旧版"的坑）；要钉版本走 executablePath 配置。
   // 同版本多副本按池顺序取先者（global > shim > managed），结果确定。
+  // 三条腿互相独立——并行（串行曾把 npm root -g、where 等子进程等待
+  // 直接相加，Windows+杀软下是十几秒级）。逐腿计时写进日志，下次慢
+  // 一眼能定位是哪条腿。
+  const timed = async <T>(leg: string, p: Promise<T> | T): Promise<T> => {
+    const t = Date.now();
+    const r = await p;
+    logLifecycle(`resolve leg ${leg}: ${Date.now() - t}ms`);
+    return r;
+  };
+  const [globalBin, shimBin, managedBin] = await Promise.all([
+    timed("global", resolveGlobalPackageBin(pkg)),
+    timed("shim", resolvePathShimBin(pkg, (l) => channel.appendLine(l))),
+    timed("managed", managedPackageBin(context, pkg, (l) => channel.appendLine(l))),
+  ]);
   const candidates = [
-    { bin: await resolveGlobalPackageBin(pkg), leg: "global install" },
-    { bin: await resolvePathShimBin(pkg, (l) => channel.appendLine(l)), leg: "PATH shim" },
-    { bin: managedPackageBin(context, pkg, (l) => channel.appendLine(l)), leg: "managed runtime" },
+    { bin: globalBin, leg: "global install" },
+    { bin: shimBin, leg: "PATH shim" },
+    { bin: managedBin, leg: "managed runtime" },
   ].filter((c): c is { bin: string; leg: string } => !!c.bin);
   for (const c of candidates) {
     const lv = binLevel(c.bin);

@@ -46,8 +46,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // 存量清理（过渡措施，后续版本移除）：历史版本 npx 启动的 server.js
   // 孤儿会攥住 _npx 缓存目录致后续 npx EBUSY——托管运行时落地后这些
-  // 残留进程只剩害处，激活时静默清一遍。
-  void sweepLegacyOrphans(bridgeChannel);
+  // 残留进程只剩害处，激活时静默清一遍。延迟执行：win32 上它 spawn
+  // 一次 PowerShell 全进程枚举（数秒 CPU），不该和服务器启动链抢资源。
+  const sweepTimer = setTimeout(() => void sweepLegacyOrphans(bridgeChannel), 10_000);
+  context.subscriptions.push({ dispose: () => clearTimeout(sweepTimer) });
 
   // 状态栏图标 — 常驻可见，一键唤起聊天面板。
   statusBarItem = vscode.window.createStatusBarItem(

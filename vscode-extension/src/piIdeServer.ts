@@ -1,5 +1,6 @@
 import * as cp from "child_process";
 import { existsSync } from "fs";
+import * as net from "net";
 import * as path from "path";
 import * as vscode from "vscode";
 import { EMBED_PROTOCOL_SUPPORTED, managedRuntimeRoot } from "./managedRuntime";
@@ -357,7 +358,11 @@ export class PiIdeServer {
     do {
       // 候选 = 所有 pi-web 形态占用者（kind !== "unknown"）：embed 握手
       // 本身即身份证明，cmdline 分类只供文案——junction/dev 路径常被误判。
-      const cands = (await scanPortOccupiers(attachScanRange().from, attachScanRange().to, this.packageName())).filter((o) => o.kind !== "unknown");
+      // attach 判定只需要"端口绑没绑"——TCP connect 探测与 netstat 同
+      // 语义（绑了但懒加载中的服务器也命中，HTTP 探测会漏），并发一轮
+      // ~0.5s、零子进程，替掉 netstat+PowerShell 的重量级扫描
+      // （Windows+杀软下每次数秒到十几秒，曾是冷启大头）。
+      const cands = await this.probeAttachPorts();
       // 启动窗口记录补盲：兄弟窗口 spawn→bind 之间端口扫描全空，但记录
       // 带着目标端口——合成伪占用者交给同一个 tryAttach 握手路径。
       const bound = new Set(cands.map((o) => o.port));
@@ -390,6 +395,34 @@ export class PiIdeServer {
     return undefined;
   }
 
+  /** 对扫描范围各端口并发 TCP connect——绑定即"有进程在听"（懒加载中
+   *  也命中），交给 tryAttach 的 embed 握手裁决是否本系实例。pid 未知
+   *  填 0（日志以 ? 呈现）。 */
+  private async probeAttachPorts(): Promise<PortOccupier[]> {
+    const { from, to } = attachScanRange();
+    const bound = (port: number) =>
+      new Promise<boolean>((resolve) => {
+        const sock = net.connect(port, "127.0.0.1");
+        sock.setTimeout(600);
+        const done = (ok: boolean) => {
+          sock.destroy();
+          resolve(ok);
+        };
+        sock.once("connect", () => done(true));
+        sock.once("timeout", () => done(false));
+        sock.once("error", () => done(false));
+      });
+    const probes = await Promise.all(
+      Array.from({ length: to - from + 1 }, (_, i) => from + i).map(
+        async (port): Promise<PortOccupier | undefined> =>
+          (await bound(port))
+            ? { port, pid: 0, cmdline: "tcp probe", kind: "ours" }
+            : undefined,
+      ),
+    );
+    return probes.filter((p): p is PortOccupier => !!p);
+  }
+
   /** 对单个占用者试 embed 握手；响应即证明是本扩展系实例 → attach。 */
   private async tryAttach(o: PortOccupier): Promise<string | undefined> {
     const origin = `http://127.0.0.1:${o.port}`;
@@ -413,7 +446,7 @@ export class PiIdeServer {
       return undefined;
     }
     this.channel.appendLine(
-      `attached to running Pi Web server on :${o.port} (PID ${o.pid})${identity ? ` — ${identity}` : ""} — skipping duplicate spawn.`,
+      `attached to running Pi Web server on :${o.port}${o.pid ? ` (PID ${o.pid})` : ""}${identity ? ` — ${identity}` : ""} — skipping duplicate spawn.`,
     );
     logLifecycle(`attached: origin=${origin}, pid=${o.pid}, kind=${o.kind}, ${identity}`);
     // attach 只扫 303x——用户显式配置了别的起始端口时，接上的实例
@@ -438,8 +471,9 @@ export class PiIdeServer {
       typeof config.get<number>("port") === "number"
         ? config.get<number>("port", DEFAULT_PORT)
         : DEFAULT_PORT;
-    // 顺扫 303x 占位者：识别另一实例的旧包/上游/孤儿进程（日志+提示，不自动杀）。
-    await reportPortOccupiers(this.channel, this.packageName());
+    // 顺扫 303x 占位者（netstat+PowerShell，Windows 下十几秒级）——纯诊断
+    // 输出，后台跑不占启动临界路径；可疑占位仍照常提示。
+    void reportPortOccupiers(this.channel, this.packageName());
 
     const port = await findFreePort(Math.max(1, preferred || DEFAULT_PORT));
     this.channel.appendLine(
