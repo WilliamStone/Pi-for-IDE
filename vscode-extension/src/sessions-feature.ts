@@ -51,6 +51,7 @@ export function registerSessionsFeature(
     sessionsBaseUrl,
     context.workspaceState,
     () => (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath),
+    () => PiIdeServer.starting(),
   );
   const sessionsView = vscode.window.createTreeView("piIde.sessions", {
     treeDataProvider: sessionsProvider,

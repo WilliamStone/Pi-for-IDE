@@ -58,6 +58,8 @@ export class PiIdeServer {
   resolvedOrigin?: string;
   channel: vscode.OutputChannel;
   disposed = false;
+  /** startProcess 在途（attach/resolve/spawn 任一阶段）——UI 态用。 */
+  private booting = true;
   /** 握手拿到的服务端可选特性表（capabilities map，见 embed-protocol.md）。 */
   embedCapabilities: Record<string, unknown> = {};
   /** 握手拿到的服务端进程实例标识（boot）——重启后必变，跨窗口换页判定用。 */
@@ -88,9 +90,25 @@ export class PiIdeServer {
     this.context = context;
     this.channel = outputChannel();
     this.ready = this.startProcess();
-    this.ready.then((origin) => {
-      if (origin) this.resolvedOrigin = origin;
-    });
+    this.ready.then(
+      (origin) => {
+        if (origin) this.resolvedOrigin = origin;
+        this.booting = false;
+      },
+      () => {
+        this.booting = false;
+      },
+    );
+  }
+
+  /**
+   * 树/面板区分 "未启动" 与 "解析/启动进行中"——ready 在途即启动中。
+   * 跨窗口语义：只读本窗自己的启动进程；别窗 spawn 在跑而本窗还没进
+   * 临界区时仍报未启动（ attach 扫描是临界区内的第一步 ）。
+   */
+  static starting(): boolean {
+    const s = (globalThis as Record<string, unknown>).__piIdeServer as PiIdeServer | undefined;
+    return Boolean(s && !s.disposed && s.booting);
   }
 
   /** 解析后的 origin（如 `http://127.0.0.1:39211`）。启动完成前为 undefined。 */

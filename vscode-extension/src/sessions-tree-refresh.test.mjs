@@ -100,6 +100,26 @@ test("awaiting/running 快照随轮询更新（状态栏指示器数据源）", 
   assert.deepEqual([...p.awaitingSessionIds], ["s1"]);
 });
 
+test("启动中 → hint 区分 'is starting'，off↔starting 翻转也 fire", async () => {
+  let starting = true;
+  const p = new SessionsTreeProvider(async () => undefined, memento(), () => [], () => starting);
+  const label = () => String(p.getChildren()[0]?.label);
+  assert.match(label(), /is starting/);
+
+  // starting → off：离线态也要 fire，否则提示停在旧文案
+  let fires = 0;
+  p.onDidChangeTreeData(() => fires++);
+  starting = false;
+  await p.reload();
+  assert.equal(fires > 0, true, "off↔starting 翻转必须通知视图");
+  assert.match(label(), /not running or is starting/);
+
+  // off → starting：对称方向
+  starting = true;
+  await p.reload();
+  assert.match(label(), /is starting/);
+});
+
 test("服务下线 → 清空会话且 fire（不滞旧）", async (t) => {
   const { restore } = fakeServer();
   t.after(restore);
