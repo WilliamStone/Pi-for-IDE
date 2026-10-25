@@ -27,7 +27,12 @@ registerHooks({
 });
 
 const { pickVersionDirName } = await import("./managedRuntime.ts");
-const { readTgzIdentity, resolveLocalPackagePath } = await import("./tgz.ts");
+const {
+  readTgzIdentity,
+  readTgzIdentityAsync,
+  resolveLocalPackagePath,
+  resolveLocalPackagePathAsync,
+} = await import("./tgz.ts");
 const { pickInstallFlow } = await import("./server-resolve.ts");
 
 const PKG = "@william_stone/pi-web-for-ide";
@@ -136,6 +141,20 @@ test("resolveLocalPackagePath: directory picks the newest matching build", () =>
   const picked = resolveLocalPackagePath(dir, PKG);
   assert.equal(picked, newer);
   assert.notEqual(picked, older);
+});
+
+test("async tgz variants: identical results to sync counterparts", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "pi-lp-"));
+  const older = makeTgzBare(dir, "@william_stone/pi-web-for-ide", "pkg-old", "0.12.2-1", "2026-10-20T01:00:00.000Z");
+  makeTgzBare(dir, "@william_stone/pi-web-for-ide", "pkg-new", "0.12.2-1", "2026-10-20T09:00:00.000Z");
+  makeTgzBare(dir, "someone-else", "other", "9.9.9");
+  assert.equal(await resolveLocalPackagePathAsync(dir, PKG), resolveLocalPackagePath(dir, PKG));
+  assert.equal(await resolveLocalPackagePathAsync(older, PKG), resolveLocalPackagePath(older, PKG));
+  assert.equal(
+    await resolveLocalPackagePathAsync(path.join(dir, "no-such-dir"), PKG),
+    resolveLocalPackagePath(path.join(dir, "no-such-dir"), PKG),
+  );
+  assert.deepEqual(await readTgzIdentityAsync(older), readTgzIdentity(older));
 });
 
 test("resolveLocalPackagePath: empty/mismatched directory → undefined", () => {

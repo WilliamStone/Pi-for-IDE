@@ -22,7 +22,12 @@ import {
   pickNewestSupported,
   queryRegistryCompat,
 } from "./managedRuntime";
-import { readTgzIdentity, resolveLocalPackagePath } from "./tgz";
+import {
+  readTgzIdentity,
+  readTgzIdentityAsync,
+  resolveLocalPackagePath,
+  resolveLocalPackagePathAsync,
+} from "./tgz";
 import type { BuildIdentity } from "./tgz";
 import { emitServerStatus, logLifecycle, outputChannel } from "./server-status";
 import { formatBuildStamp, singleFlight } from "./version";
@@ -319,7 +324,14 @@ export type UpgradeAction =
   | { kind: "registry"; version: string; managed: boolean }
   | { kind: "none"; reason: string };
 
-export type LocalCheck = NonNullable<ReturnType<typeof checkLocalPackageUpdate>>;
+export interface LocalCheck {
+  /** 实际解析到的 tgz 文件（目录配置时挑出的最新者）。 */
+  resolvedPath?: string;
+  current?: { version: string; builtAt?: string };
+  candidate?: BuildIdentity;
+  isNewer: boolean;
+  reason?: string;
+}
 export type RemoteCheck = NonNullable<Awaited<ReturnType<typeof checkPiWebUpdate>>>;
 
 /** "2026-10-20T02:46:13.857Z" → " built 2026-10-20 02:46"（空则空串）——升级报告/通知/版本列表共用。 */
@@ -405,7 +417,7 @@ async function planUpgradeUncached(
 ): Promise<UpgradePlan> {
   // 各侧候选按模式采集：单边模式不查对侧。
   const local = localTgz && installSource !== "registry"
-    ? checkLocalPackageUpdate(localTgz, context, pkg)
+    ? await checkLocalPackageUpdateAsync(localTgz, context, pkg)
     : undefined;
   const remote = installSource !== "local" ? await checkPiWebUpdate(pkg, context) : undefined;
   const flow = pickInstallFlow(
@@ -496,26 +508,42 @@ export function checkLocalPackageUpdate(
   configPath: string,
   context: vscode.ExtensionContext,
   pkg: string,
-):
-  | {
-      /** 实际解析到的 tgz 文件（目录配置时挑出的最新者）。 */
-      resolvedPath?: string;
-      current?: { version: string; builtAt?: string };
-      candidate?: BuildIdentity;
-      isNewer: boolean;
-      reason?: string;
-    }
-  | undefined {
+): LocalCheck | undefined {
   const tgzPath = resolveLocalPackagePath(configPath, pkg);
-  if (!tgzPath) {
-    return {
-      isNewer: false,
-      reason: existsSync(configPath)
-        ? `no matching .tgz at ${configPath} (directory has none for ${pkg})`
-        : `path does not exist: ${configPath}`,
-    };
-  }
-  const id = readTgzIdentity(tgzPath);
+  if (!tgzPath) return localCheckNoTgz(configPath, pkg);
+  return finishLocalCheck(tgzPath, readTgzIdentity(tgzPath), context, pkg);
+}
+
+/**
+ * 异步变体——整包 tgz 读走 libuv 线程池，慢盘/网络盘（S: 实测 ~11s）上
+ * 不再冻结扩展宿主事件循环。启动路径与后台检查一律用它；同步版留给
+ * 测试与不占宿主循环的场景。
+ */
+export async function checkLocalPackageUpdateAsync(
+  configPath: string,
+  context: vscode.ExtensionContext,
+  pkg: string,
+): Promise<LocalCheck | undefined> {
+  const tgzPath = await resolveLocalPackagePathAsync(configPath, pkg);
+  if (!tgzPath) return localCheckNoTgz(configPath, pkg);
+  return finishLocalCheck(tgzPath, await readTgzIdentityAsync(tgzPath), context, pkg);
+}
+
+function localCheckNoTgz(configPath: string, pkg: string): LocalCheck {
+  return {
+    isNewer: false,
+    reason: existsSync(configPath)
+      ? `no matching .tgz at ${configPath} (directory has none for ${pkg})`
+      : `path does not exist: ${configPath}`,
+  };
+}
+
+function finishLocalCheck(
+  tgzPath: string,
+  id: BuildIdentity | undefined,
+  context: vscode.ExtensionContext,
+  pkg: string,
+): LocalCheck {
   if (!id?.version) {
     return { resolvedPath: tgzPath, isNewer: false, reason: `cannot read package/package.json in ${tgzPath}` };
   }
@@ -624,9 +652,10 @@ export async function resolveServerTarget(
     const localTgz = config.get<string>("localPackage")?.trim();
     if (localTgz) {
       const resolvedBin = best.bin;
-      void (async () => {
-        try {
-          const local = checkLocalPackageUpdate(localTgz, context, pkg);
+      // 必须走真异步版——async IIFE 包同步调用在首个 await 前照旧同步执行，
+      // 曾把 ~11s 的 tgz 读留在临界路径上（实测）。
+      void checkLocalPackageUpdateAsync(localTgz, context, pkg)
+        .then((local) => {
           const c = local?.candidate;
           if (!c || local?.reason) return;
           const stamp = installedBuildStamp(path.resolve(resolvedBin, "..", "..")).builtAt;
@@ -639,10 +668,10 @@ export async function resolveServerTarget(
           // 与升级计划同一签名（localUpgradeSig = local:${a.label}）——
           // UI 弹不弹由监听方（upgrade 编排层）按共享标记定。
           emitDowngradeWarning({ warn, sig: localUpgradeSig(c) });
-        } catch {
+        })
+        .catch(() => {
           // 告警通道失败不影响启动。
-        }
-      })();
+        });
     }
     emitServerStatus("Starting local server…");
     return { mode: "bin", path: best.bin };
@@ -655,7 +684,7 @@ export async function resolveServerTarget(
   const installSource = (config.get<string>("installSource") ?? "auto").trim();
   const localTgzPath = config.get<string>("localPackage")?.trim();
   const local = localTgzPath && installSource !== "registry"
-    ? checkLocalPackageUpdate(localTgzPath, context, pkg)
+    ? await checkLocalPackageUpdateAsync(localTgzPath, context, pkg)
     : undefined;
   const localUsable = !!local?.candidate && !local.reason;
   const wantLocal =

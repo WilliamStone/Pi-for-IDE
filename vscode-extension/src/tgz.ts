@@ -1,13 +1,17 @@
 import {
   mkdirSync,
+  promises as fsp,
   readdirSync,
   readFileSync,
   statSync,
   writeFileSync,
 } from "fs";
 import * as path from "path";
-import { gunzipSync } from "zlib";
+import { gunzipSync, gunzip } from "zlib";
+import { promisify } from "util";
 import { compareVersions } from "./version";
+
+const gunzipAsync = promisify(gunzip);
 
 /**
  * npm tgz 读写工具（docs/agents/managed-runtime.md 的构建身份一节）。
@@ -26,47 +30,61 @@ export interface BuildIdentity {
   gitSha?: string;
 }
 
-/** 读 tgz 内指定成员（tar 512B 头 + ustar 前缀 + GNU 长名）。 */
-function tgzMembers(tgzPath: string, members: string[]): Map<string, string> {
+/** tar 512B 头扫描（ustar 前缀 + GNU 长名）——同步/异步两条读取共用的纯函数段。 */
+function scanTarMembers(buf: Buffer, members: string[]): Map<string, string> {
   const out = new Map<string, string>();
-  try {
-    const buf = gunzipSync(readFileSync(tgzPath));
-    const want = new Set(members);
-    let off = 0;
-    let longName: string | undefined;
-    while (off + 512 <= buf.length && want.size > 0) {
-      const head = buf.subarray(off, off + 512);
-      const size = parseInt(
-        head.subarray(124, 136).toString("utf8").replace(/\0[\s\S]*$/, "").trim() || "0",
-        8,
-      );
-      if (!Number.isFinite(size)) break;
-      const dataStart = off + 512;
-      const rawName = head.subarray(0, 100).toString("utf8").replace(/\0[\s\S]*$/, "");
-      if (!rawName) break; // 空块 = 归档尾
-      const typeflag = String.fromCharCode(head[156]);
-      if (typeflag === "L") {
-        longName = buf.subarray(dataStart, dataStart + size).toString("utf8").replace(/\0[\s\S]*$/, "");
-      } else {
-        const prefix = head.subarray(345, 500).toString("utf8").replace(/\0[\s\S]*$/, "");
-        const name = longName ?? (prefix ? `${prefix}/${rawName}` : rawName);
-        longName = undefined;
-        if (want.has(name)) {
-          out.set(name, buf.subarray(dataStart, dataStart + size).toString("utf8"));
-          want.delete(name);
-        }
+  const want = new Set(members);
+  let off = 0;
+  let longName: string | undefined;
+  while (off + 512 <= buf.length && want.size > 0) {
+    const head = buf.subarray(off, off + 512);
+    const size = parseInt(
+      head.subarray(124, 136).toString("utf8").replace(/\0[\s\S]*$/, "").trim() || "0",
+      8,
+    );
+    if (!Number.isFinite(size)) break;
+    const dataStart = off + 512;
+    const rawName = head.subarray(0, 100).toString("utf8").replace(/\0[\s\S]*$/, "");
+    if (!rawName) break; // 空块 = 归档尾
+    const typeflag = String.fromCharCode(head[156]);
+    if (typeflag === "L") {
+      longName = buf.subarray(dataStart, dataStart + size).toString("utf8").replace(/\0[\s\S]*$/, "");
+    } else {
+      const prefix = head.subarray(345, 500).toString("utf8").replace(/\0[\s\S]*$/, "");
+      const name = longName ?? (prefix ? `${prefix}/${rawName}` : rawName);
+      longName = undefined;
+      if (want.has(name)) {
+        out.set(name, buf.subarray(dataStart, dataStart + size).toString("utf8"));
+        want.delete(name);
       }
-      off = dataStart + Math.ceil(size / 512) * 512;
     }
-  } catch {
-    // 解不出（非 gzip/非 tar）→ 空 map。
+    off = dataStart + Math.ceil(size / 512) * 512;
   }
   return out;
 }
 
-/** 读发行包 tgz 的构建身份（package/package.json + package/pi-web-build.json）。 */
-export function readTgzIdentity(tgzPath: string): BuildIdentity | undefined {
-  const members = tgzMembers(tgzPath, ["package/package.json", "package/pi-web-build.json"]);
+/** 读 tgz 内指定成员（同步）。 */
+function tgzMembers(tgzPath: string, members: string[]): Map<string, string> {
+  try {
+    return scanTarMembers(gunzipSync(readFileSync(tgzPath)), members);
+  } catch {
+    // 解不出（非 gzip/非 tar）→ 空 map。
+    return new Map();
+  }
+}
+
+/** 异步变体：慢盘/网络盘上整包读+解压不再冻结扩展宿主事件循环。 */
+async function tgzMembersAsync(tgzPath: string, members: string[]): Promise<Map<string, string>> {
+  try {
+    return scanTarMembers(await gunzipAsync(await fsp.readFile(tgzPath)), members);
+  } catch {
+    return new Map();
+  }
+}
+
+const IDENTITY_MEMBERS = ["package/package.json", "package/pi-web-build.json"];
+
+function identityFromMembers(members: Map<string, string>): BuildIdentity | undefined {
   const pkgRaw = members.get("package/package.json");
   if (!pkgRaw) return undefined;
   try {
@@ -83,6 +101,16 @@ export function readTgzIdentity(tgzPath: string): BuildIdentity | undefined {
   } catch {
     return undefined;
   }
+}
+
+/** 读发行包 tgz 的构建身份（package/package.json + package/pi-web-build.json）。 */
+export function readTgzIdentity(tgzPath: string): BuildIdentity | undefined {
+  return identityFromMembers(tgzMembers(tgzPath, IDENTITY_MEMBERS));
+}
+
+/** 异步变体——启动/后台检查路径一律用它，同步版留给安装等冷路径。 */
+export async function readTgzIdentityAsync(tgzPath: string): Promise<BuildIdentity | undefined> {
+  return identityFromMembers(await tgzMembersAsync(tgzPath, IDENTITY_MEMBERS));
 }
 
 /**
@@ -166,6 +194,40 @@ export function resolveLocalPackagePath(configPath: string, pkg: string): string
         best = { file, version: id.version, builtAt };
       }
     }
+    return best?.file;
+  } catch {
+    return undefined;
+  }
+}
+
+/** 异步变体：目录模式下并发读各 tgz 身份，整段不占事件循环。 */
+export async function resolveLocalPackagePathAsync(
+  configPath: string,
+  pkg: string,
+): Promise<string | undefined> {
+  try {
+    const st = await fsp.stat(configPath);
+    if (st.isFile()) {
+      return /\.t(ar\.)?gz$/i.test(configPath) ? configPath : undefined;
+    }
+    if (!st.isDirectory()) return undefined;
+    const files = (await fsp.readdir(configPath))
+      .filter((entry) => /\.t(ar\.)?gz$/i.test(entry))
+      .map((entry) => path.join(configPath, entry));
+    const ids = await Promise.all(files.map((file) => readTgzIdentityAsync(file)));
+    let best: { file: string; version: string; builtAt: string } | undefined;
+    files.forEach((file, i) => {
+      const id = ids[i];
+      if (!id?.version || (pkg && id.name && id.name !== pkg)) return;
+      const builtAt = id.builtAt ?? "";
+      if (
+        !best ||
+        compareVersions(id.version, best.version) > 0 ||
+        (compareVersions(id.version, best.version) === 0 && builtAt > best.builtAt)
+      ) {
+        best = { file, version: id.version, builtAt };
+      }
+    });
     return best?.file;
   } catch {
     return undefined;
