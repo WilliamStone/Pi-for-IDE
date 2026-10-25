@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { outputChannel } from "./server-status";
+import { logLifecycle, outputChannel } from "./server-status";
 import {
   groupByProject,
   isInWorkspace,
@@ -66,6 +66,10 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
   private lastViewSig = "";
   private lastStarting = false;
   private lastStartStage: string | undefined;
+  // 启动耗时里程碑埋点：base 首次解析、清单首次渲染各记一笔（时间戳
+  // 前缀即距启动起点的墙钟差）——"数据什么时候出来的"不再靠猜。
+  private loggedBase = false;
+  private loggedList = false;
 
   /** 已解析的服务 origin；未启动 → undefined（绝不 spawn）。 */
   private readonly getBaseUrl: () => Promise<string | undefined>;
@@ -177,6 +181,10 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
         }
         return;
       }
+      if (!this.loggedBase) {
+        this.loggedBase = true;
+        logLifecycle(`sessions poll: base resolved → ${base}`);
+      }
       const snap = await apiJson<RunningSnapshot>(base, "/api/agent/running");
       this.runningIds = new Set(snap.runningSessionIds ?? []);
       this.awaitingIds = new Set(snap.awaitingInputSessionIds ?? []);
@@ -189,6 +197,10 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
         }>(base, "/api/sessions");
         this.sessions = topLevelSessions(raw.sessions ?? []);
         this.listVersion = snap.sessionListVersion;
+        if (!this.loggedList) {
+          this.loggedList = true;
+          logLifecycle(`sessions listed: ${this.sessions.length} session(s)`);
+        }
         // 会话清单自带 running 快照——顺手刷新，不用等下一轮 running 轮询。
         this.runningIds = new Set(raw.runningSessionIds ?? []);
         this.awaitingIds = new Set(raw.awaitingInputSessionIds ?? []);
