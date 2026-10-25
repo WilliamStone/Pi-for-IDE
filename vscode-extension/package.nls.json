@@ -24,7 +24,7 @@
   "config.localPackage": "Path to a local pi-web .tgz — either the file itself or a directory containing packages (the newest matching build inside is picked automatically, so rebuilt artifacts keep being found even as filenames change).",
   "config.installSource": "Where installs/upgrades come from: auto = compare local tarball and registry, prefer the local build on a version tie; prefer-remote = same comparison but prefer the registry on a tie; local = only the localPackage tarball; registry = only npm (localPackage ignored).",
   "view.container.piIde": "Pi Sessions",
-  "viewWelcome.sessions": "Pi sessions on this machine appear here, grouped by project. Start the server via the Pi for IDE status bar or the Pi for IDE commands.",
+  "viewWelcome.sessions": "Pi sessions on this machine appear here, grouped by project. The server starts automatically when this view opens.",
   "cmd.session.open": "Open Session",
   "cmd.session.rename": "Rename Session",
   "cmd.session.fork": "Fork Session",

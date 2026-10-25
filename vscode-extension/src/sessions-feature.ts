@@ -57,11 +57,17 @@ export function registerSessionsFeature(
     treeDataProvider: sessionsProvider,
     showCollapseAll: true,
   });
+  // 打开侧栏=使用意图——立即可见的 "Server is starting…" 胜过等用户
+  // 再点某个命令才开始解析/spawn。ensureStarted 是幂等单例，重复踢零成本。
   sessionsProvider.setVisible(sessionsView.visible);
+  if (sessionsView.visible) void ensureServer();
   context.subscriptions.push(
     sessionsProvider,
     sessionsView,
-    sessionsView.onDidChangeVisibility((e) => sessionsProvider.setVisible(e.visible)),
+    sessionsView.onDidChangeVisibility((e) => {
+      sessionsProvider.setVisible(e.visible);
+      if (e.visible) void ensureServer();
+    }),
     vscode.workspace.onDidChangeWorkspaceFolders(() => sessionsProvider.reload()),
   );
   void vscode.commands.executeCommand(

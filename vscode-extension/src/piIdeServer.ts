@@ -1,4 +1,6 @@
 import * as cp from "child_process";
+import { existsSync } from "fs";
+import * as path from "path";
 import * as vscode from "vscode";
 import { EMBED_PROTOCOL_SUPPORTED, managedRuntimeRoot } from "./managedRuntime";
 import { DEFAULT_PACKAGE } from "./occupier";
@@ -458,7 +460,9 @@ export class PiIdeServer {
     const autoStop = config.get<boolean>("autoStop", true);
     // 下限 90s：心跳 15s×6（丢几拍不误杀），也留足后台页轮询被浏览器
     // 限流到 ~60s 的缺口——低于此值隐藏标签页可能保不住服务器。
-    const autoStopAfterSec = Math.max(90, config.get<number>("autoStopAfterSec", 90) || 90);
+    // 默认 300s：窗口重载/宿主重启的常见空窗（<5min）内服务器不被收割，
+    // attach 直接接管免冷启；真没人要的孤儿仍会被回收。下限 90s 不变。
+    const autoStopAfterSec = Math.max(90, config.get<number>("autoStopAfterSec", 300) || 300);
     if (autoStop) {
       env.PI_WEB_EMBED_WATCHDOG = "1";
       env.PI_WEB_EMBED_WATCHDOG_TIMEOUT_SEC = String(autoStopAfterSec);
@@ -476,6 +480,13 @@ export class PiIdeServer {
         args = [target.path, ...launchArgs];
         break;
     }
+
+    // 管道死亡防护：宿主退出后子进程下一次日志写会撞 EPIPE 崩溃——
+    // --require 预载守卫只吞管道错误，让孤儿服务器活到被重新 attach
+    // （文件缺失时降级为不注入，spawn 照常）。node 旗标须在脚本路径之前。
+    const epipeGuard = path.join(this.context.extensionPath, "out", "epipe-guard.js");
+    const nodeArgs = existsSync(epipeGuard) ? ["--require", epipeGuard] : [];
+    args = [...nodeArgs, ...args];
 
     const readyTimeoutMs = 30_000;
 

@@ -26,7 +26,8 @@
     "agent"
   ],
   "activationEvents": [
-    "onStartupFinished"
+    "onStartupFinished",
+    "onView:piIde.sessions"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -289,7 +290,7 @@
         },
         "Pi for IDE.autoStopAfterSec": {
           "type": "number",
-          "default": 90,
+          "default": 300,
           "minimum": 90,
           "description": "%config.autoStopAfterSec%"
         },

@@ -87,5 +87,5 @@ code --install-extension vscode-extension\pi-for-ide-0.1.8.vsix
 - **回退/diff**：edit 文件 diff 双侧有内容；write 新建回退删文件；
   漂移文件降级到 recorded patch（非左空伪全增）
 - **生命周期**：两个窗口同 cwd → 第二窗 `attached to running`；
-  全关 ~90s 服务自退；浏览器页开着时不被杀
+  全关 ~300s 服务自退（autoStopAfterSec 可调）；浏览器页开着时不被杀
 - **standalone 存活**：`pi-web-for-ide` 手动起的实例不受 watchdog 影响

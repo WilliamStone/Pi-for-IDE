@@ -53,7 +53,10 @@ owners. Nobody kills anyone — the server dies of silence.
 
 - **Armed per spawn, not per process kind.** The watchdog activates only when
   the extension spawned the process with `PI_WEB_EMBED_WATCHDOG=1` (+ tunables
-  `PI_WEB_EMBED_WATCHDOG_TIMEOUT_SEC`, default 90). A standalone Pi Web+
+  `PI_WEB_EMBED_WATCHDOG_TIMEOUT_SEC`; the extension injects its
+  `autoStopAfterSec` setting, default 300 — long enough to survive a typical
+  reload/restart gap so the next window attaches instead of cold-spawning).
+  A standalone Pi Web+
   instance never carries the flag → heartbeats to it are harmless no-ops →
   attach/leave never affects standalone lifetime.
 - **Presence = heartbeat OR open client connection.** Extension POSTs

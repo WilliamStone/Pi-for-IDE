@@ -24,7 +24,7 @@
   "config.localPackage": "本地 pi-web .tgz 的路径——可以直接指文件，也可以指目录（自动挑目录里最新的匹配构建，包名/文件名随版本变化也不用改配置）。",
   "config.installSource": "安装/升级来源：auto = 本地包与 registry 两边相比，同版本时优先本地；prefer-remote = 同样相比但同版本时优先在线；local = 只用 localPackage 本地包；registry = 只用 npm（忽略 localPackage）。",
   "view.container.piIde": "Pi Sessions",
-  "viewWelcome.sessions": "本机全部 pi 会话按项目分组显示在此。请通过 Pi for IDE 状态栏或命令启动服务器。",
+  "viewWelcome.sessions": "本机全部 pi 会话按项目分组显示在此。打开本视图时会自动启动服务器。",
   "cmd.session.open": "打开会话",
   "cmd.session.rename": "重命名会话",
   "cmd.session.fork": "派生会话",
