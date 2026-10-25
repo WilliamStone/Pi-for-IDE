@@ -489,6 +489,12 @@ export class PiIdeServer {
       NODE_ENV: "production",
       // bin 模式通过 PI_WEB_NO_OPEN 阻止 pi-web 自开浏览器（页面在扩展面板内）。
       PI_WEB_NO_OPEN: "1",
+      // V8 编译缓存目录（epipe-guard 读取）：globalStorage 下持久化，
+      // server bundle 的编译产物跨 spawn 复用，削减冷启里的大头开销。
+      PI_IDE_COMPILE_CACHE: path.join(
+        this.context.globalStorageUri.fsPath,
+        "compile-cache",
+      ),
     };
     const launchArgs = ["--port", String(port), "--hostname", "127.0.0.1", "--no-open"];
     // 生命周期主权在服务器侧：autoStop 开 → 注入 watchdog 旗标，服务器在

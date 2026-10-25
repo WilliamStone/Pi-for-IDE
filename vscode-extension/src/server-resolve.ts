@@ -618,25 +618,31 @@ export async function resolveServerTarget(
     const extra = candidates.length > 1 ? ` (newest of ${candidates.length} installed copies)` : "";
     channel.appendLine(`pi-web entry (${best.leg}): ${best.bin}${extra}`);
     // 解析副本比配置的本地包旧——managed 槽空档时被全局/PATH 残包抢跑
-    // 是无感降级（0.12.2-1 顶班、view=chat 静默失效的实证）。解析点
-    // 直接告警；registry 侧的新旧比较归后台升级检查，不进热路径。
+    // 是无感降级（0.12.2-1 顶班、view=chat 静默失效的实证）。但这是
+    // 纯告警不参与 spawn 决策，而 localPackage 可能在慢盘/网络盘上
+    // （实测 S: 读一个 tgz ~17s）——挪出临界路径，算完照常告警。
     const localTgz = config.get<string>("localPackage")?.trim();
     if (localTgz) {
-      const local = checkLocalPackageUpdate(localTgz, context, pkg);
-      const c = local?.candidate;
-      if (c && !local?.reason) {
-        const stamp = installedBuildStamp(path.resolve(best.bin, "..", "..")).builtAt;
-        const resolvedVer = binVersion(best.bin) ?? "0.0.0";
-        const v = compareVersions(c.version, resolvedVer);
-        const newer = v > 0 || (v === 0 && !!c.builtAt && c.builtAt > (stamp ?? ""));
-        if (newer) {
+      const resolvedBin = best.bin;
+      void (async () => {
+        try {
+          const local = checkLocalPackageUpdate(localTgz, context, pkg);
+          const c = local?.candidate;
+          if (!c || local?.reason) return;
+          const stamp = installedBuildStamp(path.resolve(resolvedBin, "..", "..")).builtAt;
+          const resolvedVer = binVersion(resolvedBin) ?? "0.0.0";
+          const v = compareVersions(c.version, resolvedVer);
+          const newer = v > 0 || (v === 0 && !!c.builtAt && c.builtAt > (stamp ?? ""));
+          if (!newer) return;
           const warn = `resolved server copy ${resolvedVer}${fmtBuild(stamp)} is older than local package ${c.version}${fmtBuild(c.builtAt)}`;
           channel.appendLine(`⚠ ${warn} — run "Pi for IDE: Upgrade Server Component".`);
           // 与升级计划同一签名（localUpgradeSig = local:${a.label}）——
           // UI 弹不弹由监听方（upgrade 编排层）按共享标记定。
           emitDowngradeWarning({ warn, sig: localUpgradeSig(c) });
+        } catch {
+          // 告警通道失败不影响启动。
         }
-      }
+      })();
     }
     emitServerStatus("Starting local server…");
     return { mode: "bin", path: best.bin };
