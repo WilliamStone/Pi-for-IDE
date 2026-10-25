@@ -239,7 +239,7 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
     if (element instanceof ProjectItem) return element.sessionItems;
     if (element) return [];
     if (this.listVersion === -1 && this.sessions.length === 0) {
-      return [new HintItem("Server not running — start it to list sessions")];
+      return [new HintItem("Server not running or is starting…")];
     }
     const list = this.filteredSessions();
     if (!list.length) {
