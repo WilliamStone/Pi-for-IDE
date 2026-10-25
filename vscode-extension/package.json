@@ -198,6 +198,24 @@
         "title": "%cmd.session.openFull%",
         "category": "Pi for IDE",
         "icon": "$(layout)"
+      },
+      {
+        "command": "piIde.session.revealInExplorer",
+        "title": "%cmd.session.revealInExplorer%",
+        "category": "Pi for IDE",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "piIde.session.openInNewWindow",
+        "title": "%cmd.session.openInNewWindow%",
+        "category": "Pi for IDE",
+        "icon": "$(empty-window)"
+      },
+      {
+        "command": "piIde.session.openInTerminal",
+        "title": "%cmd.session.openInTerminal%",
+        "category": "Pi for IDE",
+        "icon": "$(terminal)"
       }
     ],
     "viewsContainers": {
@@ -407,6 +425,18 @@
           "when": "false"
         },
         {
+          "command": "piIde.session.revealInExplorer",
+          "when": "false"
+        },
+        {
+          "command": "piIde.session.openInNewWindow",
+          "when": "false"
+        },
+        {
+          "command": "piIde.session.openInTerminal",
+          "when": "false"
+        },
+        {
           "command": "piIde.sessions.cycleViewMode",
           "when": "false"
         }
@@ -483,47 +513,62 @@
         {
           "command": "piIde.session.open",
           "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session/",
-          "group": "inline@0"
+          "group": "piweb@0"
         },
         {
           "command": "piIde.session.openFull",
           "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session/",
-          "group": "piweb@0"
+          "group": "piweb@1"
+        },
+        {
+          "command": "piIde.session.revealInExplorer",
+          "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session.*\\.wsSub/",
+          "group": "piweb@2"
+        },
+        {
+          "command": "piIde.session.openInNewWindow",
+          "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session.*\\.wsOther/",
+          "group": "piweb@3"
+        },
+        {
+          "command": "piIde.session.openInTerminal",
+          "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session.*\\.hasDir/",
+          "group": "piweb@4"
         },
         {
           "command": "piIde.session.rename",
           "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session/",
-          "group": "piweb@1"
+          "group": "piweb.mod@0"
         },
         {
           "command": "piIde.session.fork",
           "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session/",
-          "group": "piweb@2"
+          "group": "piweb.mod@1"
         },
         {
           "command": "piIde.session.pin",
           "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session/ && !(viewItem =~ /\\.pinned/)",
-          "group": "piweb@3"
+          "group": "piweb.mod@2"
         },
         {
           "command": "piIde.session.unpin",
           "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session.*\\.pinned/",
-          "group": "piweb@3"
+          "group": "piweb.mod@2"
         },
         {
           "command": "piIde.session.archive",
           "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session/ && !(viewItem =~ /\\.archived/)",
-          "group": "piweb@4"
+          "group": "piweb.mod@3"
         },
         {
           "command": "piIde.session.unarchive",
           "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session.*\\.archived/",
-          "group": "piweb@4"
+          "group": "piweb.mod@3"
         },
         {
           "command": "piIde.session.delete",
           "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session/",
-          "group": "piweb@5"
+          "group": "piweb.mod@4"
         },
         {
           "command": "piIde.project.newSession",

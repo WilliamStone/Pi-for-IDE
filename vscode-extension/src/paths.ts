@@ -39,6 +39,11 @@ export function isWithinCwd(absPath: string, cwd: string): boolean {
   return a === root || a.startsWith(root + "/");
 }
 
+/** 两目录规范化后是否同一个（win32 忽略大小写）。 */
+export function sameDir(a: string, b: string): boolean {
+  return cmpKey(normalizeAbsPath(a, a)) === cmpKey(normalizeAbsPath(b, b));
+}
+
 /** 绝对路径 → 相对 git 仓库根（cwd）的路径，`git show HEAD:rel` 用。 */
 export function toGitRelPath(absPath: string, cwd: string): string {
   const a = normalizeAbsPath(absPath, cwd);

@@ -7,6 +7,7 @@ import {
   relTime,
   sessionTitle,
   topLevelSessions,
+  workspaceRelation,
   type ApiSession,
   type ProjectGroup,
   type SessionsViewMode,
@@ -225,6 +226,11 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
     return this.sessions.filter((s) => isInWorkspace(s, roots));
   }
 
+  /** 命令侧查会话目录——目录类操作（reveal/新窗/终端）的落点。 */
+  sessionDir(id: string): string | undefined {
+    return this.sessions.find((s) => s.id === id)?.cwd ?? undefined;
+  }
+
   getTreeItem(element: vscode.TreeItem): vscode.TreeItem {
     return element;
   }
@@ -304,7 +310,15 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
             ? new vscode.ThemeColor("textLink.foreground")
             : undefined,
     );
-    item.contextValue = `piIde.session${running ? ".running" : ""}${pinned ? ".pinned" : ""}${archived ? ".archived" : ""}`;
+    // 目录类操作的显隐旗标：hasDir=有会话目录（三个操作的前提）；
+    // wsSub=目录在工作区子树内（Explorer 定位）；wsOther=目录非工作区根
+    // （新窗打开）。情形1（cwd=根）只留 hasDir → 只显示终端。
+    let wsFlags = "";
+    if (s.cwd) {
+      const rel = workspaceRelation(s.cwd, this.workspaceRoots());
+      wsFlags = `.hasDir${rel === "sub" ? ".wsSub" : ""}${rel === "sub" || rel === "out" ? ".wsOther" : ""}`;
+    }
+    item.contextValue = `piIde.session${running ? ".running" : ""}${pinned ? ".pinned" : ""}${archived ? ".archived" : ""}${wsFlags}`;
     item.command = {
       command: "piIde.session.open",
       title: "Open session",
@@ -458,6 +472,26 @@ export function registerSessionCommands(
       const id = typeof arg === "string" ? arg : sessionIdOf(arg);
       void deps.ensureServer();
       await deps.openSessionFull(id);
+    }),
+
+    // ── 目录类操作：走宿主原生能力（Explorer 定位 / 新窗 / 集成终端），
+    // 显隐由 contextValue 的 wsSub/wsOther/hasDir 旗标控制，cwd 缺失时静默返回。
+    vscode.commands.registerCommand("piIde.session.revealInExplorer", async (item: vscode.TreeItem) => {
+      const dir = provider.sessionDir(sessionIdOf(item));
+      if (dir) await vscode.commands.executeCommand("revealInExplorer", vscode.Uri.file(dir));
+    }),
+    vscode.commands.registerCommand("piIde.session.openInNewWindow", async (item: vscode.TreeItem) => {
+      const dir = provider.sessionDir(sessionIdOf(item));
+      // 同产品系新窗（VSCodium/Devin/灵码等）——openFolder 开的是本宿主。
+      if (dir) await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(dir), { forceNewWindow: true });
+    }),
+    vscode.commands.registerCommand("piIde.session.openInTerminal", (item: vscode.TreeItem) => {
+      const dir = provider.sessionDir(sessionIdOf(item));
+      if (!dir) return;
+      vscode.window.createTerminal({
+        cwd: vscode.Uri.file(dir),
+        name: typeof item.label === "string" ? item.label : "Pi",
+      }).show();
     }),
 
     vscode.commands.registerCommand("piIde.sessions.refresh", () => provider.reload()),

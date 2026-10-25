@@ -22,6 +22,7 @@ const {
   groupByProject,
   recentSessions,
   relTime,
+  workspaceRelation,
 } = await import("./sessions-model.ts");
 
 const s = (id, over = {}) => ({
@@ -42,6 +43,23 @@ test("isInWorkspace: cwd 在任一 root 子树内（含根）即属于工作区"
   assert.equal(isInWorkspace(s("1", {}), roots), false);
   // 前缀粘连不算——/proj2 不在 /proj 内
   assert.equal(isInWorkspace(s("1", { cwd: "/home/me/proj2" }), roots), false);
+});
+
+test("workspaceRelation: 同根/子树/外部三态，驱动目录类操作显隐", () => {
+  const roots = ["S:\\DevSpace\\AI", "/home/me/proj"];
+  assert.equal(workspaceRelation("S:\\DevSpace\\AI", roots), "same");
+  assert.equal(workspaceRelation("S:/DevSpace/AI/", roots), "same"); // 分隔符/尾斜杠归一
+  if (process.platform === "win32") {
+    assert.equal(workspaceRelation("s:\\devspace\\ai", roots), "same"); // win32 忽略大小写
+  }
+  assert.equal(workspaceRelation("S:\\DevSpace\\AI\\Agents\\pi-code", roots), "sub");
+  assert.equal(workspaceRelation("/home/me/proj/sub", roots), "sub");
+  assert.equal(workspaceRelation("S:\\DevSpace\\OTHER", roots), "out");
+  assert.equal(workspaceRelation("/home/me/proj2", roots), "out"); // 前缀粘连不算子树
+  assert.equal(workspaceRelation(undefined, roots), null);
+  assert.equal(workspaceRelation(null, roots), null);
+  // 无工作区根 → 全部视为外部（新窗/终端可用，Explorer 定位隐去）
+  assert.equal(workspaceRelation("S:\\anywhere", []), "out");
 });
 
 test("topLevelSessions: subagent 会话被过滤", () => {

@@ -1,4 +1,4 @@
-import { baseName, isWithinCwd } from "./paths";
+import { baseName, isWithinCwd, sameDir } from "./paths";
 
 /**
  * 原生会话侧栏的纯数据模型——无 vscode 依赖，node:test 可直接测。
@@ -38,6 +38,21 @@ export function isInWorkspace(session: ApiSession, workspaceRoots: string[]): bo
   const dir = session.cwd ?? session.projectRoot;
   if (!dir) return false;
   return workspaceRoots.some((root) => isWithinCwd(dir, root));
+}
+
+/**
+ * 会话目录与宿主工作区根的位置关系——会话行的目录类操作（在 Explorer
+ * 中定位 / 新窗打开 / 打开终端）按它显隐。无目录返回 null。
+ */
+export type WorkspaceRelation = "same" | "sub" | "out";
+export function workspaceRelation(
+  dir: string | null | undefined,
+  workspaceRoots: string[],
+): WorkspaceRelation | null {
+  if (!dir) return null;
+  if (workspaceRoots.some((root) => sameDir(dir, root))) return "same";
+  if (workspaceRoots.some((root) => isWithinCwd(dir, root))) return "sub";
+  return "out";
 }
 
 /** 行标题：用户命名 > 首条消息单行截断 > 兜底。 */
