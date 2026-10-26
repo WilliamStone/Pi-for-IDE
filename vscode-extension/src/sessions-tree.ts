@@ -290,14 +290,18 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
     if (this.mode === "recent") {
       return recentSessions(list).map((s) => this.sessionItem(s, true));
     }
-    // pinned 项目组置前——pi-web 的 Pinned 分区对应物；组内顺序按
-    // 各自最新会话活动排序（拖拽 projectOrder 次序 v2 再做，TreeView
-    // 无对应交互先不读）。
+    // 排序三档：pinned 置前 → 本工作区项目 → 异区项目（异区是次频入口，
+    // 沉底降干扰）；各档内保持 groupByProject 的最新活动序（拖拽
+    // projectOrder 次序 v2 再做，TreeView 无对应交互先不读）。
     const groups = groupByProject(list);
+    const roots = this.workspaceRoots();
     groups.sort((a, b) => {
       const ap = this.pinnedProjects.has(a.key) ? 1 : 0;
       const bp = this.pinnedProjects.has(b.key) ? 1 : 0;
-      return bp - ap;
+      if (bp !== ap) return bp - ap;
+      const aw = workspaceRelation(a.root, roots) === "out" ? 0 : 1;
+      const bw = workspaceRelation(b.root, roots) === "out" ? 0 : 1;
+      return bw - aw;
     });
     return groups.map((g) => this.projectItem(g));
   }
@@ -551,21 +555,23 @@ export function registerSessionCommands(
       }).show();
     }),
 
-    // ── 跨窗路由：异 workspace 会话/项目跳对应窗口。openFolder 不传
-    // flag 的默认语义 = 已有同目录窗口则聚焦、否则新开（forceReuseWindow
-    // 是"复用当前窗"会替换本窗工作区，正是要避免的行为）。会话版先写
-    // pending-open 记录，目标窗消费后自动打开该会话（见 pending-open.ts）。
+    // ── 跨窗路由：异 workspace 会话/项目跳对应窗口。命令 API 只有两个
+    // 力矩可选：forceReuseWindow=替换本窗工作区（绝不能要），不传 flag
+    // 时 API 上下文也解析为复用当前窗——只有 forceNewWindow 能给"新开"。
+    // 代价：已有同工作区窗口时也会再开一个重复窗（命令 API 无聚焦已开
+    // 窗的通道）；此时 pending-open 记录会被任一匹配窗的 watcher 先消费，
+    // 会话仍开在正确工作区。会话版先写记录，目标窗消费后自动开会话。
     vscode.commands.registerCommand("piIde.session.openInWorkspaceWindow", async (item: vscode.TreeItem) => {
       const s = provider.sessionById(sessionIdOf(item));
       const dir = s?.projectRoot ?? s?.cwd ?? undefined;
       if (!s || !dir) return;
       writePendingOpen(dir, s.id);
-      await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(dir));
+      await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(dir), { forceNewWindow: true });
     }),
     vscode.commands.registerCommand("piIde.project.openInWindow", async (item: ProjectItem) => {
       const dir = item.group.root;
       if (!dir) return;
-      await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(dir));
+      await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(dir), { forceNewWindow: true });
     }),
 
     vscode.commands.registerCommand("piIde.sessions.refresh", () => provider.reload()),
