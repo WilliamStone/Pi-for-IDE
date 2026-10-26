@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.3.0] - 2026-10-26
+
+- **Native Pi Sessions sidebar**: a dedicated activity-bar view replaces the web sidebar for navigation — sessions grouped by project (or a flat "recent" mode), live running / awaiting-input icons, pinned projects and sessions at the top, and a one-click workspace filter. Startup stages ("Checking for a running server…", "Starting local server…") show inside the view while the server comes up.
+- **Session actions, host-native**: right-click a session to rename, pin, archive, fork, or delete it; open it in the slim chat view or the full page; reveal its working directory in Explorer, open that directory in a new window, or spawn an integrated terminal on it.
+- **Cross-window session routing**: sessions and projects outside the current workspace carry a floating *Open in Workspace Window* button — it routes through the IDE's own launcher, so the target workspace's window gets focused when it already exists and created when it doesn't. Session-level jumps also hand the session over: the destination window opens that session's tab automatically. Foreign projects get a distinct shortcut-style icon and sink below same-workspace groups; clicking a session directly still opens it in the current window.
+- **Project-level actions**: pin / unpin / rename a project group, start a new session on it, or jump straight to its workspace window.
+- **Per-session tabs**: `Pi for IDE.sessionTabs` — `perSession` gives each session its own tab (a new-session composer tab re-keys onto the session it creates), `shared` keeps one tab.
+- **Awaiting-input surfacing**: sessions waiting on you show a badge in the tree, a status-bar count (click to open the next one), and an optional notification via `Pi for IDE.notifyAwaiting`.
+- **Dramatically faster startup**: ~38s of Windows shell-outs moved off the resolution path, a persistent V8 compile cache for spawned servers, tarball identity reads switched to async I/O (no more extension-host freezes on slow disks), and the session list now appears as soon as the server port is bound — during the embed route's lazy-load, not after it.
+- **Startup observability**: a timestamped lifecycle timeline in the output channel (resolution legs, spawn, handshake, first session data) makes every slow stage attributable.
+- **Cross-window coordination**: a shared server mutex serializes version checks / spawn / upgrades across windows; server shutdown requires consent — a stop request is refused while another client is still connected; instance markers are monotonic and never evict a newer instance.
+- **Upgrade UX**: toasts gained a one-click **Install** that applies the plan directly, a verdict line ranks local/registry/current candidates, and repeated prompts for the same decision are deduplicated per session.
+- **Server resilience**: an EPIPE guard and a 300 s watchdog let the spawned server survive extension-host restarts; the sidebar auto-starts the server when it's opened.
+- Requires pi-web-for-ide ≥ 0.12.2-2 for the newest capabilities (running/awaiting snapshots, session UI state, shutdown consent); older compatible builds degrade gracefully.
+
 ## [0.2.0] - 2026-10-20
 
 - **IDE shortcuts work inside the panel**: chords the web app doesn't consume (Ctrl/Alt/Meta combos and F-keys) are forwarded out of the iframe and resolved by VS Code's own keybinding service — your custom keybindings and `when` clauses apply exactly like a normal keypress. (Requires the matching pi-web-for-ide build; OS/browser-reserved keys like Ctrl+W can't reach the page and remain unreachable.)
