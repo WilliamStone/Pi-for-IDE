@@ -588,12 +588,12 @@
       "editor/title/context": [
         {
           "command": "piIde.tab.copyWorkspacePath",
-          "when": "resourceFilename =~ /webview-.*piIde\\.webview/ || activeWebviewPanelId =~ /piIde\\.webview/ && resourceScheme != 'file'",
+          "when": "resourceFilename =~ /webview-.*piIde\\.webview/ || activeWebviewPanelId =~ /piIde\\.webview/ && !resourceSet",
           "group": "piweb@0"
         },
         {
           "command": "piIde.tab.revealInSessions",
-          "when": "resourceFilename =~ /webview-.*piIde\\.webview\\.(s|n)/ || activeWebviewPanelId =~ /piIde\\.webview/ && resourceScheme != 'file'",
+          "when": "resourceFilename =~ /webview-.*piIde\\.webview\\.(s|n)/ || activeWebviewPanelId =~ /piIde\\.webview/ && !resourceSet",
           "group": "piweb@1"
         }
       ],

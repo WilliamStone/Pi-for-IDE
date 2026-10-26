@@ -183,8 +183,10 @@ export function registerSessionsFeature(
   // 换成被点编辑器的）：when 用 resourceFilename 命中
   // `webview-<providerId>-<uuid>`（providerId = mainThreadWebview-<viewType>
   // ——新版 webview 才带 resource）精确到被点 webview tab；旧版 webview
-  // 无 resource，回退 activeWebviewPanelId + resourceScheme != 'file'
-  // （旧版里文件 tab resource 恒有值、webview 恒空，恰好把两种 tab 分开）。
+  // 无 resource，回退 activeWebviewPanelId && !resourceSet——"被点 tab 无
+  // resource"一把覆盖全部资源型 tab（file/untitled/git/vscode/diff…），
+  // 残留仅旧版下其他无 resource 异类 tab（终端/输出）+pi 激活时误显示，
+  // 命令入参不符即空操作兜底。
   // 命令入参 = 被点 tab 的 resource URI——含唯一 viewType 即精确归属；
   // 拿不到（旧版无 resource）才回退激活面板。
   const tabPanelFor = (arg: unknown): PiWebWebviewPanel | undefined => {
