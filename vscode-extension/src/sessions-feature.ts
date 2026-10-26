@@ -179,13 +179,14 @@ export function registerSessionsFeature(
     panel.setTitleOverride(tag ? `Pi — New session (${tag})` : "Pi — New session");
   };
 
-  // editor/title/context 的两层都精确到被点 tab：菜单 when 用
-  // resourceScheme/resourcePath（VS Code 弹菜单前把 resourceContext 临时
-  // 换成被点编辑器的——"Copy Path" 只在文件 tab 出现的同套机制）；命令
-  // 入参 = 同一 resource URI（menuActionOptions.arg）。webview URI 形如
-  //   vscode-webview://webview-panel/webview-<providerId>-<uuid>
-  // providerId = mainThreadWebview-<viewType>——各面板 viewType 唯一，
-  // URI 内含它即精确归属。非 webview 资源兜底返回 undefined 空操作。
+  // editor/title/context 的双轨制（VS Code 弹菜单前把 resourceContext
+  // 换成被点编辑器的）：when 用 resourceFilename 命中
+  // `webview-<providerId>-<uuid>`（providerId = mainThreadWebview-<viewType>
+  // ——新版 webview 才带 resource）精确到被点 webview tab；旧版 webview
+  // 无 resource，回退 activeWebviewPanelId + resourceScheme != 'file'
+  // （旧版里文件 tab resource 恒有值、webview 恒空，恰好把两种 tab 分开）。
+  // 命令入参 = 被点 tab 的 resource URI——含唯一 viewType 即精确归属；
+  // 拿不到（旧版无 resource）才回退激活面板。
   const tabPanelFor = (arg: unknown): PiWebWebviewPanel | undefined => {
     const uri = arg as { scheme?: unknown; path?: unknown } | undefined;
     const scheme = typeof uri?.scheme === "string" ? uri.scheme : "";

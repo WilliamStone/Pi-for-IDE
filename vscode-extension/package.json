@@ -588,12 +588,12 @@
       "editor/title/context": [
         {
           "command": "piIde.tab.copyWorkspacePath",
-          "when": "resourceScheme == 'vscode-webview' && resourcePath =~ /piIde\\.webview/",
+          "when": "resourceFilename =~ /webview-.*piIde\\.webview/ || activeWebviewPanelId =~ /piIde\\.webview/ && resourceScheme != 'file'",
           "group": "piweb@0"
         },
         {
           "command": "piIde.tab.revealInSessions",
-          "when": "resourceScheme == 'vscode-webview' && resourcePath =~ /piIde\\.webview\\.(s|n)/",
+          "when": "resourceFilename =~ /webview-.*piIde\\.webview\\.(s|n)/ || activeWebviewPanelId =~ /piIde\\.webview/ && resourceScheme != 'file'",
           "group": "piweb@1"
         }
       ],
