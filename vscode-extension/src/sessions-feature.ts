@@ -179,13 +179,13 @@ export function registerSessionsFeature(
     panel.setTitleOverride(tag ? `Pi — New session (${tag})` : "Pi — New session");
   };
 
-  // editor/title/context 的命令入参是被右键编辑器的 resource URI（VS Code
-  // 源码 editorTabsControl.ts：menuActionOptions.arg = resourceContext.get()）。
-  // webview tab 的 URI 形如
+  // editor/title/context 的两层都精确到被点 tab：菜单 when 用
+  // resourceScheme/resourcePath（VS Code 弹菜单前把 resourceContext 临时
+  // 换成被点编辑器的——"Copy Path" 只在文件 tab 出现的同套机制）；命令
+  // 入参 = 同一 resource URI（menuActionOptions.arg）。webview URI 形如
   //   vscode-webview://webview-panel/webview-<providerId>-<uuid>
   // providerId = mainThreadWebview-<viewType>——各面板 viewType 唯一，
-  // URI 内含它即精确归属。文件等非 webview 资源归属不了：返回 undefined
-  // 让命令空操作（菜单显隐由激活驱动、是平台限制，至少不张冠李戴）。
+  // URI 内含它即精确归属。非 webview 资源兜底返回 undefined 空操作。
   const tabPanelFor = (arg: unknown): PiWebWebviewPanel | undefined => {
     const uri = arg as { scheme?: unknown; path?: unknown } | undefined;
     const scheme = typeof uri?.scheme === "string" ? uri.scheme : "";
