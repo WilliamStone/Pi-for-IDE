@@ -16,9 +16,9 @@ registerHooks({
   },
 });
 
-const { SessionPanels } = await import("./session-panels.ts");
+const { SessionPanels, parsePiViewType } = await import("./session-panels.ts");
 
-/** 假面板——只暴露注册表依赖的面：列归属/标题回调/生命周期。 */
+/** 假面板——只暴露注册表依赖的面：列归属/标题回调/生命周期/adopt。 */
 function fakePanel() {
   const listeners = { disposed: null, bound: null };
   return {
@@ -28,6 +28,8 @@ function fakePanel() {
     disposed: false,
     dispose() { this.disposed = true; listeners.disposed?.(); },
     fireBound(id, title) { listeners.bound?.(id, title); },
+    adopted: undefined, // [rawPanel, state]
+    adopt(panel, state) { this.adopted = [panel, state]; },
     _listeners: listeners,
   };
 }
@@ -97,6 +99,39 @@ test("dispose 的面板从注册表摘除（下次按键新建）", () => {
   assert.equal(created.length, 2);
   assert.notEqual(fresh, created[0]);
   assert.equal(fresh.disposed, false);
+});
+
+test("adopt：孤儿 tab 以既有 viewType 注册进键映射；URI 反查继续命中", async () => {
+  const { registry, created } = makeRegistry();
+  const orphan = { viewType: "piIde.webview.s.s-9", disposed: false, dispose() { this.disposed = true; } };
+  const p = await registry.adopt("s-9", orphan, { sessionId: "s-9", cwd: "/repo" });
+  assert.equal(registry.forKey("s-9"), p, "接管后点同会话复用它而非新开");
+  assert.equal(p.viewType, "piIde.webview.s.s-9", "包装壳沿用既有面板 viewType");
+  assert.deepEqual(p.adopted, [orphan, { sessionId: "s-9", cwd: "/repo" }]);
+  assert.equal(
+    registry.byViewTypeUri("/webview-panel/webview-mainThreadWebview-piIde.webview.s.s-9-uuid"),
+    p,
+  );
+});
+
+test("adopt：同键已有活面板时关掉多余孤儿，返回既有", async () => {
+  const { registry } = makeRegistry();
+  const live = registry.forKey("s-a");
+  const orphan = { viewType: "piIde.webview.s.s-a", disposed: false, dispose() { this.disposed = true; } };
+  const p = await registry.adopt("s-a", orphan, undefined);
+  assert.equal(p, live);
+  assert.equal(orphan.disposed, true);
+});
+
+test("parsePiViewType：各形态归类，前缀与非本扩展不命中", () => {
+  assert.deepEqual(parsePiViewType("piIde.webview.s.abc-123"), { kind: "session", id: "abc-123" });
+  assert.deepEqual(parsePiViewType("piIde.webview.n7"), { kind: "composer" });
+  assert.deepEqual(parsePiViewType("piIde.webview.main"), { kind: "main" });
+  assert.deepEqual(parsePiViewType("piIde.webview.settings"), { kind: "settings" });
+  assert.deepEqual(parsePiViewType("piIde.webview"), { kind: "legacy" });
+  assert.deepEqual(parsePiViewType("mainThreadWebview-piIde.webview.s.x"), { kind: "session", id: "x" });
+  assert.equal(parsePiViewType("github.pr"), undefined);
+  assert.equal(parsePiViewType("piIde.webview.other"), undefined);
 });
 
 test("column()：首个面板列回落点；有面板后锚其列", () => {

@@ -185,7 +185,9 @@ already gates the button on `sessionBusy`.
 each subsystem lives in its own module so a bug lands in one file:
 
 - `session-panels.ts` — per-session/composer webview registry; re-keys a
-  `new:<cwd>` composer panel onto the real session id on `sessionSelected`.
+  `new:<cwd>` composer panel onto the real session id on `sessionSelected`;
+  `adopt()` retakes orphaned tabs for WebviewPanelSerializer revival (see
+  `docs/agents/webview-panels.md` for the whole tab/menu/revival contract).
 - `sessions-feature.ts` — sessions tree + awaiting status bar + settings
   panel + Open Original Page + session command wiring.
 - `upgrade.ts` — EVERY upgrade surface: resolve-path downgrade warning

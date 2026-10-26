@@ -65,6 +65,10 @@
     const p = data.payload || {};
     if (data.source === 'host' && p.kind === 'status') {
       setStatus(p.text);
+    } else if (data.source === 'host' && p.kind === 'persistState') {
+      // 面板身份快照落盘——宿主重启后 WebviewPanelSerializer 接管本 tab
+      // 时 deserializeWebviewPanel 的 state 参数就是它。
+      if (p.state && typeof p.state === 'object') vscode.setState(p.state);
     } else if (data.source === 'host' && p.kind === 'serverReady') {
       gate.classList.remove('error');
       // 已就绪才忽略——offline 兜底页 display:block 不算就绪，照常重探。

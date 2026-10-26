@@ -13,7 +13,7 @@ import { managedRuntimeRoot } from "./managedRuntime";
 import { currentServerStatus, onServerStatus, outputChannel } from "./server-status";
 import { watchPendingOpens } from "./pending-open";
 import { PiIdeServer } from "./piIdeServer";
-import { SessionPanels } from "./session-panels";
+import { SessionPanels, parsePiViewType } from "./session-panels";
 import { sessionTitle } from "./sessions-model";
 import { registerSessionCommands, SessionsTreeProvider } from "./sessions-tree";
 import { PiWebWebviewPanel } from "./webviewProvider";
@@ -281,6 +281,61 @@ export function registerSessionsFeature(
     log: (l) => outputChannel().appendLine(`[pending-open] ${l}`),
   });
   if (pendingWatcher) context.subscriptions.push(pendingWatcher);
+
+  // 孤儿面板接管（扩展升级/宿主重启后 tab 还在、扩展侧对象已死）：
+  // registerWebviewPanelSerializer 按 viewType 精确匹配，而 viewType 是
+  // 动态值——从 tabGroups 现存的 pi webview tab 反推、逐 viewType 注册；
+  // VS Code 对每个匹配面板回调 deserialize → adopt 接管（不是新开 tab）。
+  // 裸 `piIde.webview`（旧版统一 viewType）不注册——其面板无持久身份，
+  // 留给 VS Code 自行关闭（僵尸 tab 消失正是想要的净效果）。
+  const revivePanel = async (
+    panel: vscode.WebviewPanel,
+    state: { sessionId?: string; cwd?: string; title?: string; section?: string } | undefined,
+  ): Promise<void> => {
+    const kind = parsePiViewType(panel.viewType);
+    switch (kind?.kind) {
+      case "session":
+        await sessionPanels.adopt(kind.id, panel, state);
+        return;
+      case "composer": {
+        // 已落地会话的 composer 持 sessionId；否则按 cwd 回 new:<cwd> 键；
+        // 两者皆无的孤儿救不回有用状态——关掉。
+        const sid = typeof state?.sessionId === "string" && state.sessionId ? state.sessionId : "";
+        const cwd = typeof state?.cwd === "string" && state.cwd ? state.cwd : "";
+        const key = sid || (cwd ? `new:${cwd}` : "");
+        if (!key) {
+          panel.dispose();
+          return;
+        }
+        await sessionPanels.adopt(key, panel, state);
+        return;
+      }
+      case "main":
+        provider.adopt(panel, state);
+        return;
+      case "settings":
+        settingsPanel.adopt(panel, state);
+        return;
+      default:
+        panel.dispose();
+    }
+  };
+  const registered = new Set<string>();
+  for (const group of vscode.window.tabGroups.all) {
+    for (const tab of group.tabs) {
+      const input = tab.input;
+      if (!(input instanceof vscode.TabInputWebview)) continue;
+      const kind = parsePiViewType(input.viewType);
+      if (!kind || kind.kind === "legacy") continue;
+      if (registered.has(input.viewType)) continue;
+      registered.add(input.viewType);
+      context.subscriptions.push(
+        vscode.window.registerWebviewPanelSerializer(input.viewType, {
+          deserializeWebviewPanel: revivePanel,
+        }),
+      );
+    }
+  }
 
   return { settingsPanel };
 }

@@ -5,7 +5,32 @@
 // createPanel 走注入工厂——re-key/归属逻辑可脱离 webview 直接测。
 
 import type * as vscode from "vscode";
-import type { PiWebWebviewPanel } from "./webviewProvider";
+import type { PiPanelPersistState, PiWebWebviewPanel } from "./webviewProvider";
+
+/** viewType 命名解析（每面板唯一）：
+ *  `piIde.webview.s.<sessionId>` 会话 | `piIde.webview.n<seq>` composer |
+ *  `piIde.webview.main` / `.settings` 单例 | 裸 `piIde.webview` 旧版统一
+ *  形态（身份不可考，不参与 revive）。TabInputWebview.viewType 正常是
+ *  裸值，个别渠道可能带 mainThreadWebview- 前缀——剥掉再判。 */
+export type PiViewType =
+  | { kind: "session"; id: string }
+  | { kind: "composer" }
+  | { kind: "main" }
+  | { kind: "settings" }
+  | { kind: "legacy" }
+  | undefined;
+
+export function parsePiViewType(viewType: string): PiViewType {
+  const vt = viewType.startsWith("mainThreadWebview-")
+    ? viewType.slice("mainThreadWebview-".length)
+    : viewType;
+  if (vt === "piIde.webview") return { kind: "legacy" };
+  if (vt === "piIde.webview.main") return { kind: "main" };
+  if (vt === "piIde.webview.settings") return { kind: "settings" };
+  if (vt.startsWith("piIde.webview.s.")) return { kind: "session", id: vt.slice(16) };
+  if (/^piIde\.webview\.n\d+$/.test(vt)) return { kind: "composer" };
+  return undefined;
+}
 
 export interface SessionPanelsDeps {
   /** 面板工厂：宿主侧注入 PiWebWebviewPanel 的真实构造（含订阅注册）。
@@ -72,6 +97,33 @@ export class SessionPanels implements vscode.Disposable {
   active(): PiWebWebviewPanel | undefined {
     for (const p of this.panels.values()) if (p.isActive) return p;
     return undefined;
+  }
+
+  /** 接管 serializer revive 的孤儿 tab：复用既有 vscode.WebviewPanel
+   *  （面板包壳内按它重渲染/重接桥），注册进 key 映射。同键已有活面板
+   *  时关掉多余孤儿，返回既有面板。 */
+  async adopt(
+    key: string,
+    panel: vscode.WebviewPanel,
+    state?: PiPanelPersistState,
+  ): Promise<PiWebWebviewPanel> {
+    const existing = this.panels.get(key);
+    if (existing) {
+      panel.dispose();
+      return existing;
+    }
+    // eslint-disable-next-line prefer-const -- 同 forKey：闭包先行声明，构造后回填。
+    let p!: PiWebWebviewPanel;
+    // 既有面板的 viewType 保持不变——包装壳按真实值建（URI 反查继续命中）。
+    p = this.deps.createPanel(
+      panel.viewType,
+      () => this.deleteKeyOf(p),
+      (sessionId, title) => this.rekey(p, sessionId, title),
+    );
+    this.panels.set(key, p);
+    this.owned.add(p);
+    p.adopt(panel, state);
+    return p;
   }
 
   /** 按 tab resource URI 反查面板：path 形如

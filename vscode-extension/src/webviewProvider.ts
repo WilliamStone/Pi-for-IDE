@@ -5,6 +5,17 @@ import type { Bridge } from "./bridge";
 import { buildEmbedUrl } from "./embedUrl";
 import { piConfig } from "./config";
 
+/** shell 落盘的面板身份快照（webview setState）——宿主重启后 serializer
+ *  的 deserializeWebviewPanel 拿它恢复面板身份。全字段可选——缺什么
+ *  面板就缺什么（如 composer 无 sessionId）。 */
+export interface PiPanelPersistState {
+  sessionId?: string;
+  cwd?: string;
+  view?: string;
+  section?: string;
+  title?: string;
+}
+
 /**
  * Webview panel that hosts the pi-web UI inside a VSCode editor column.
  *
@@ -49,6 +60,7 @@ export class PiWebWebviewPanel extends vscode.Disposable {
   setTitleOverride(title: string): void {
     this.titleOverride = title;
     if (this.panel) this.panel.title = title;
+    this.pushPersistState();
   }
 
   /** 面板当前所在列——会话 tab 组锚定用（未打开时 undefined）。 */
@@ -182,83 +194,119 @@ export class PiWebWebviewPanel extends vscode.Disposable {
           retainContextWhenHidden: true,
         },
       );
-      // iconPath is settable after creation (the constructor type doesn't
-      // declare it, but WebviewPanel does).
-      this.panel.iconPath = vscode.Uri.joinPath(
-        this.extensionUri,
-        "resources",
-        "icons",
-        "icon-128.png",
-      );
-
-      logLifecycle(`panel created[${this.label()}] (createWebviewPanel)`);
-      // 单文档外壳只赋一次——后续状态切换全走 postMessage，不再整页 reload。
-      this.shellReady = false;
-      this.panel.webview.html = this.renderShell(currentServerStatus());
-      logLifecycle(`shell rendered[${this.label()}] (renderShell)`);
-      // webview 冷启动被渲染进程争抢/杀软拖到分钟级时，面板全程空白像
-      // 卡死——6s 还没上屏就挂个进度浮窗说明在加载（shell 报到后自动关）。
-      const panel = this.panel;
-      setTimeout(() => {
-        if (this.shellReady || this.panel !== panel) return;
-        void vscode.window.withProgress(
-          {
-            location: vscode.ProgressLocation.Notification,
-            title: "Pi for IDE panel is loading (webview init is slow)…",
-            cancellable: false,
-          },
-          () => this.shellReadyPromise(),
-        );
-      }, 6000);
-      this.panel.onDidDispose(() => {
-        this.panel = undefined;
-        this.currentCwd = undefined;
-        // 缓存随面板销毁失效——新面板必须重新渲染 HTML，否则
-        // 同实例同 URL 的提前返回会让新 webview 永久空白。
-        this.lastServer = undefined;
-        this.lastUrl = undefined;
-        // 面板没了，等"上屏"的浮窗也收掉。
-        for (const r of this.shellReadyWaiters.splice(0)) r();
-        this.onDisposed?.();
-      });
-
-      // Bridge messages from the pi-web iframe to VSCode APIs and relay
-      // responses back. Messages arrive as { source: "embed", id, request }.
-      this.panel.webview.onDidReceiveMessage(async (message) => {
-        if (!message) return;
-        if (message.source === "piIde.log") {
-          logLifecycle(`webview[${this.label()}]: ${String(message.text ?? "")}`);
-          if (message.text === "shell painted") this.markShellReady();
-          return;
-        }
-        if (message.source !== "embed") return;
-        // 会话落地通知（notifyEmbedHost 单向投递，无 id、不走
-        // request/response 往返）——先于 bridge.handle 拦截。
-        if (message.request?.kind === "sessionSelected" && typeof message.request.sessionId === "string") {
-          this.bindSession(message.request.sessionId);
-          this.onSessionBound?.(message.request.sessionId, message.request.title);
-          return;
-        }
-        try {
-          const payload = await this.bridge.handle(message.request);
-          this.panel?.webview.postMessage({
-            source: "host",
-            id: message.id,
-            payload,
-          });
-        } catch (error) {
-          this.panel?.webview.postMessage({
-            source: "host",
-            id: message.id,
-            payload: { error: String(error) },
-          });
-        }
-      });
+      this.attachPanel(this.panel, "createWebviewPanel");
     } else {
       this.panel.reveal(undefined, false);
     }
 
     await this.refresh();
+  }
+
+  /**
+   * 接管存活孤儿面板（宿主重启/扩展升级后由 WebviewPanelSerializer 回调
+   * 唤起）——扩展侧对象随旧宿主死过一遍，tab 本体还活着：重渲染 shell、
+   * 重接桥与销毁钩子、按落盘 state 恢复身份，然后走 refresh 自愈。
+   * state 为 shell persistState 最后落盘的 {sessionId,cwd,view,section,title}。
+   */
+  adopt(panel: vscode.WebviewPanel, state?: PiPanelPersistState): void {
+    if (this.panel) {
+      // 注册表已持有活面板却来了同 viewType 的孤儿——关掉多余的 tab。
+      panel.dispose();
+      return;
+    }
+    this.panel = panel;
+    if (typeof state?.sessionId === "string") this.sessionId = state.sessionId;
+    if (typeof state?.cwd === "string") this.currentCwd = state.cwd;
+    if (typeof state?.title === "string") this.titleOverride = state.title;
+    if (typeof state?.section === "string") this.panelSection = state.section;
+    // deserialize 后 webview options 被重置——API 要求重设（脚本才有桥）。
+    // retainContextWhenHidden 是创建期选项，接管的面板拿不到——隐藏再显示
+    // 时 shell 会重加载，靠 iframe URL 的 session/cwd 参数自行恢复现场。
+    panel.webview.options = { enableScripts: true };
+    this.attachPanel(panel, "deserialized");
+    // refresh 不 await：deserialize 期间服务可能还在启动，先让 shell 门
+    // 上屏（等待页），serverReady 到位后走既有探测链。
+    void this.refresh().catch((e) =>
+      logLifecycle(`adopt refresh failed[${this.label()}]: ${String(e)}`),
+    );
+  }
+
+  /**
+   * 新建/接管共用的一块接线：图标、单文档 shell、上屏进度浮窗、销毁与
+   * 桥消息钩子。面板本体（vscode.WebviewPanel）由调用方备好。
+   */
+  private attachPanel(panel: vscode.WebviewPanel, how: string): void {
+    // iconPath is settable after creation (the constructor type doesn't
+    // declare it, but WebviewPanel does).
+    panel.iconPath = vscode.Uri.joinPath(
+      this.extensionUri,
+      "resources",
+      "icons",
+      "icon-128.png",
+    );
+
+    logLifecycle(`panel attached[${this.label()}] (${how})`);
+    // 单文档外壳只赋一次——后续状态切换全走 postMessage，不再整页 reload。
+    this.shellReady = false;
+    panel.webview.html = this.renderShell(currentServerStatus());
+    logLifecycle(`shell rendered[${this.label()}] (renderShell)`);
+    // webview 冷启动被渲染进程争抢/杀软拖到分钟级时，面板全程空白像
+    // 卡死——6s 还没上屏就挂个进度浮窗说明在加载（shell 报到后自动关）。
+    setTimeout(() => {
+      if (this.shellReady || this.panel !== panel) return;
+      void vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: "Pi for IDE panel is loading (webview init is slow)…",
+          cancellable: false,
+        },
+        () => this.shellReadyPromise(),
+      );
+    }, 6000);
+    panel.onDidDispose(() => {
+      this.panel = undefined;
+      this.currentCwd = undefined;
+      // 缓存随面板销毁失效——新面板必须重新渲染 HTML，否则
+      // 同实例同 URL 的提前返回会让新 webview 永久空白。
+      this.lastServer = undefined;
+      this.lastUrl = undefined;
+      // 面板没了，等"上屏"的浮窗也收掉。
+      for (const r of this.shellReadyWaiters.splice(0)) r();
+      this.onDisposed?.();
+    });
+
+    // Bridge messages from the pi-web iframe to VSCode APIs and relay
+    // responses back. Messages arrive as { source: "embed", id, request }.
+    panel.webview.onDidReceiveMessage(async (message) => {
+      if (!message) return;
+      if (message.source === "piIde.log") {
+        logLifecycle(`webview[${this.label()}]: ${String(message.text ?? "")}`);
+        if (message.text === "shell painted") this.markShellReady();
+        return;
+      }
+      if (message.source !== "embed") return;
+      // 会话落地通知（notifyEmbedHost 单向投递，无 id、不走
+      // request/response 往返）——先于 bridge.handle 拦截。
+      if (message.request?.kind === "sessionSelected" && typeof message.request.sessionId === "string") {
+        this.bindSession(message.request.sessionId);
+        this.onSessionBound?.(message.request.sessionId, message.request.title);
+        return;
+      }
+      try {
+        const payload = await this.bridge.handle(message.request);
+        this.panel?.webview.postMessage({
+          source: "host",
+          id: message.id,
+          payload,
+        });
+      } catch (error) {
+        this.panel?.webview.postMessage({
+          source: "host",
+          id: message.id,
+          payload: { error: String(error) },
+        });
+      }
+    });
   }
 
   /**
@@ -269,6 +317,7 @@ export class PiWebWebviewPanel extends vscode.Disposable {
     if (this.sessionId === sessionId) return;
     this.sessionId = sessionId;
     this.lastUrl = undefined;
+    this.pushPersistState();
   }
 
   /** 只聚焦现有面板（不重载）。未创建时为空操作。 */
@@ -382,11 +431,34 @@ export class PiWebWebviewPanel extends vscode.Disposable {
     this.lastServer = server;
     this.lastUrl = urlStr;
     this.lastShellError = undefined;
+    this.pushPersistState();
     this.panel.webview.postMessage({
       source: "host",
       payload: { kind: "serverReady", url: urlStr, probe: server.origin },
     });
     logLifecycle(`serverReady posted[${this.label()}] url=${urlStr}`);
+  }
+
+  /** 面板身份快照推给 shell 落盘（webview setState）——宿主重启后
+   *  serializer 接管孤儿面板时凭它恢复 sessionId/cwd/标题。面板没开
+   *  或内容没变时不发（refresh 高频，省得空推）。 */
+  private lastPersistJson = "";
+  private pushPersistState(): void {
+    if (!this.panel) return;
+    const state: PiPanelPersistState = {
+      sessionId: this.sessionId,
+      cwd: this.currentCwd,
+      view: this.panelView,
+      section: this.panelSection,
+      title: this.titleOverride,
+    };
+    const json = JSON.stringify(state);
+    if (json === this.lastPersistJson) return;
+    this.lastPersistJson = json;
+    void this.panel.webview.postMessage({
+      source: "host",
+      payload: { kind: "persistState", state },
+    });
   }
 
   /**

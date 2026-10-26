@@ -24,6 +24,7 @@ Read every note whose files a change touches before making it.
 - [backlog.md](backlog.md): 1.0.x 之后的产品 backlog——工作区过滤、原生边栏、start 超时解耦、回退演进。
 - [embed-protocol.md](embed-protocol.md): the embed handshake contract — protocol level vs capability registry (namespaced keys, register-before-ship), and lifecycle sovereignty (watchdog armed only on extension-spawned servers; presence = heartbeat, open SSE or API poll; attach-not-adopt; sleep forgiveness via tick drift; turn-revert semantics). Read before touching `app/api/embed/**`, `app/api/sessions/[id]/revert-turn/`, `lib/embed/**`, `lib/file-changes.ts`, `lib/brand.ts`, `components/embed/**`, `vscode-extension/src/`.
 - [client-platform.md](client-platform.md): mobile software keyboard and viewport height, the terminal's extra keys and its own dark/light theme, completion sound. Files: `hooks/useViewportHeight.ts`, `hooks/useAudio.ts`, `components/TerminalExtraKeys.tsx`, `lib/terminal-extra-keys.ts`, `lib/terminal-theme.ts`, `hooks/useTerminalTheme.ts`, the keyboard-open CSS.
+- [webview-panels.md](webview-panels.md): webview editor resource URI anatomy (viewType embedded), per-panel viewType scheme, `editor/title/context` clicked-tab context-key mechanics + dual-track `when`, orphan panel revival via WebviewPanelSerializer + shell `persistState`. Files: `vscode-extension/src/webviewProvider.ts`, `vscode-extension/src/session-panels.ts`, `vscode-extension/src/sessions-feature.ts`, `vscode-extension/resources/shell.js`, `vscode-extension/package.json` menus.
 
 ---
 
@@ -201,7 +202,8 @@ vscode-extension/src/
   sessions-tree.ts        native Sessions sidebar: TreeDataProvider polling /api/agent/running + /api/sessions; item actions (open/rename/fork/delete/pin/archive) via registerSessionCommands
   sessions-model.ts       vscode-free model core for the sidebar: workspace filter, project grouping, recent mode, titles, relTime
   extension.ts            activation, commands, status bar, update checks
-  webviewProvider.ts      single-document webview shell (postMessage-driven states; CSP + static resources/shell.js)
+  webviewProvider.ts      single-document webview shell (postMessage-driven states; CSP + static resources/shell.js; create/adopt share attachPanel; persistState for serializer revive — see docs/agents/webview-panels.md)
+  session-panels.ts       per-key panel registry + viewType naming/parse (s./n/main/settings) + URI reverse lookup + orphan adopt
 
 components/
   AppShell.tsx             layout, URL state, tab management

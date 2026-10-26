@@ -24,9 +24,10 @@ function bootShell({ fetchImpl } = {}) {
   const dom = new JSDOM(SHELL_HTML, { runScripts: "outside-only" });
   const { window } = dom;
   const posted = [];
+  const persisted = [];
   window.acquireVsCodeApi = () => ({
     postMessage: (m) => posted.push(m),
-    setState: () => {},
+    setState: (s) => persisted.push(s),
     getState: () => undefined,
   });
   window.fetch = fetchImpl ?? (async () => ({}));
@@ -36,7 +37,7 @@ function bootShell({ fetchImpl } = {}) {
   const frame = window.document.getElementById("pi-web-frame");
   const post = (data) =>
     window.dispatchEvent(new window.MessageEvent("message", { data }));
-  return { window, posted, gate, gateText, frame, post };
+  return { window, posted, persisted, gate, gateText, frame, post };
 }
 
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -66,6 +67,14 @@ test("serverReady probes then loads iframe; load event hides gate", async () => 
   assert.equal(gate.style.display, "none");
   assert.equal(frame.style.display, "block");
   assert.ok(posted.some((m) => m.text === "iframe page loaded"));
+});
+
+test("persistState message lands in vscode.setState (serializer revive source)", () => {
+  const { persisted, post } = bootShell();
+  const state = { sessionId: "s-1", cwd: "/repo", view: "chat" };
+  post({ source: "host", payload: { kind: "persistState", state } });
+  post({ source: "host", payload: { kind: "persistState" } }); // 无 state 不崩
+  assert.deepEqual(persisted, [state]);
 });
 
 test("serverError paints the failure gate and bumps gen", async () => {
