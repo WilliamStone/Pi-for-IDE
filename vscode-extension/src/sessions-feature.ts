@@ -12,6 +12,7 @@ import { currentServerStatus, onServerStatus, outputChannel } from "./server-sta
 import { watchPendingOpens } from "./pending-open";
 import { PiIdeServer } from "./piIdeServer";
 import { SessionPanels } from "./session-panels";
+import { sessionTitle } from "./sessions-model";
 import { registerSessionCommands, SessionsTreeProvider } from "./sessions-tree";
 import { PiWebWebviewPanel } from "./webviewProvider";
 
@@ -206,7 +207,10 @@ export function registerSessionsFeature(
   // 常驻覆盖本窗早已激活的场景。
   const pendingWatcher = watchPendingOpens({
     workspaceRoots: () => (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath),
-    consume: (id) => void openSession(id),
+    consume: (id) => {
+      const s = sessionsProvider.sessionById(id);
+      void openSession(id, s ? sessionTitle(s) : undefined);
+    },
     log: (l) => outputChannel().appendLine(`[pending-open] ${l}`),
   });
   if (pendingWatcher) context.subscriptions.push(pendingWatcher);
