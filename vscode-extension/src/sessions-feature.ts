@@ -177,6 +177,17 @@ export function registerSessionsFeature(
     panel.setTitleOverride(tag ? `Pi — New session (${tag})` : "Pi — New session");
   };
 
+  // editor/title/context 的菜单入参是被右键的 tab（Tab.label 对应
+  // panel.title）——按它反查目标面板；入参拿不到 label 时回退激活面板，
+  // 不劣于原实现。
+  const tabPanelFor = (arg: unknown): PiWebWebviewPanel | undefined => {
+    const label = (arg as { label?: unknown })?.label;
+    if (typeof label === "string") {
+      for (const p of sessionPanels.all()) if (p.title === label) return p;
+    }
+    return sessionPanels.active();
+  };
+
   const openSession = async (id: string, title?: string) => {
     // 面板 cwd 用会话自己的目录——跨项目点开不受当前配置 cwd 影响。
     const cwd = sessionsProvider.sessionById(id)?.cwd
@@ -223,17 +234,18 @@ export function registerSessionsFeature(
         ?? "";
       await newSessionAt(cwd);
     }),
-    // tab 右键的工作区动作：会话 tab（含 composer）右键可见——归属经
-    // panel.isActive 反查，cwd 取面板记录的 reveal 入参。
-    vscode.commands.registerCommand("piIde.tab.copyWorkspacePath", async () => {
-      const dir = sessionPanels.active()?.cwd;
+    // tab 右键动作：归属按"被右键的 tab"解析——菜单入参是该 tab（label
+    // = panel.title 匹配）；拿不到入参才回退激活面板。会话 tab 与 composer
+    // tab 同样适用；cwd/session 取面板记录的 reveal 入参。
+    vscode.commands.registerCommand("piIde.tab.copyWorkspacePath", async (arg?: unknown) => {
+      const dir = tabPanelFor(arg)?.cwd;
       if (dir) await vscode.env.clipboard.writeText(dir);
     }),
     // 从会话 tab 定位到 Pi Sessions 树中对应条目（选中+聚焦+展开父链
     // ——视觉区分=树选中态）。区外会话 revealInExplorer 会误触 openFolder
     // 换掉本窗工作区，不可复用；树定位无此限。composer 无 sessionId 时空操作。
-    vscode.commands.registerCommand("piIde.tab.revealInSessions", async () => {
-      const id = sessionPanels.active()?.session;
+    vscode.commands.registerCommand("piIde.tab.revealInSessions", async (arg?: unknown) => {
+      const id = tabPanelFor(arg)?.session;
       const item = id ? sessionsProvider.revealItemFor(id) : undefined;
       if (item) await sessionsView.reveal(item, { select: true, focus: true, expand: true });
     }),

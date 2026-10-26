@@ -88,6 +88,10 @@
         document.getElementById("offline-desc").textContent =
           "Reconnect to the local " + BRAND + " server, then try again.";
         document.title = BRAND + " is offline";
+        // 嵌入宿主的 shell 监听此消息：兜底页在 iframe load 事件里与正常页
+        // 不可区分，不回报会被 display:block 误判"已就绪"而永久卡住。
+        // 顶层直接打开时 parent===window、无监听者，自发自收无影响。
+        try { window.parent.postMessage({ source: "pi-web-offline" }, "*"); } catch (_) {}
       </script>
       <button type="button" onclick="location.reload()">Try again</button>
     </main>

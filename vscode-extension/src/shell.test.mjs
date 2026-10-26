@@ -93,6 +93,62 @@ test("probe timeout falls back to failure page after deadline", async () => {
   assert.ok(posted.some((m) => m.text === "90s probe timeout, showing failure page"));
 });
 
+test("offline fallback self-heals: re-probe then re-navigates", async () => {
+  const { posted, gate, frame, post, window } = bootShell();
+  post({
+    source: "host",
+    payload: { kind: "serverReady", url: "http://127.0.0.1:3031/", probe: "http://127.0.0.1:3031/" },
+  });
+  await delay(20);
+  frame.dispatchEvent(new window.Event("load"));
+  // iframe 导航落到 SW 兜底页——offline.html 主动回报
+  post({ source: "pi-web-offline" });
+  assert.equal(frame.style.display, "none");
+  assert.equal(gate.style.display, "grid");
+  assert.ok(posted.some((m) => m.text === "iframe landed on offline fallback, re-probing"));
+  // 探测恢复 → 重新赋 src；同 URL 的 serverReady 判重不得吞掉这轮重探
+  await delay(20);
+  assert.equal(
+    posted.filter((m) => m.text === "server probe passed, setting iframe.src").length,
+    2,
+  );
+  // 新文档正常落地 → 收门（offlineShown 不能带到新文档的 load 判定）
+  frame.dispatchEvent(new window.Event("load"));
+  assert.equal(gate.style.display, "none");
+  assert.equal(frame.style.display, "block");
+});
+
+test("offline fallback: same-URL serverReady is not deduped while offline shown", async () => {
+  const { posted, post } = bootShell();
+  const payload = { kind: "serverReady", url: "http://127.0.0.1:3031/", probe: "http://127.0.0.1:3031/" };
+  post({ source: "host", payload });
+  await delay(20);
+  post({ source: "pi-web-offline" });
+  await delay(20); // 自愈链已消耗一轮重试
+  post({ source: "host", payload }); // 同 URL 再来一条——用户再点同一会话的场景
+  await delay(20);
+  assert.ok(
+    posted.filter((m) => m.text === "server probe passed, setting iframe.src").length >= 3,
+  );
+});
+
+test("offline fallback exhausts retries into the failure gate", async () => {
+  // 服务恒活（探测总过）但每次导航都落兜底页——重试上限后转错误门，
+  // 防服务真死/SW 坏态下兜底→重探→兜底无限空转。
+  const { gate, gateText, post } = bootShell();
+  post({
+    source: "host",
+    payload: { kind: "serverReady", url: "http://127.0.0.1:3031/", probe: "x" },
+  });
+  await delay(20);
+  for (let i = 0; i < 4; i++) {
+    post({ source: "pi-web-offline" });
+    await delay(20);
+  }
+  assert.ok(gate.classList.contains("error"));
+  assert.match(gateText.innerHTML, /Cannot reach/);
+});
+
 test("serverReady after an error recovers (new probe generation)", async () => {
   const { gate, frame, post } = bootShell();
   post({ source: "host", payload: { kind: "serverError", text: "down" } });

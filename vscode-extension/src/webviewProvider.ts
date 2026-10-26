@@ -67,6 +67,10 @@ export class PiWebWebviewPanel extends vscode.Disposable {
   get isActive(): boolean {
     return this.panel?.active ?? false;
   }
+  /** tab 标题——editor/title/context 入参的 tab.label 反查面板归属用。 */
+  get title(): string | undefined {
+    return this.panel?.title;
+  }
   /** 上次渲染 iframe 用的服务器实例与 URL——变了才重载 iframe。 */
   private lastServer: PiIdeServer | undefined;
   private lastUrl: string | undefined;
@@ -368,9 +372,9 @@ export class PiWebWebviewPanel extends vscode.Disposable {
           : undefined,
     });
 
-    // 服务器实例与 URL 都没变就不重推——避免每次点状态栏都重载 iframe
-    // 丢失页面状态；stop 后再 start 实例必变，shell 收到新 url 会重新探测。
-    if (server === this.lastServer && urlStr === this.lastUrl) return;
+    // 同实例同 URL 也重推——判重由 shell 做（loadedUrl+display+offline 态），
+    // 宿主若提前返回，iframe 停在 SW offline 兜底页时再次点同一会话会永远
+    // 收不到 serverReady，自愈链没有重新武装的机会。
     this.lastServer = server;
     this.lastUrl = urlStr;
     this.lastShellError = undefined;
@@ -378,7 +382,7 @@ export class PiWebWebviewPanel extends vscode.Disposable {
       source: "host",
       payload: { kind: "serverReady", url: urlStr, probe: server.origin },
     });
-    logLifecycle(`serverReady posted[${this.label()}] (shell-side probe)`);
+    logLifecycle(`serverReady posted[${this.label()}] url=${urlStr}`);
   }
 
   /**
