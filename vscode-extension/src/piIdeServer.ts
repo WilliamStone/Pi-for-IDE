@@ -59,6 +59,9 @@ export class PiIdeServer {
   child?: cp.ChildProcess;
   ready: Promise<string | undefined>;
   resolvedOrigin?: string;
+  /** 服务已绑口、origin 已知但 embed 握手可能在途——sessions 清单等只读
+   *  端点（/api/sessions 独立路由，不等握手）可以抢先使用。 */
+  boundOrigin?: string;
   channel: vscode.OutputChannel;
   disposed = false;
   /** startProcess 在途（attach/resolve/spawn 任一阶段）——UI 态用。 */
@@ -112,6 +115,13 @@ export class PiIdeServer {
   static starting(): boolean {
     const s = (globalThis as Record<string, unknown>).__piIdeServer as PiIdeServer | undefined;
     return Boolean(s && !s.disposed && s.booting);
+  }
+
+  /** 同步读当前实例（不等 ready）——sessions 轮询要抢在握手完成前拿
+   *  boundOrigin，await ensureStarted 会把清单钉死在握手之后。 */
+  static peek(): PiIdeServer | undefined {
+    const s = (globalThis as Record<string, unknown>).__piIdeServer as PiIdeServer | undefined;
+    return s && !s.disposed ? s : undefined;
   }
 
   /** 解析后的 origin（如 `http://127.0.0.1:39211`）。启动完成前为 undefined。 */
@@ -306,6 +316,9 @@ export class PiIdeServer {
 
     const { origin, target } = core;
     if (origin) {
+      // 先记下 boundOrigin：sessions 树的下一次拉取（状态广播触发的
+      // 即时补拍）可抢在 verifyEmbedSupport 懒加载期间出清单。
+      this.boundOrigin = origin;
       await this.verifyEmbedSupport(origin);
       this.startHeartbeat();
     }

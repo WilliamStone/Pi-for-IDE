@@ -157,6 +157,12 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
     if (this.visible) this.timer = setTimeout(() => void this.tick(), POLL_MS);
   }
 
+  /** 状态广播触发的即时补拍——服务绑口/握手推进时不必等 2.5s 节拍。 */
+  kick(): void {
+    if (!this.visible) return;
+    void this.pull();
+  }
+
   /** 探活 + 按需拉清单：version/revision 没变就一行请求也不多发。 */
   private async pull(): Promise<void> {
     if (this.polling) return;
@@ -311,11 +317,12 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
     item.tooltip = new vscode.MarkdownString(
       `**${group.root}**${group.isWorktree ? "\n\nworktree" : ""}${pinned ? "\n\npinned" : ""}`,
     );
-    // 异工作区项目：图标降色做视觉标记（TreeItem 无字体样式 API，颜色是
-    // 唯一通道——弱色正好对应"减少视觉干扰"），同时给跳窗按钮的旗标。
+    // 异工作区项目：换 root-folder 字形（"根在别处"语义）+ 降色双保险——
+    // TreeItem 无字体样式 API，且单靠 deemphasized 色在多数主题里与默认
+    // 图标色差太小、不显眼。同时给跳窗按钮的旗标。
     const foreign = workspaceRelation(group.root, this.workspaceRoots()) === "out";
     item.iconPath = new vscode.ThemeIcon(
-      pinned ? "pinned" : group.isWorktree ? "git-branch" : "folder",
+      pinned ? "pinned" : group.isWorktree ? "git-branch" : foreign ? "root-folder" : "folder",
       foreign ? new vscode.ThemeColor("list.deemphasizedForeground") : undefined,
     );
     item.contextValue = `piIde.project${pinned ? ".pinned" : ""}${foreign ? ".wsForeign" : ""}`;
@@ -544,20 +551,21 @@ export function registerSessionCommands(
       }).show();
     }),
 
-    // ── 跨窗路由：异 workspace 会话/项目跳对应窗口。forceReuseWindow
-    // = 已开同目录窗口则聚焦、否则新开（原生复用语义）。会话版先写
+    // ── 跨窗路由：异 workspace 会话/项目跳对应窗口。openFolder 不传
+    // flag 的默认语义 = 已有同目录窗口则聚焦、否则新开（forceReuseWindow
+    // 是"复用当前窗"会替换本窗工作区，正是要避免的行为）。会话版先写
     // pending-open 记录，目标窗消费后自动打开该会话（见 pending-open.ts）。
     vscode.commands.registerCommand("piIde.session.openInWorkspaceWindow", async (item: vscode.TreeItem) => {
       const s = provider.sessionById(sessionIdOf(item));
       const dir = s?.projectRoot ?? s?.cwd ?? undefined;
       if (!s || !dir) return;
       writePendingOpen(dir, s.id);
-      await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(dir), { forceReuseWindow: true });
+      await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(dir));
     }),
     vscode.commands.registerCommand("piIde.project.openInWindow", async (item: ProjectItem) => {
       const dir = item.group.root;
       if (!dir) return;
-      await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(dir), { forceReuseWindow: true });
+      await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(dir));
     }),
 
     vscode.commands.registerCommand("piIde.sessions.refresh", () => provider.reload()),

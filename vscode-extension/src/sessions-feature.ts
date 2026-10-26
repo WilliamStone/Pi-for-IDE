@@ -8,7 +8,7 @@ import { Bridge } from "./bridge";
 import { piConfig } from "./config";
 import { readInstanceMarker } from "./instance-coordination";
 import { managedRuntimeRoot } from "./managedRuntime";
-import { currentServerStatus, outputChannel } from "./server-status";
+import { currentServerStatus, onServerStatus, outputChannel } from "./server-status";
 import { watchPendingOpens } from "./pending-open";
 import { PiIdeServer } from "./piIdeServer";
 import { SessionPanels } from "./session-panels";
@@ -41,12 +41,14 @@ export function registerSessionsFeature(
 ): SessionsFeature {
   const { server, ensureServer, provider, sessionPanels, resolveConfiguredCwd, openViewColumn } = deps;
 
-  // 服务 origin 的权威顺序：本窗口 ensureServer 的实例 → 共享实例标记
-  // （别窗口/独立启动/扩展宿主重启后 server 变量为空，但服务其实活着）。
+  // 服务 origin 的权威顺序：已握手实例 resolvedOrigin → 绑口即在途握手
+  // 的 boundOrigin（/api/sessions 是独立轻路由，不等 embed 握手——抢先
+  // 列出让冷启清单提前 ~2.5s）→ 共享实例标记（别窗口/宿主重启后仍活着）。
+  // 不 await ensureServer：那会把清单钉死在握手之后。
   const sessionsBaseUrl = async (): Promise<string | undefined> => {
-    const s = server() ? await server() : undefined;
-    if (s?.origin) return s.origin;
-    return readInstanceMarker(managedRuntimeRoot(context))?.origin;
+    const inst = PiIdeServer.peek();
+    const o = inst ? (inst.resolvedOrigin ?? inst.boundOrigin) : undefined;
+    return o ?? readInstanceMarker(managedRuntimeRoot(context))?.origin;
   };
 
   const sessionsProvider = new SessionsTreeProvider(
@@ -63,6 +65,11 @@ export function registerSessionsFeature(
   // 打开侧栏=使用意图——立即可见的 "Server is starting…" 胜过等用户
   // 再点某个命令才开始解析/spawn。ensureStarted 是幂等单例，重复踢零成本。
   sessionsProvider.setVisible(sessionsView.visible);
+  // 阶段推进（绑口/握手等广播）即时补一拍——boundOrigin 落地那拍就能
+  // 出清单，不欠 2.5s 轮询节拍的账。
+  context.subscriptions.push({
+    dispose: onServerStatus(() => sessionsProvider.kick()),
+  });
   if (sessionsView.visible) void ensureServer();
   context.subscriptions.push(
     sessionsProvider,
