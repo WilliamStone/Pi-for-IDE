@@ -41,6 +41,8 @@
   "cmd.project.openInWindow": "打开对应工作区窗口",
   "cmd.session.copyWorkspacePath": "复制工作区路径",
   "cmd.project.copyWorkspacePath": "复制工作区路径",
+  "cmd.tab.copyWorkspacePath": "复制工作区路径",
+  "cmd.tab.revealWorkspace": "在文件资源管理器中显示工作区",
   "cmd.sessions.newSession": "新建会话",
   "cmd.openOriginal": "打开原始页面",
   "cmd.settings": "Pi 设置",

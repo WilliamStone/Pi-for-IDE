@@ -55,6 +55,14 @@ export class PiWebWebviewPanel extends vscode.Disposable {
   get currentViewColumn(): vscode.ViewColumn | undefined {
     return this.panel?.viewColumn;
   }
+  /** 面板当前 cwd（composer 落地后仍是该会话的工作目录）。 */
+  get cwd(): string | undefined {
+    return this.currentCwd;
+  }
+  /** tab 是否当前激活——editor/title/context 命令反查面板归属用。 */
+  get isActive(): boolean {
+    return this.panel?.active ?? false;
+  }
   /** 上次渲染 iframe 用的服务器实例与 URL——变了才重载 iframe。 */
   private lastServer: PiIdeServer | undefined;
   private lastUrl: string | undefined;

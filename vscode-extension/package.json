@@ -247,6 +247,18 @@
         "title": "%cmd.project.copyWorkspacePath%",
         "category": "Pi for IDE",
         "icon": "$(copy)"
+      },
+      {
+        "command": "piIde.tab.copyWorkspacePath",
+        "title": "%cmd.tab.copyWorkspacePath%",
+        "category": "Pi for IDE",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "piIde.tab.revealWorkspace",
+        "title": "%cmd.tab.revealWorkspace%",
+        "category": "Pi for IDE",
+        "icon": "$(folder-opened)"
       }
     ],
     "viewsContainers": {
@@ -488,6 +500,14 @@
           "when": "false"
         },
         {
+          "command": "piIde.tab.copyWorkspacePath",
+          "when": "false"
+        },
+        {
+          "command": "piIde.tab.revealWorkspace",
+          "when": "false"
+        },
+        {
           "command": "piIde.sessions.cycleViewMode",
           "when": "false"
         }
@@ -563,6 +583,18 @@
           "command": "piIde.settings",
           "when": "view == 'piIde.sessions'",
           "group": "sessions@2"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "piIde.tab.copyWorkspacePath",
+          "when": "activeEditorId == 'piIde.webview'",
+          "group": "piweb@0"
+        },
+        {
+          "command": "piIde.tab.revealWorkspace",
+          "when": "activeEditorId == 'piIde.webview'",
+          "group": "piweb@1"
         }
       ],
       "view/item/context": [

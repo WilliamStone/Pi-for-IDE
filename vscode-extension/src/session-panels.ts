@@ -59,6 +59,12 @@ export class SessionPanels implements vscode.Disposable {
     return this.panels.values();
   }
 
+  /** 当前激活的会话面板——tab 右键命令的归属反查（同时只有一个 editor 激活）。 */
+  active(): PiWebWebviewPanel | undefined {
+    for (const p of this.panels.values()) if (p.isActive) return p;
+    return undefined;
+  }
+
   private deleteKeyOf(panel: PiWebWebviewPanel): void {
     for (const [k, v] of this.panels) if (v === panel) this.panels.delete(k);
   }

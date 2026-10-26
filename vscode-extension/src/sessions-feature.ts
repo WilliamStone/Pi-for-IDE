@@ -171,8 +171,10 @@ export function registerSessionsFeature(
     const panel = sessionPanels.forKey(key);
     void ensureServer();
     await panel.reveal(dir, sessionPanels.column());
-    // 标题口径与 project 新建对齐：目录基名而非 "New session"。
-    panel.setTitleOverride(`Pi — ${label ?? (dir ? path.basename(dir) : "New session")}`);
+    // 标题口径：New session + 目录基名——空 tab 也能认出挂在哪个工作区
+    // （"Pi — pi" 与既有 session 标题撞型，无法区分"新建中"与已落地）。
+    const tag = label ?? (dir ? path.basename(dir) : "");
+    panel.setTitleOverride(tag ? `Pi — New session (${tag})` : "Pi — New session");
   };
 
   const openSession = async (id: string, title?: string) => {
@@ -220,6 +222,16 @@ export function registerSessionsFeature(
         ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
         ?? "";
       await newSessionAt(cwd);
+    }),
+    // tab 右键的工作区动作：会话 tab（含 composer）右键可见——归属经
+    // panel.isActive 反查，cwd 取面板记录的 reveal 入参。
+    vscode.commands.registerCommand("piIde.tab.copyWorkspacePath", async () => {
+      const dir = sessionPanels.active()?.cwd;
+      if (dir) await vscode.env.clipboard.writeText(dir);
+    }),
+    vscode.commands.registerCommand("piIde.tab.revealWorkspace", async () => {
+      const dir = sessionPanels.active()?.cwd;
+      if (dir) await vscode.commands.executeCommand("revealInExplorer", vscode.Uri.file(dir));
     }),
   );
 
