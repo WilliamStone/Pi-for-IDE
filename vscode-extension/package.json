@@ -588,12 +588,12 @@
       "editor/title/context": [
         {
           "command": "piIde.tab.copyWorkspacePath",
-          "when": "activeEditorId == 'piIde.webview'",
+          "when": "activeEditorId =~ /piIde/",
           "group": "piweb@0"
         },
         {
           "command": "piIde.tab.revealWorkspace",
-          "when": "activeEditorId == 'piIde.webview'",
+          "when": "activeEditorId =~ /piIde/",
           "group": "piweb@1"
         }
       ],

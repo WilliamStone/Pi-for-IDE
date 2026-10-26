@@ -434,20 +434,20 @@ function sessionTooltip(
     flags.archived ? "archived" : "",
   ].filter(Boolean);
   if (states.length) md.appendMarkdown(`_${states.join(" · ")}_\n\n`);
-  if (s.name && s.firstMessage) {
-    const preview = s.firstMessage.replace(/\s+/g, " ").trim();
-    md.appendMarkdown(`> ${preview.length > 140 ? `${preview.slice(0, 140)}…` : preview}\n\n`);
-  }
   const fmt = (iso: string) => iso.slice(0, 16).replace("T", " ");
   const rows: string[] = [];
+  if (s.firstMessage) {
+    const preview = s.firstMessage.replace(/\s+/g, " ").trim();
+    rows.push(`**first message** ${preview.length > 140 ? `${preview.slice(0, 140)}…` : preview}`);
+  }
   if (s.cwd) rows.push(`**cwd** \`${s.cwd}\``);
   if (s.projectRoot && s.projectRoot !== s.cwd) rows.push(`**project** \`${s.projectRoot}\``);
   if (s.branch) rows.push(`**branch** \`${s.branch}\`${s.isWorktree ? " (worktree)" : ""}`);
   if (s.messageCount) rows.push(`**messages** ${s.messageCount}`);
   rows.push(`**created** ${fmt(s.created)}`);
   rows.push(`**modified** ${fmt(s.modified)} (${relTime(s.modified)})`);
+  rows.push(`**id** \`${s.id}\``);
   md.appendMarkdown(rows.join("\n\n"));
-  md.appendMarkdown(`\n\n---\n\n\`${s.id}\``);
   return md;
 }
 
