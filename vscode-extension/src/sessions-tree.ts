@@ -364,9 +364,7 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
     desc.push(relTime(s.modified));
     if (s.messageCount) desc.push(`${s.messageCount} msgs`);
     item.description = desc.join(" · ");
-    item.tooltip = new vscode.MarkdownString(
-      `**${sessionTitle(s)}**\n\n${s.cwd ?? ""}\n\n${s.created.slice(0, 16)} · ${relTime(s.modified)}`,
-    );
+    item.tooltip = sessionTooltip(s, { running, awaiting, pinned, archived });
     // 跳窗旗标按项目根判（session.cwd 可能是其子目录）——projectRoot 在
     // 本工作区外才是"异 workspace 会话"，跳窗按钮才有意义。
     const foreignDir = s.projectRoot ?? s.cwd ?? undefined;
@@ -416,6 +414,41 @@ class ProjectItem extends vscode.TreeItem {
     this.sessionItems = sessionItems;
     this.group = group;
   }
+}
+
+/**
+ * 会话条目 hover：标题 + 状态徽标 + 命名会话的首消息预览 + 事实行
+ * （cwd/项目根/分支/消息数/绝对与相对时间/会话 id）。记录数之前只在
+ * description 里，hover 补齐；projectRoot≠cwd 时才单列一行（子目录会话）。
+ */
+function sessionTooltip(
+  s: ApiSession,
+  flags: { running: boolean; awaiting: boolean; pinned: boolean; archived: boolean },
+): vscode.MarkdownString {
+  const md = new vscode.MarkdownString();
+  md.appendMarkdown(`**${sessionTitle(s)}**\n\n`);
+  const states = [
+    flags.running ? "running" : "",
+    flags.awaiting ? "awaiting input" : "",
+    flags.pinned ? "pinned" : "",
+    flags.archived ? "archived" : "",
+  ].filter(Boolean);
+  if (states.length) md.appendMarkdown(`_${states.join(" · ")}_\n\n`);
+  if (s.name && s.firstMessage) {
+    const preview = s.firstMessage.replace(/\s+/g, " ").trim();
+    md.appendMarkdown(`> ${preview.length > 140 ? `${preview.slice(0, 140)}…` : preview}\n\n`);
+  }
+  const fmt = (iso: string) => iso.slice(0, 16).replace("T", " ");
+  const rows: string[] = [];
+  if (s.cwd) rows.push(`**cwd** \`${s.cwd}\``);
+  if (s.projectRoot && s.projectRoot !== s.cwd) rows.push(`**project** \`${s.projectRoot}\``);
+  if (s.branch) rows.push(`**branch** \`${s.branch}\`${s.isWorktree ? " (worktree)" : ""}`);
+  if (s.messageCount) rows.push(`**messages** ${s.messageCount}`);
+  rows.push(`**created** ${fmt(s.created)}`);
+  rows.push(`**modified** ${fmt(s.modified)} (${relTime(s.modified)})`);
+  md.appendMarkdown(rows.join("\n\n"));
+  md.appendMarkdown(`\n\n---\n\n\`${s.id}\``);
+  return md;
 }
 
 class HintItem extends vscode.TreeItem {
