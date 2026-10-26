@@ -1,4 +1,7 @@
 import * as vscode from "vscode";
+import * as cp from "child_process";
+import * as fs from "fs";
+import * as path from "path";
 import { logLifecycle, outputChannel } from "./server-status";
 import {
   groupByProject,
@@ -555,23 +558,21 @@ export function registerSessionCommands(
       }).show();
     }),
 
-    // ── 跨窗路由：异 workspace 会话/项目跳对应窗口。命令 API 只有两个
-    // 力矩可选：forceReuseWindow=替换本窗工作区（绝不能要），不传 flag
-    // 时 API 上下文也解析为复用当前窗——只有 forceNewWindow 能给"新开"。
-    // 代价：已有同工作区窗口时也会再开一个重复窗（命令 API 无聚焦已开
-    // 窗的通道）；此时 pending-open 记录会被任一匹配窗的 watcher 先消费，
-    // 会话仍开在正确工作区。会话版先写记录，目标窗消费后自动开会话。
+    // ── 跨窗路由：异 workspace 会话/项目跳对应窗口。"已开则聚焦否则
+    // 新开"只有 CLI 上下文有（命令 API 固定走 API 上下文=复用当前窗），
+    // 所以直接 spawn 同目录 bin/<uriScheme>.cmd——dedup+前台聚焦全由
+    // VS Code 单实例 IPC 完成；脚本不在（罕见布局）才退化 forceNewWindow。
+    // 会话版先写 pending-open 记录，目标窗消费后自动开会话。
     vscode.commands.registerCommand("piIde.session.openInWorkspaceWindow", async (item: vscode.TreeItem) => {
       const s = provider.sessionById(sessionIdOf(item));
       const dir = s?.projectRoot ?? s?.cwd ?? undefined;
       if (!s || !dir) return;
       writePendingOpen(dir, s.id);
-      await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(dir), { forceNewWindow: true });
+      openDirInWindow(dir);
     }),
-    vscode.commands.registerCommand("piIde.project.openInWindow", async (item: ProjectItem) => {
+    vscode.commands.registerCommand("piIde.project.openInWindow", (item: ProjectItem) => {
       const dir = item.group.root;
-      if (!dir) return;
-      await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(dir), { forceNewWindow: true });
+      if (dir) openDirInWindow(dir);
     }),
 
     vscode.commands.registerCommand("piIde.sessions.refresh", () => provider.reload()),
@@ -586,6 +587,37 @@ export function registerSessionCommands(
     }),
     vscode.commands.registerCommand("piIde.sessions.cycleViewMode", () => provider.cycleViewMode()),
   );
+}
+
+/**
+ * 跳对应 workspace 的窗口：优先 spawn 本 IDE 的 CLI 脚本——CLI 上下文
+ * 自带"已开同目录窗则聚焦、否则新开"语义（命令 API 拿不到）。脚本与
+ * 主 exe 同目录 bin/ 下，文件名 = env.uriScheme（vscodium→codium.cmd）。
+ * 找不到脚本退化 openFolder forceNewWindow——功能仍对，只是可能多开窗。
+ * CLI 往返 ~3-5s 属正常（单实例 IPC 握手），detached 不等返回。
+ */
+function openDirInWindow(dir: string): void {
+  const scheme = vscode.env.uriScheme; // vscode→code, vscodium→codium, code-insiders→code-insiders
+  const exeDir = path.dirname(process.execPath);
+  const candidates =
+    process.platform === "win32"
+      ? [path.join(exeDir, "bin", `${scheme}.cmd`)]
+      : process.platform === "darwin"
+        ? [path.join(exeDir, "..", "Resources", "app", "bin", scheme)]
+        : [path.join(exeDir, "bin", scheme), path.join("/usr", "bin", scheme)];
+  const cli = candidates.find((c) => fs.existsSync(c));
+  if (cli) {
+    logLifecycle(`open in workspace window: CLI ${cli} ${dir}`);
+    cp.spawn(cli, [dir], {
+      shell: process.platform === "win32", // .cmd 必须经 cmd.exe
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+    }).unref();
+    return;
+  }
+  logLifecycle(`open in workspace window: CLI not found (${exeDir}) → openFolder forceNewWindow ${dir}`);
+  void vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(dir), { forceNewWindow: true });
 }
 
 import { sessionIdOf } from "./session-id";
