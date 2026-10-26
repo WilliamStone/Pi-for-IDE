@@ -59,6 +59,10 @@ export class PiWebWebviewPanel extends vscode.Disposable {
   get cwd(): string | undefined {
     return this.currentCwd;
   }
+  /** 面板绑定的会话 id（composer 未落地时为 undefined）。 */
+  get session(): string | undefined {
+    return this.sessionId;
+  }
   /** tab 是否当前激活——editor/title/context 命令反查面板归属用。 */
   get isActive(): boolean {
     return this.panel?.active ?? false;

@@ -255,10 +255,10 @@
         "icon": "$(copy)"
       },
       {
-        "command": "piIde.tab.revealWorkspace",
-        "title": "%cmd.tab.revealWorkspace%",
+        "command": "piIde.tab.revealInSessions",
+        "title": "%cmd.tab.revealInSessions%",
         "category": "Pi for IDE",
-        "icon": "$(folder-opened)"
+        "icon": "$(list-tree)"
       }
     ],
     "viewsContainers": {
@@ -504,7 +504,7 @@
           "when": "false"
         },
         {
-          "command": "piIde.tab.revealWorkspace",
+          "command": "piIde.tab.revealInSessions",
           "when": "false"
         },
         {
@@ -592,7 +592,7 @@
           "group": "piweb@0"
         },
         {
-          "command": "piIde.tab.revealWorkspace",
+          "command": "piIde.tab.revealInSessions",
           "when": "activeWebviewPanelId == 'piIde.webview'",
           "group": "piweb@1"
         }

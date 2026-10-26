@@ -276,6 +276,30 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
     return element;
   }
 
+  /** session→树条目索引（分组父链）——reveal 需要 getParent 解析。 */
+  private readonly itemIndex = new Map<string, { item: vscode.TreeItem; parent?: ProjectItem }>();
+
+  /** tab 右键"在会话列表显示"的条目——索引优先，未渲染到时按模式重建。 */
+  revealItemFor(id: string): vscode.TreeItem | undefined {
+    const cached = this.itemIndex.get(id);
+    if (cached) return cached.item;
+    const s = this.sessionById(id);
+    return s ? this.sessionItem(s, this.mode === "recent") : undefined;
+  }
+
+  getParent(element: vscode.TreeItem): vscode.TreeItem | undefined {
+    if (element instanceof ProjectItem) return undefined;
+    if (this.mode === "recent") return undefined;
+    const id = element.id?.startsWith("piIde.session.") ? sessionIdOf(element) : undefined;
+    if (!id) return undefined;
+    const cached = this.itemIndex.get(id);
+    if (cached?.parent) return cached.parent;
+    const s = this.sessionById(id);
+    if (!s) return undefined;
+    const g = groupByProject(this.filteredSessions()).find((x) => x.sessions.some((y) => y.id === id));
+    return g ? this.projectItem(g) : undefined;
+  }
+
   getChildren(element?: vscode.TreeItem): vscode.TreeItem[] {
     if (element instanceof ProjectItem) return element.sessionItems;
     if (element) return [];
@@ -335,6 +359,9 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
         .map((s) => this.sessionItem(s, false)),
       group,
     );
+    for (const c of item.sessionItems) {
+      if (c.id) this.itemIndex.set(sessionIdOf(c), { item: c, parent: item });
+    }
     item.description = `${group.sessions.length}`;
     item.tooltip = new vscode.MarkdownString(
       `**${group.root}**${group.isWorktree ? "\n\nworktree" : ""}${pinned ? "\n\npinned" : ""}`,
@@ -359,6 +386,7 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
     const archived = this.archivedIds.has(s.id);
     const item = new vscode.TreeItem(sessionTitle(s));
     item.id = `piIde.session.${s.id}`;
+    this.itemIndex.set(s.id, { item });
     const desc: string[] = [];
     if (flat && (s.projectRoot ?? s.cwd)) desc.push(s.projectRoot ? s.projectRoot.split(/[\\/]/).pop()! : s.cwd!);
     desc.push(relTime(s.modified));

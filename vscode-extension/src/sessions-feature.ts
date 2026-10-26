@@ -229,9 +229,13 @@ export function registerSessionsFeature(
       const dir = sessionPanels.active()?.cwd;
       if (dir) await vscode.env.clipboard.writeText(dir);
     }),
-    vscode.commands.registerCommand("piIde.tab.revealWorkspace", async () => {
-      const dir = sessionPanels.active()?.cwd;
-      if (dir) await vscode.commands.executeCommand("revealInExplorer", vscode.Uri.file(dir));
+    // 从会话 tab 定位到 Pi Sessions 树中对应条目（选中+聚焦+展开父链
+    // ——视觉区分=树选中态）。区外会话 revealInExplorer 会误触 openFolder
+    // 换掉本窗工作区，不可复用；树定位无此限。composer 无 sessionId 时空操作。
+    vscode.commands.registerCommand("piIde.tab.revealInSessions", async () => {
+      const id = sessionPanels.active()?.session;
+      const item = id ? sessionsProvider.revealItemFor(id) : undefined;
+      if (item) await sessionsView.reveal(item, { select: true, focus: true, expand: true });
     }),
   );
 
