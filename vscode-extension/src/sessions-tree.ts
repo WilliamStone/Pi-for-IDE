@@ -605,6 +605,13 @@ export function registerSessionCommands(
         name: typeof item.label === "string" ? item.label : "Pi",
       }).show();
     }),
+    vscode.commands.registerCommand("piIde.session.copyWorkspacePath", async (item: vscode.TreeItem) => {
+      const dir = provider.sessionDir(sessionIdOf(item));
+      if (dir) await vscode.env.clipboard.writeText(dir);
+    }),
+    vscode.commands.registerCommand("piIde.project.copyWorkspacePath", async (item: ProjectItem) => {
+      if (item.group.root) await vscode.env.clipboard.writeText(item.group.root);
+    }),
 
     // ── 跨窗路由：异 workspace 会话/项目跳对应窗口。"已开则聚焦否则
     // 新开"只有 CLI 上下文有（命令 API 固定走 API 上下文=复用当前窗），

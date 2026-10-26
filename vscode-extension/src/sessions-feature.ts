@@ -4,6 +4,8 @@
 // 以及会话命令注册（registerSessionCommands 的宿主接线）。
 
 import * as vscode from "vscode";
+import { promises as fsp } from "fs";
+import * as path from "path";
 import { Bridge } from "./bridge";
 import { piConfig } from "./config";
 import { readInstanceMarker } from "./instance-coordination";
@@ -161,11 +163,16 @@ export function registerSessionsFeature(
   const newSessionAt = async (cwd: string, label?: string) => {
     // 新建会话也是会话上下文面板——同一 chat 形态，cwd 钉住 composer
     // 的工作目录；key=new:<cwd> 复用已有 composer tab。
-    const key = `new:${cwd}`;
+    // cwd 先过 realpath：workspaceFolders 的 fsPath 保留打开时的大小写
+    // （s:\… vs 盘符真身 S:\…），原样下发会让 pi 的信任根比对失败 →
+    // 受限模式+手动信任。真实盘符路径才与信任存储一致。
+    const dir = cwd ? await fsp.realpath(cwd).catch(() => cwd) : cwd;
+    const key = `new:${dir}`;
     const panel = sessionPanels.forKey(key);
     void ensureServer();
-    await panel.reveal(cwd, sessionPanels.column());
-    panel.setTitleOverride(`Pi — ${label ?? "New session"}`);
+    await panel.reveal(dir, sessionPanels.column());
+    // 标题口径与 project 新建对齐：目录基名而非 "New session"。
+    panel.setTitleOverride(`Pi — ${label ?? (dir ? path.basename(dir) : "New session")}`);
   };
 
   const openSession = async (id: string, title?: string) => {

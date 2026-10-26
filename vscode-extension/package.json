@@ -235,6 +235,18 @@
         "title": "%cmd.project.openInWindow%",
         "category": "Pi for IDE",
         "icon": "$(empty-window)"
+      },
+      {
+        "command": "piIde.session.copyWorkspacePath",
+        "title": "%cmd.session.copyWorkspacePath%",
+        "category": "Pi for IDE",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "piIde.project.copyWorkspacePath",
+        "title": "%cmd.project.copyWorkspacePath%",
+        "category": "Pi for IDE",
+        "icon": "$(copy)"
       }
     ],
     "viewsContainers": {
@@ -468,6 +480,14 @@
           "when": "false"
         },
         {
+          "command": "piIde.session.copyWorkspacePath",
+          "when": "false"
+        },
+        {
+          "command": "piIde.project.copyWorkspacePath",
+          "when": "false"
+        },
+        {
           "command": "piIde.sessions.cycleViewMode",
           "when": "false"
         }
@@ -582,6 +602,11 @@
           "group": "piweb@4"
         },
         {
+          "command": "piIde.session.copyWorkspacePath",
+          "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session.*\\.hasDir/",
+          "group": "piweb@5"
+        },
+        {
           "command": "piIde.session.rename",
           "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session/",
           "group": "piweb.mod@0"
@@ -635,6 +660,11 @@
           "command": "piIde.project.unpin",
           "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.project.*\\.pinned/",
           "group": "piweb@2"
+        },
+        {
+          "command": "piIde.project.copyWorkspacePath",
+          "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.project/",
+          "group": "piweb@3"
         }
       ]
     }
