@@ -217,6 +217,18 @@
         "title": "%cmd.session.openInTerminal%",
         "category": "Pi for IDE",
         "icon": "$(terminal)"
+      },
+      {
+        "command": "piIde.session.openInWorkspaceWindow",
+        "title": "%cmd.session.openInWorkspaceWindow%",
+        "category": "Pi for IDE",
+        "icon": "$(empty-window)"
+      },
+      {
+        "command": "piIde.project.openInWindow",
+        "title": "%cmd.project.openInWindow%",
+        "category": "Pi for IDE",
+        "icon": "$(empty-window)"
       }
     ],
     "viewsContainers": {
@@ -438,6 +450,14 @@
           "when": "false"
         },
         {
+          "command": "piIde.session.openInWorkspaceWindow",
+          "when": "false"
+        },
+        {
+          "command": "piIde.project.openInWindow",
+          "when": "false"
+        },
+        {
           "command": "piIde.sessions.cycleViewMode",
           "when": "false"
         }
@@ -511,6 +531,16 @@
         }
       ],
       "view/item/context": [
+        {
+          "command": "piIde.session.openInWorkspaceWindow",
+          "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session.*\\.wsForeign/",
+          "group": "inline@0"
+        },
+        {
+          "command": "piIde.project.openInWindow",
+          "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.project.*\\.wsForeign/",
+          "group": "inline@0"
+        },
         {
           "command": "piIde.session.open",
           "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session/",

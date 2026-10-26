@@ -37,6 +37,8 @@
   "cmd.session.revealInExplorer": "Reveal Session Workspace in Explorer",
   "cmd.session.openInNewWindow": "Open Session Workspace in New Window",
   "cmd.session.openInTerminal": "Open Session Workspace in Integrated Terminal",
+  "cmd.session.openInWorkspaceWindow": "Open in Workspace Window",
+  "cmd.project.openInWindow": "Open Workspace Window",
   "cmd.openOriginal": "Open Original Page",
   "cmd.settings": "Pi Settings",
   "cmd.sessions.refresh": "Refresh Sessions",

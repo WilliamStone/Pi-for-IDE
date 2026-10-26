@@ -8,7 +8,8 @@ import { Bridge } from "./bridge";
 import { piConfig } from "./config";
 import { readInstanceMarker } from "./instance-coordination";
 import { managedRuntimeRoot } from "./managedRuntime";
-import { currentServerStatus } from "./server-status";
+import { currentServerStatus, outputChannel } from "./server-status";
+import { watchPendingOpens } from "./pending-open";
 import { PiIdeServer } from "./piIdeServer";
 import { SessionPanels } from "./session-panels";
 import { registerSessionCommands, SessionsTreeProvider } from "./sessions-tree";
@@ -149,6 +150,24 @@ export function registerSessionsFeature(
     }),
   );
 
+  const openSession = async (id: string, title?: string) => {
+    // 面板 cwd 用会话自己的目录——跨项目点开不受当前配置 cwd 影响。
+    const cwd = sessionsProvider.sessionById(id)?.cwd
+      ?? resolveConfiguredCwd()
+      ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
+      ?? "";
+    const perSession = piConfig().get<string>("sessionTabs", "perSession") === "perSession";
+    if (!perSession) {
+      void ensureServer();
+      await provider.reveal(cwd, openViewColumn(), id);
+      return;
+    }
+    const panel = sessionPanels.forKey(id);
+    void ensureServer();
+    await panel.reveal(cwd, sessionPanels.column(), id);
+    if (title) panel.setTitleOverride(`Pi — ${title}`);
+  };
+
   registerSessionCommands(context, {
     getBaseUrl: sessionsBaseUrl,
     ensureServer,
@@ -163,23 +182,7 @@ export function registerSessionsFeature(
       void ensureServer();
       await provider.reveal(cwd, openViewColumn(), id);
     },
-    openSession: async (id: string, title?: string) => {
-      // 面板 cwd 用会话自己的目录——跨项目点开不受当前配置 cwd 影响。
-      const cwd = sessionsProvider.sessionById(id)?.cwd
-        ?? resolveConfiguredCwd()
-        ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
-        ?? "";
-      const perSession = piConfig().get<string>("sessionTabs", "perSession") === "perSession";
-      if (!perSession) {
-        void ensureServer();
-        await provider.reveal(cwd, openViewColumn(), id);
-        return;
-      }
-      const panel = sessionPanels.forKey(id);
-      void ensureServer();
-      await panel.reveal(cwd, sessionPanels.column(), id);
-      if (title) panel.setTitleOverride(`Pi — ${title}`);
-    },
+    openSession,
     openProject: async (cwd: string, label?: string) => {
       // 项目新建会话也是会话上下文面板——同一 chat 形态、tab 对应项目，
       // cwd 参数把 composer 钉在项目目录。
@@ -190,6 +193,16 @@ export function registerSessionsFeature(
       panel.setTitleOverride(`Pi — ${label ?? "New session"}`);
     },
   });
+
+  // 跨窗"打开会话"交接的消费端（pending-open.ts）：别窗口把异区会话
+  // 投递到本工作区窗口来打开。activate 首轮扫描覆盖新窗场景，fs.watch
+  // 常驻覆盖本窗早已激活的场景。
+  const pendingWatcher = watchPendingOpens({
+    workspaceRoots: () => (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath),
+    consume: (id) => void openSession(id),
+    log: (l) => outputChannel().appendLine(`[pending-open] ${l}`),
+  });
+  if (pendingWatcher) context.subscriptions.push(pendingWatcher);
 
   return { settingsPanel };
 }

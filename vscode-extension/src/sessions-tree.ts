@@ -311,10 +311,14 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
     item.tooltip = new vscode.MarkdownString(
       `**${group.root}**${group.isWorktree ? "\n\nworktree" : ""}${pinned ? "\n\npinned" : ""}`,
     );
+    // 异工作区项目：图标降色做视觉标记（TreeItem 无字体样式 API，颜色是
+    // 唯一通道——弱色正好对应"减少视觉干扰"），同时给跳窗按钮的旗标。
+    const foreign = workspaceRelation(group.root, this.workspaceRoots()) === "out";
     item.iconPath = new vscode.ThemeIcon(
       pinned ? "pinned" : group.isWorktree ? "git-branch" : "folder",
+      foreign ? new vscode.ThemeColor("list.deemphasizedForeground") : undefined,
     );
-    item.contextValue = `piIde.project${pinned ? ".pinned" : ""}`;
+    item.contextValue = `piIde.project${pinned ? ".pinned" : ""}${foreign ? ".wsForeign" : ""}`;
     item.collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
     return item;
   }
@@ -334,8 +338,13 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
     item.tooltip = new vscode.MarkdownString(
       `**${sessionTitle(s)}**\n\n${s.cwd ?? ""}\n\n${s.created.slice(0, 16)} · ${relTime(s.modified)}`,
     );
+    // 跳窗旗标按项目根判（session.cwd 可能是其子目录）——projectRoot 在
+    // 本工作区外才是"异 workspace 会话"，跳窗按钮才有意义。
+    const foreignDir = s.projectRoot ?? s.cwd ?? undefined;
+    const foreign = !!foreignDir && workspaceRelation(foreignDir, this.workspaceRoots()) === "out";
     // 状态图标优先（running/awaiting 是活状态），否则 pinned 给图钉。
     // TreeItem 单 iconPath——pinned+running 时图钉让位，pin 仍靠排序置前。
+    // flat（recent）视图没有组节点承接标记，异区会话的默认图标在此降色。
     item.iconPath = new vscode.ThemeIcon(
       running ? "pulse" : awaiting ? "bell-dot" : pinned ? "pinned" : "comment",
       running
@@ -344,16 +353,21 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
           ? new vscode.ThemeColor("testing.iconQueued")
           : pinned
             ? new vscode.ThemeColor("textLink.foreground")
-            : undefined,
+            : flat && foreign
+              ? new vscode.ThemeColor("list.deemphasizedForeground")
+              : undefined,
     );
     // 目录类操作的显隐旗标：hasDir=有会话目录（三个操作的前提）；
     // wsSub=目录在工作区子树内（Explorer 定位）；wsOther=目录非工作区根
     // （新窗打开）。情形1（cwd=根）只留 hasDir → 只显示终端。
+    // wsForeign=项目根在区外（跳窗按钮）。两层判据不同：目录操作看 cwd，
+    // 跳窗看 projectRoot。
     let wsFlags = "";
     if (s.cwd) {
       const rel = workspaceRelation(s.cwd, this.workspaceRoots());
       wsFlags = `.hasDir${rel === "sub" ? ".wsSub" : ""}${rel === "sub" || rel === "out" ? ".wsOther" : ""}`;
     }
+    if (foreign) wsFlags += ".wsForeign";
     item.contextValue = `piIde.session${running ? ".running" : ""}${pinned ? ".pinned" : ""}${archived ? ".archived" : ""}${wsFlags}`;
     item.command = {
       command: "piIde.session.open",
@@ -530,6 +544,22 @@ export function registerSessionCommands(
       }).show();
     }),
 
+    // ── 跨窗路由：异 workspace 会话/项目跳对应窗口。forceReuseWindow
+    // = 已开同目录窗口则聚焦、否则新开（原生复用语义）。会话版先写
+    // pending-open 记录，目标窗消费后自动打开该会话（见 pending-open.ts）。
+    vscode.commands.registerCommand("piIde.session.openInWorkspaceWindow", async (item: vscode.TreeItem) => {
+      const s = provider.sessionById(sessionIdOf(item));
+      const dir = s?.projectRoot ?? s?.cwd ?? undefined;
+      if (!s || !dir) return;
+      writePendingOpen(dir, s.id);
+      await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(dir), { forceReuseWindow: true });
+    }),
+    vscode.commands.registerCommand("piIde.project.openInWindow", async (item: ProjectItem) => {
+      const dir = item.group.root;
+      if (!dir) return;
+      await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(dir), { forceReuseWindow: true });
+    }),
+
     vscode.commands.registerCommand("piIde.sessions.refresh", () => provider.reload()),
     // 两个命令图标化同一个开关：过滤态显示 $(list-filter)，全部态显示 $(globe)。
     vscode.commands.registerCommand("piIde.sessions.filterWorkspace", async () => {
@@ -545,3 +575,4 @@ export function registerSessionCommands(
 }
 
 import { sessionIdOf } from "./session-id";
+import { writePendingOpen } from "./pending-open";
