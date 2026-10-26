@@ -39,6 +39,7 @@
   "cmd.session.openInTerminal": "在集成终端中打开会话工作区",
   "cmd.session.openInWorkspaceWindow": "在对应工作区窗口中打开",
   "cmd.project.openInWindow": "打开对应工作区窗口",
+  "cmd.sessions.newSession": "新建会话",
   "cmd.openOriginal": "打开原始页面",
   "cmd.settings": "Pi 设置",
   "cmd.sessions.refresh": "刷新会话列表",

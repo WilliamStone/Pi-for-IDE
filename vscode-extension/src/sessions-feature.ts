@@ -158,6 +158,16 @@ export function registerSessionsFeature(
     }),
   );
 
+  const newSessionAt = async (cwd: string, label?: string) => {
+    // 新建会话也是会话上下文面板——同一 chat 形态，cwd 钉住 composer
+    // 的工作目录；key=new:<cwd> 复用已有 composer tab。
+    const key = `new:${cwd}`;
+    const panel = sessionPanels.forKey(key);
+    void ensureServer();
+    await panel.reveal(cwd, sessionPanels.column());
+    panel.setTitleOverride(`Pi — ${label ?? "New session"}`);
+  };
+
   const openSession = async (id: string, title?: string) => {
     // 面板 cwd 用会话自己的目录——跨项目点开不受当前配置 cwd 影响。
     const cwd = sessionsProvider.sessionById(id)?.cwd
@@ -192,15 +202,19 @@ export function registerSessionsFeature(
     },
     openSession,
     openProject: async (cwd: string, label?: string) => {
-      // 项目新建会话也是会话上下文面板——同一 chat 形态、tab 对应项目，
-      // cwd 参数把 composer 钉在项目目录。
-      const key = `new:${cwd}`;
-      const panel = sessionPanels.forKey(key);
-      void ensureServer();
-      await panel.reveal(cwd, sessionPanels.column());
-      panel.setTitleOverride(`Pi — ${label ?? "New session"}`);
+      await newSessionAt(cwd, label);
     },
   });
+
+  // 空态/工具栏的新建会话：cwd 跟随配置优先、工作区根兜底的既有口径。
+  context.subscriptions.push(
+    vscode.commands.registerCommand("piIde.sessions.newSession", async () => {
+      const cwd = resolveConfiguredCwd()
+        ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
+        ?? "";
+      await newSessionAt(cwd);
+    }),
+  );
 
   // 跨窗"打开会话"交接的消费端（pending-open.ts）：别窗口把异区会话
   // 投递到本工作区窗口来打开。activate 首轮扫描覆盖新窗场景，fs.watch

@@ -288,7 +288,22 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
     }
     const list = this.filteredSessions();
     if (!list.length) {
-      return [new HintItem(this.workspaceOnly ? "No sessions in this workspace" : "No sessions yet")];
+      // 空态给出路而非死胡同：新建会话（本工作区 cwd 的 composer）；
+      // 过滤态顺带提供"看全部会话"的出口——异区会话本就存在，只是被滤掉。
+      const hint = new HintItem(this.workspaceOnly ? "No sessions in this workspace" : "No sessions yet");
+      const add = new vscode.TreeItem("New session");
+      add.command = { command: "piIde.sessions.newSession", title: "New session" };
+      add.iconPath = new vscode.ThemeIcon("add");
+      add.contextValue = "piIde.hint";
+      const items: vscode.TreeItem[] = [hint, add];
+      if (this.workspaceOnly) {
+        const all = new vscode.TreeItem("Show all sessions");
+        all.command = { command: "piIde.sessions.showAll", title: "Show all sessions" };
+        all.iconPath = new vscode.ThemeIcon("globe");
+        all.contextValue = "piIde.hint";
+        items.push(all);
+      }
+      return items;
     }
     if (this.mode === "recent") {
       return recentSessions(list).map((s) => this.sessionItem(s, true));

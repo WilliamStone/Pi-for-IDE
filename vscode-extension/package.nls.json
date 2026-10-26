@@ -39,6 +39,7 @@
   "cmd.session.openInTerminal": "Open Session Workspace in Integrated Terminal",
   "cmd.session.openInWorkspaceWindow": "Open in Workspace Window",
   "cmd.project.openInWindow": "Open Workspace Window",
+  "cmd.sessions.newSession": "New Session",
   "cmd.openOriginal": "Open Original Page",
   "cmd.settings": "Pi Settings",
   "cmd.sessions.refresh": "Refresh Sessions",

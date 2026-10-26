@@ -153,6 +153,12 @@
         "icon": "$(globe)"
       },
       {
+        "command": "piIde.sessions.newSession",
+        "title": "%cmd.sessions.newSession%",
+        "category": "Pi for IDE",
+        "icon": "$(add)"
+      },
+      {
         "command": "piIde.sessions.cycleViewMode",
         "title": "%cmd.sessions.cycleViewMode%",
         "category": "Pi for IDE",
@@ -400,6 +406,10 @@
           "when": "false"
         },
         {
+          "command": "piIde.sessions.newSession",
+          "when": "false"
+        },
+        {
           "command": "piIde.sessions.refresh",
           "when": "false"
         },
@@ -500,9 +510,14 @@
           "group": "navigation@2"
         },
         {
-          "command": "piIde.sessions.refresh",
+          "command": "piIde.sessions.newSession",
           "when": "view == 'piIde.sessions'",
           "group": "navigation@0"
+        },
+        {
+          "command": "piIde.sessions.refresh",
+          "when": "view == 'piIde.sessions'",
+          "group": "navigation@1"
         },
         {
           "command": "piIde.sessions.filterWorkspace",
