@@ -321,12 +321,12 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
     item.tooltip = new vscode.MarkdownString(
       `**${group.root}**${group.isWorktree ? "\n\nworktree" : ""}${pinned ? "\n\npinned" : ""}`,
     );
-    // 异工作区项目：换 root-folder 字形（"根在别处"语义）+ 降色双保险——
-    // TreeItem 无字体样式 API，且单靠 deemphasized 色在多数主题里与默认
-    // 图标色差太小、不显眼。同时给跳窗按钮的旗标。
+    // 异工作区项目：file-symlink-directory 字形（文件夹叠加右上弯箭头，
+    // "目录在别处"的快捷方式语义）+ 降色双保险——TreeItem 无字体样式
+    // API，且单靠颜色/微调字形在多数主题里不够显眼。给跳窗按钮的旗标。
     const foreign = workspaceRelation(group.root, this.workspaceRoots()) === "out";
     item.iconPath = new vscode.ThemeIcon(
-      pinned ? "pinned" : group.isWorktree ? "git-branch" : foreign ? "root-folder" : "folder",
+      pinned ? "pinned" : group.isWorktree ? "git-branch" : foreign ? "file-symlink-directory" : "folder",
       foreign ? new vscode.ThemeColor("list.deemphasizedForeground") : undefined,
     );
     item.contextValue = `piIde.project${pinned ? ".pinned" : ""}${foreign ? ".wsForeign" : ""}`;
