@@ -133,6 +133,8 @@ export function registerSessionsFeature(
     context.extension.packageJSON.version as string,
     undefined,
     "settings",
+    undefined,
+    "piIde.webview.settings",
   );
   context.subscriptions.push(settingsPanel);
   settingsPanel.setTitleOverride("Pi — Settings");
@@ -177,14 +179,27 @@ export function registerSessionsFeature(
     panel.setTitleOverride(tag ? `Pi — New session (${tag})` : "Pi — New session");
   };
 
-  // editor/title/context 的菜单入参是被右键的 tab（Tab.label 对应
-  // panel.title）——按它反查目标面板；入参拿不到 label 时回退激活面板，
-  // 不劣于原实现。
+  // editor/title/context 的命令入参是被右键编辑器的 resource URI（VS Code
+  // 源码 editorTabsControl.ts：menuActionOptions.arg = resourceContext.get()）。
+  // webview tab 的 URI 形如
+  //   vscode-webview://webview-panel/webview-<providerId>-<uuid>
+  // providerId = mainThreadWebview-<viewType>——各面板 viewType 唯一，
+  // URI 内含它即精确归属。文件等非 webview 资源归属不了：返回 undefined
+  // 让命令空操作（菜单显隐由激活驱动、是平台限制，至少不张冠李戴）。
   const tabPanelFor = (arg: unknown): PiWebWebviewPanel | undefined => {
-    const label = (arg as { label?: unknown })?.label;
-    if (typeof label === "string") {
-      for (const p of sessionPanels.all()) if (p.title === label) return p;
+    const uri = arg as { scheme?: unknown; path?: unknown } | undefined;
+    const scheme = typeof uri?.scheme === "string" ? uri.scheme : "";
+    const path = typeof uri?.path === "string" ? uri.path : "";
+    outputChannel().appendLine(`[tab-menu] arg scheme=${scheme} path=${path}`);
+    if (scheme === "vscode-webview" || path.includes("webview-panel/webview-")) {
+      return (
+        sessionPanels.byViewTypeUri(path) ??
+        (path.includes(`${provider.viewType}-`) ? provider : undefined) ??
+        (path.includes(`${settingsPanel.viewType}-`) ? settingsPanel : undefined) ??
+        sessionPanels.active()
+      );
     }
+    if (scheme) return undefined;
     return sessionPanels.active();
   };
 

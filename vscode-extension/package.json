@@ -521,7 +521,7 @@
         {
           "command": "piIde.openInBrowser",
           "group": "navigation@1",
-          "when": "activeEditor == 'piIde.webview'"
+          "when": "activeEditor =~ /piIde\\.webview/"
         }
       ],
       "editor/context": [
@@ -588,12 +588,12 @@
       "editor/title/context": [
         {
           "command": "piIde.tab.copyWorkspacePath",
-          "when": "activeWebviewPanelId == 'piIde.webview'",
+          "when": "activeWebviewPanelId =~ /piIde\\.webview/",
           "group": "piweb@0"
         },
         {
           "command": "piIde.tab.revealInSessions",
-          "when": "activeWebviewPanelId == 'piIde.webview'",
+          "when": "activeWebviewPanelId =~ /piIde\\.webview/",
           "group": "piweb@1"
         }
       ],

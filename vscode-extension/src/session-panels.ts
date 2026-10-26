@@ -8,8 +8,10 @@ import type * as vscode from "vscode";
 import type { PiWebWebviewPanel } from "./webviewProvider";
 
 export interface SessionPanelsDeps {
-  /** 面板工厂：宿主侧注入 PiWebWebviewPanel 的真实构造（含订阅注册）。 */
+  /** 面板工厂：宿主侧注入 PiWebWebviewPanel 的真实构造（含订阅注册）。
+   *  viewType 每面板唯一——tab 右键菜单的 resource URI 反查归属用。 */
   createPanel: (
+    viewType: string,
     onDisposed: () => void,
     onSessionBound: (sessionId: string, title?: string) => void,
   ) => PiWebWebviewPanel;
@@ -21,6 +23,7 @@ export class SessionPanels implements vscode.Disposable {
   private readonly panels = new Map<string, PiWebWebviewPanel>();
   private readonly owned = new Set<PiWebWebviewPanel>();
   private readonly deps: SessionPanelsDeps;
+  private nextSeq = 1;
 
   constructor(deps: SessionPanelsDeps) {
     this.deps = deps;
@@ -33,7 +36,13 @@ export class SessionPanels implements vscode.Disposable {
     // 回调只会在面板生命周期事件里异步触发——p 必然已赋值。
     // eslint-disable-next-line prefer-const -- 闭包先行声明，构造后回填。
     let p!: PiWebWebviewPanel;
+    // viewType 每面板唯一：session 用 id（可预期——利于日后 serializer
+    // 按 id 注册复活），composer 是瞬态用序号即可。
+    const viewType = key.startsWith("new:")
+      ? `piIde.webview.n${this.nextSeq++}`
+      : `piIde.webview.s.${key}`;
     p = this.deps.createPanel(
+      viewType,
       () => this.deleteKeyOf(p),
       (sessionId, title) => this.rekey(p, sessionId, title),
     );
@@ -62,6 +71,18 @@ export class SessionPanels implements vscode.Disposable {
   /** 当前激活的会话面板——tab 右键命令的归属反查（同时只有一个 editor 激活）。 */
   active(): PiWebWebviewPanel | undefined {
     for (const p of this.panels.values()) if (p.isActive) return p;
+    return undefined;
+  }
+
+  /** 按 tab resource URI 反查面板：path 形如
+   *  `webview-panel/webview-<providerId>-<uuid>`（providerId =
+   *  mainThreadWebview-<viewType>）——viewType 每面板唯一，内含即归属。
+   *  用 `vt + "-"` 匹配：uuid 段以 - 分隔，排除序号型 viewType 的前后缀
+   *  碰撞（n1 vs n12）。 */
+  byViewTypeUri(path: string): PiWebWebviewPanel | undefined {
+    for (const p of this.panels.values()) {
+      if (p.viewType && path.includes(`${p.viewType}-`)) return p;
+    }
     return undefined;
   }
 

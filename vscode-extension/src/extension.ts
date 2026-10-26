@@ -99,6 +99,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     () => ensureServer(),
     bridge,
     context.extension.packageJSON.version as string,
+    undefined,
+    undefined,
+    undefined,
+    "piIde.webview.main",
   );
 
   context.subscriptions.push(provider);
@@ -119,7 +123,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // 会话面板注册表：tab 对应 session/composer 键——点同一条目复用其 tab。
   // 面板构造在这里（要 context.subscriptions 管销毁），归属/落点逻辑在类内。
   const sessionPanels = new SessionPanels({
-    createPanel: (onDisposed, onSessionBound) => {
+    createPanel: (viewType, onDisposed, onSessionBound) => {
       const p = new PiWebWebviewPanel(
         context.extensionUri,
         () => server,
@@ -129,6 +133,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         onDisposed,
         "chat",
         onSessionBound,
+        viewType,
       );
       context.subscriptions.push(p);
       return p;

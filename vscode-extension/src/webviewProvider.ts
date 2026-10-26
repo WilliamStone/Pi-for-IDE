@@ -130,6 +130,10 @@ export class PiWebWebviewPanel extends vscode.Disposable {
     /** 页面落地到具体会话时的回报（new:<cwd> composer → 真会话）——
      * 宿主侧据此把面板重挂到 sessionId 键下。 */
     private readonly onSessionBound?: (sessionId: string, title?: string) => void,
+    /** webview viewType——会话面板各用唯一值：tab 右键菜单拿到的
+     *  resource URI（webview-<providerId>-<uuid>，providerId 含 viewType）
+     *  按它精确反查归属面板。 */
+    public readonly viewType: string = "piIde.webview",
   ) {
     super(() => this.dispose());
     // 服务器阶段状态（下载/启动）实时推到面板——等待页/门页据此换文案。
@@ -170,7 +174,7 @@ export class PiWebWebviewPanel extends vscode.Disposable {
 
     if (!this.panel) {
       this.panel = vscode.window.createWebviewPanel(
-        "piIde.webview",
+        this.viewType,
         "Pi for IDE",
         viewColumn,
         {

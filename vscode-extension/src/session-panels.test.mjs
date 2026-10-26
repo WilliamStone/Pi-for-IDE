@@ -35,8 +35,9 @@ function fakePanel() {
 function makeRegistry() {
   const created = [];
   const registry = new SessionPanels({
-    createPanel(onDisposed, onSessionBound) {
+    createPanel(viewType, onDisposed, onSessionBound) {
       const p = fakePanel();
+      p.viewType = viewType;
       p._listeners.disposed = onDisposed;
       p._listeners.bound = onSessionBound;
       created.push(p);
@@ -73,6 +74,19 @@ test("re-key 到已存在会话键不抢（已有 tab 优先）", () => {
   registry.forKey("new:/repo");
   created[1].fireBound("s-a", "dup");
   assert.equal(registry.forKey("s-a"), existing, "既有会话 tab 不被顶掉");
+});
+
+test("byViewTypeUri：resource URI 内的 viewType 段精确反查面板", () => {
+  const { registry } = makeRegistry();
+  const a = registry.forKey("s-uuid-a");
+  registry.forKey("new:/repo");
+  const uri = (vt, rid = "1111-2222-3333-4444") =>
+    `/webview-panel/webview-mainThreadWebview-${vt}-${rid}`;
+  assert.equal(registry.byViewTypeUri(uri("piIde.webview.s.s-uuid-a")), a);
+  // composer 是 n<seq> 型 viewType，同样命中
+  assert.ok(registry.byViewTypeUri(uri("piIde.webview.n1")));
+  // 非本扩展/未知 viewType → undefined（命令回退激活面板）
+  assert.equal(registry.byViewTypeUri(uri("mainThreadWebview-other.x")), undefined);
 });
 
 test("dispose 的面板从注册表摘除（下次按键新建）", () => {
