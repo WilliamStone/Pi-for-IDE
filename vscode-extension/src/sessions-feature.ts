@@ -293,6 +293,9 @@ export function registerSessionsFeature(
     state: { sessionId?: string; cwd?: string; title?: string; section?: string } | undefined,
   ): Promise<void> => {
     const kind = parsePiViewType(panel.viewType);
+    outputChannel().appendLine(
+      `[revive] viewType=${panel.viewType} kind=${kind?.kind ?? "?"} state=${JSON.stringify(state ?? null)}`,
+    );
     switch (kind?.kind) {
       case "session":
         await sessionPanels.adopt(kind.id, panel, state);
@@ -329,6 +332,7 @@ export function registerSessionsFeature(
       if (!kind || kind.kind === "legacy") continue;
       if (registered.has(input.viewType)) continue;
       registered.add(input.viewType);
+      outputChannel().appendLine(`[revive] serializer registered for viewType=${input.viewType}`);
       context.subscriptions.push(
         vscode.window.registerWebviewPanelSerializer(input.viewType, {
           deserializeWebviewPanel: revivePanel,

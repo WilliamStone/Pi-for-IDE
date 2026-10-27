@@ -122,7 +122,7 @@ export class SessionPanels implements vscode.Disposable {
     );
     this.panels.set(key, p);
     this.owned.add(p);
-    p.adopt(panel, state);
+    p.adopt(panel, state, key.startsWith("new:") ? undefined : key);
     return p;
   }
 
@@ -133,7 +133,11 @@ export class SessionPanels implements vscode.Disposable {
    *  碰撞（n1 vs n12）。 */
   byViewTypeUri(path: string): PiWebWebviewPanel | undefined {
     for (const p of this.panels.values()) {
-      if (p.viewType && path.includes(`${p.viewType}-`)) return p;
+      const vt = p.viewType;
+      // `${vt}-`：uuid 段以 - 分隔，排除序号型 viewType 的前后缀碰撞
+      // （n1 vs n12）。endsWith 兜底接管面板 viewType 带完整
+      // `mainThreadWebview-…-uuid` 形态（等于 path 尾段）的情形。
+      if (vt && (path.includes(`${vt}-`) || path.endsWith(vt))) return p;
     }
     return undefined;
   }

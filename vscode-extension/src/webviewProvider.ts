@@ -208,14 +208,21 @@ export class PiWebWebviewPanel extends vscode.Disposable {
    * 重接桥与销毁钩子、按落盘 state 恢复身份，然后走 refresh 自愈。
    * state 为 shell persistState 最后落盘的 {sessionId,cwd,view,section,title}。
    */
-  adopt(panel: vscode.WebviewPanel, state?: PiPanelPersistState): void {
+  adopt(
+    panel: vscode.WebviewPanel,
+    state?: PiPanelPersistState,
+    fallbackSessionId?: string,
+  ): void {
     if (this.panel) {
       // 注册表已持有活面板却来了同 viewType 的孤儿——关掉多余的 tab。
       panel.dispose();
       return;
     }
     this.panel = panel;
-    if (typeof state?.sessionId === "string") this.sessionId = state.sessionId;
+    // 会话身份以键（viewType 里的 sessionId）为权威，state 只是补充——
+    // state 缺失（旧版 shell 无 persistState）时键仍保证 ?session= 深链。
+    this.sessionId =
+      (typeof state?.sessionId === "string" && state.sessionId) || fallbackSessionId;
     if (typeof state?.cwd === "string") this.currentCwd = state.cwd;
     if (typeof state?.title === "string") this.titleOverride = state.title;
     if (typeof state?.section === "string") this.panelSection = state.section;
