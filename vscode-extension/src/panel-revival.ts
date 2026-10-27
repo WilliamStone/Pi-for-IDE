@@ -35,11 +35,13 @@ export interface OrphanRevivalDeps {
   reopenMain: () => unknown;
   reopenSettings: () => unknown;
   log: (line: string) => void;
-  /** 扫尾宽限期（ms）。默认 15s——deserialize 若会来基本随注册即达。 */
+  /** 扫尾宽限期（ms）。默认 5s——deserialize 在可用的平台语义下随注册
+   *  近乎即达，宽限只兜"来晚了"的情形；不来的环境（实测存在）里它就是
+   *  死 tab 的滞留时长，不宜拉长。 */
   sweepGraceMs?: number;
 }
 
-const DEFAULT_SWEEP_GRACE_MS = 15000;
+const DEFAULT_SWEEP_GRACE_MS = 5000;
 
 interface OrphanTab {
   tab: vscode.Tab;

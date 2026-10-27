@@ -130,7 +130,9 @@ not contract.
 
 So `panel-revival.ts` adds a **sweep fallback**: every enumerated pi orphan
 is recorded; `deserialize` marks `revived.add(barePiViewType(panel.viewType))`
-on entry; 15 s after registration (grace window), orphans whose viewType never
+on entry; 5 s after registration (grace window — deserialize, when the
+platform offers it at all, arrives with registration; a longer window only
+lengthens dead-tab dwell in environments where it never comes), orphans whose viewType never
 got a deserialize call are `tabGroups.close`d and an equivalent live tab is
 opened (session → `openSession(id)`, main/settings → `provider.reveal` /
 `settingsPanel.reveal`; composers can't recover cwd without state → close
