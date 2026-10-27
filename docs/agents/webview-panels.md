@@ -117,16 +117,32 @@ viewType) must go through it — a mixed raw/prefixed comparison silently misses
 - Duplicate orphans (same viewType twice) → `SessionPanels.adopt` keeps the
   registered panel and disposes the extra.
 
-### deserialize timing is not guaranteed — orphan sweep
+### deserialize is lazy per-tab — orphan sweep
 
-Observed (VSCodium 1.140, real user profile): registration happens
-(`[revive] serializer registered for viewType=piIde.webview.s.<id>`) yet
-`deserializeWebviewPanel` **never fires** for the matching orphans — no
-`[revive] deserialize fired` line, tabs stay dead, session clicks open
-duplicates. In the e2e profile (clean user-data/extensions dirs) the same
-build *does* deserialize on both "Restart Extension Host" and window reload.
-Root cause undetermined — treat deserialize timing as platform-dependent,
-not contract.
+`deserializeWebviewPanel` fires **only for editor inputs that get resolved**,
+not on registration. Verified in the installed VSCodium build
+(`workbench.desktop.main.js`, unminified symbols):
+
+- Restored webview editors are `LazilyResolvedWebviewEditorInput` (created
+  by `WebviewEditorInputSerializer.deserialize` → `openRevivedWebview`).
+  Its `resolve()` runs from the WebviewEditor pane's `setInput` — i.e. when
+  the tab becomes the rendered/active editor of its group (restore of the
+  group's active tab, or a user click). Background tabs never resolve.
+- `resolve()` → `resolveWebview` → `tryRevive` over registered revivers;
+  no match → `revivalPool.enqueueForRestoration` (waits in a pool).
+- `registerWebviewPanelSerializer` → `$registerSerializer` →
+  `registerResolver` → `revivalPool.reviveFor` drains queued inputs that
+  match `canResolve`. A registration only revives inputs that have
+  *already* resolved; it does not reach unresolved background tabs.
+- `webviewPanelViewType` prepends `mainThreadWebview-` on `fromExternal`
+  (registration arrives raw, inputs compare prefixed) — stripping the
+  prefix before registering is required and correct.
+
+Consequence: an orphan that is never activated can never be adopted — there
+is no extension-side API to force `resolve()` (tabGroups exposes tabs, not
+inputs), so the sweep close+reopen is structural, not just a timing
+fallback. Clicking a dead orphan inside the grace window still revives it
+in place (resolve → deserialize → adopt → sweep skips via `revived`).
 
 So `panel-revival.ts` adds a **sweep fallback**: every enumerated pi orphan
 is recorded; `deserialize` marks `revived.add(barePiViewType(panel.viewType))`
