@@ -617,6 +617,13 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
           scrollToBottom("instant");
           setPendingScrollRestore(null);
         }
+      } catch {
+        // A failed page fetch must not leave the message list hidden forever —
+        // fall back to the tail and reveal the content.
+        if (!controller.signal.aborted) {
+          scrollToBottom("instant");
+          setPendingScrollRestore(null);
+        }
       } finally {
         loadingOlderRef.current = false;
       }

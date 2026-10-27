@@ -205,3 +205,35 @@ server API…`) fires after `boundOrigin` is set, so the warm pull lands data
 seconds before the user opens the view. `sessions-feature` also fires one
 kick at registration to cover cross-window attach (no status broadcasts in
 this window at all). Once loaded, the invisible gate applies as before.
+
+### Reload: session chrome without content
+
+Reported shape: after `Developer: Reload Window`, the adopted session tab
+shows the pi-web chrome (top tab bar, composer) but the message area stays
+empty — no error, no loading text. Verified healthy end-to-end (real logs +
+e2e): deserialize → adopt → serverReady → probe → iframe → `session_start`
+dispatched. The empty state therefore lives past `loadSession`'s fetch: the
+only silent-empty branches are `/api/sessions/<id>` → 404 (clears messages
+with `setError(null)`) or a 200 with an empty `context.messages`.
+
+Hardening landed in three places:
+
+- `loadSession` retries a mount-path (`force`) 404 once after 700 ms before
+  accepting the empty state — a transient `resolveSessionPath` miss right
+  after a server respawn self-heals; a truly deleted session only pays one
+  extra fetch.
+- `app/api/sessions/[id]/route.ts` logs its degenerate outcomes to stdout
+  (`404: resolve miss`, `empty-context: entries=… leaf=… liveRpc=…`,
+  `500: …`), which lands in the `Pi for IDE` output channel — the next real
+  occurrence shows which branch fired.
+- `ChatWindow`'s scroll-restore `locate()` now catches a failed
+  `loadOlderPage` — before, a single thrown fetch left
+  `pendingScrollRestore` set forever and the message list rendered
+  `visibility:hidden` (same chrome-only symptom, different layer).
+
+E2E note: a 12-round reload loop against a seeded session never reproduced
+the empty state (content present every round), and a standalone-server
+hammer of the real mount-path fetches (`force=1` detail + state + SSE +
+list, cold and warm) returned 200 + full context every time — the failure
+needs a transient we have not isolated yet; the diagnostics above are the
+capture mechanism.

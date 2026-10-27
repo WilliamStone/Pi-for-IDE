@@ -656,7 +656,17 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (showLoading) setLoading(true);
       const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1", tree: "summary" });
       if (options?.force) params.set("force", "1");
-      const res = await fetch(`/api/sessions/${encodeURIComponent(sid)}?${params}`);
+      const url = `/api/sessions/${encodeURIComponent(sid)}?${params}`;
+      let res = await fetch(url);
+      // Mount-path 404s can be a transient resolve miss (the server's session
+      // catalogue raced the request after a restart). A deep-linked session that
+      // 404s deserves a couple of bounded retries — a truly deleted session only
+      // pays a short delay before the same empty state.
+      for (let attempt = 0; res.status === 404 && options?.force && attempt < 2; attempt++) {
+        await new Promise((r) => setTimeout(r, 800));
+        if (sessionIdRef.current !== sid) return null;
+        res = await fetch(url);
+      }
       if (res.status === 404) {
         if (showLoading) {
           setData(null);

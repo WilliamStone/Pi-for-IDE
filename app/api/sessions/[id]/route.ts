@@ -48,6 +48,9 @@ export async function GET(
     const liveRpc = liveWrapper;
     const resolvedPath = liveRpc ? null : await resolveSessionPath(id);
     if (!liveRpc && !resolvedPath) {
+      // Diagnostic: a 404 on an existing session (transient resolve miss) is the
+      // prime suspect for "chrome loads but content stays empty" after reload.
+      console.log(`[pi-web] session ${id} 404: resolve miss`);
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
@@ -78,6 +81,11 @@ export async function GET(
       tail,
       sessionId: id, // local: lazy URLs for historical tool-result images
     }), transcriptNotices);
+    // Diagnostic: a 200 with zero messages is the other shape of the empty-pane
+    // report — log the fingerprint (entries/leaf/liveRpc) when it happens.
+    if (context.messages.length === 0) {
+      console.log(`[pi-web] session ${id} empty-context: entries=${entries.length} leaf=${String(leafId)} liveRpc=${!!liveRpc}`);
+    }
     perf?.span("context");
     const totalActiveMs = computeSessionTotalActiveMs(entries);
     // Cumulative usage over ALL entries, including history compacted away —
@@ -169,6 +177,7 @@ export async function GET(
       },
     );
   } catch (error) {
+    console.log(`[pi-web] session ${id} 500: ${String(error)}`);
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
 }

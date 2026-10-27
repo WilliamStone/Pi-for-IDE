@@ -67,14 +67,12 @@ export class SessionPanels implements vscode.Disposable {
     const existing = this.panels.get(key);
     if (existing) return existing;
     // 回调只会在面板生命周期事件里异步触发——p 必然已赋值。
-    // eslint-disable-next-line prefer-const -- 闭包先行声明，构造后回填。
-    let p!: PiWebWebviewPanel;
     // viewType 每面板唯一：session 用 id（可预期——利于日后 serializer
     // 按 id 注册复活），composer 是瞬态用序号即可。
     const viewType = key.startsWith("new:")
       ? `piIde.webview.n${this.nextSeq++}`
       : `piIde.webview.s.${key}`;
-    p = this.deps.createPanel(
+    const p = this.deps.createPanel(
       viewType,
       () => this.deleteKeyOf(p),
       (sessionId, title) => this.rekey(p, sessionId, title),
@@ -120,11 +118,9 @@ export class SessionPanels implements vscode.Disposable {
       panel.dispose();
       return existing;
     }
-    // eslint-disable-next-line prefer-const -- 同 forKey：闭包先行声明，构造后回填。
-    let p!: PiWebWebviewPanel;
     // 既有面板的 viewType 保持不变——包装壳按真实值建（URI 反查继续命中）。
     // deserialize 到手的 panel.viewType 形态随平台变，先归一成裸值。
-    p = this.deps.createPanel(
+    const p = this.deps.createPanel(
       barePiViewType(panel.viewType),
       () => this.deleteKeyOf(p),
       (sessionId, title) => this.rekey(p, sessionId, title),
