@@ -36,16 +36,18 @@ function fakeWrapper() {
   };
 }
 
-function orphanTab(viewType) {
-  return { input: new stub.TabInputWebview(viewType), label: "orphan" };
+function orphanTab(viewType, label = "orphan") {
+  return { input: new stub.TabInputWebview(viewType), label };
 }
 
 /** 桩共享的 tabGroups/calls2 每例重置；sweepGraceMs: 0 让扫尾下个 tick 就跑。
  *  计时器挂在 context.subscriptions 上——测试不 dispose 会跨用例串台
  *  （上个用例的扫尾在本用例的 tick 里才跑）。 */
-function setup(t, tabs) {
+function setup(t, tabs, viewColumn = 2) {
   stub.tabGroups.all.length = 0;
-  stub.tabGroups.all.push({ tabs });
+  const group = { tabs, viewColumn };
+  for (const t0 of tabs) t0.group = group;
+  stub.tabGroups.all.push(group);
   stub.calls2.serializers.clear();
   stub.calls2.closedTabs.length = 0;
   const calls = { reopenSession: [], reopenMain: 0, reopenSettings: 0, log: [] };
@@ -64,7 +66,7 @@ function setup(t, tabs) {
       sessionPanels,
       mainPanel: fakeWrapper(),
       settingsPanel: fakeWrapper(),
-      reopenSession: (id) => void calls.reopenSession.push(id),
+      reopenSession: (id, orphan) => void calls.reopenSession.push({ id, orphan }),
       reopenMain: () => void calls.reopenMain++,
       reopenSettings: () => void calls.reopenSettings++,
       log: (l) => calls.log.push(l),
@@ -121,12 +123,14 @@ test("deserialize 面板 viewType 带前缀时 revived 标记仍与裸键对齐"
   assert.deepEqual(stub.calls2.closedTabs, [], "已收养的 tab 不被扫尾");
 });
 
-test("宽限期后未被 deserialize 认领的孤儿：关掉并按 kind 重开", async (t) => {
-  const tab = orphanTab("piIde.webview.s.sess-2");
+test("宽限期后未被 deserialize 认领的孤儿：关掉并按 kind 重开（带死 tab 现场）", async (t) => {
+  const tab = orphanTab("piIde.webview.s.sess-2", "Pi — sess two");
   const { calls } = setup(t, [tab]);
   await tick();
   assert.deepEqual(stub.calls2.closedTabs, [tab]);
-  assert.deepEqual(calls.reopenSession, ["sess-2"]);
+  assert.deepEqual(calls.reopenSession, [
+    { id: "sess-2", orphan: { label: "Pi — sess two", viewColumn: 2 } },
+  ]);
 });
 
 test("deserialize 过的孤儿不被扫尾（原地收养，不动 tab）", async (t) => {

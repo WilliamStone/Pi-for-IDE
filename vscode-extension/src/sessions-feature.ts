@@ -74,6 +74,9 @@ export function registerSessionsFeature(
   context.subscriptions.push({
     dispose: onServerStatus(() => sessionsProvider.kick()),
   });
+  // 跨窗 attach 场景本窗收不到任何状态广播——注册即试暖一拍
+  // （无 base 时 getBaseUrl 返空，零成本）。
+  sessionsProvider.kick();
   if (sessionsView.visible) void ensureServer();
   context.subscriptions.push(
     sessionsProvider,
@@ -207,7 +210,7 @@ export function registerSessionsFeature(
     return sessionPanels.active();
   };
 
-  const openSession = async (id: string, title?: string) => {
+  const openSession = async (id: string, title?: string, viewColumn?: vscode.ViewColumn) => {
     // 面板 cwd 用会话自己的目录——跨项目点开不受当前配置 cwd 影响。
     const cwd = sessionsProvider.sessionById(id)?.cwd
       ?? resolveConfiguredCwd()
@@ -216,12 +219,12 @@ export function registerSessionsFeature(
     const perSession = piConfig().get<string>("sessionTabs", "perSession") === "perSession";
     if (!perSession) {
       void ensureServer();
-      await provider.reveal(cwd, openViewColumn(), id);
+      await provider.reveal(cwd, viewColumn ?? openViewColumn(), id);
       return;
     }
     const panel = sessionPanels.forKey(id);
     void ensureServer();
-    await panel.reveal(cwd, sessionPanels.column(), id);
+    await panel.reveal(cwd, viewColumn ?? sessionPanels.column(), id);
     if (title) panel.setTitleOverride(`Pi — ${title}`);
   };
 
@@ -290,7 +293,17 @@ export function registerSessionsFeature(
     sessionPanels,
     mainPanel: provider,
     settingsPanel,
-    reopenSession: (id) => openSession(id),
+    // 扫尾重开带死 tab 现场：列表未暖先补拍（cwd/标题都依赖 sessionById，
+    // 服务不可达则照常兜底）；label 的 "Pi — " 前缀是 setTitleOverride 的
+    // 产出形态，剥回裸名再传——外部删掉的会话至少保住标题。
+    reopenSession: async (id, orphan) => {
+      if (!sessionsProvider.sessionById(id)) await sessionsProvider.reload();
+      const s = sessionsProvider.sessionById(id);
+      const hinted = orphan?.label?.startsWith("Pi — ")
+        ? orphan.label.slice("Pi — ".length)
+        : undefined;
+      return openSession(id, s ? sessionTitle(s) : hinted, orphan?.viewColumn);
+    },
     reopenMain: () => provider.reveal(resolveConfiguredCwd(), openViewColumn()),
     reopenSettings: () => settingsPanel.reveal(resolveConfiguredCwd(), openViewColumn()),
     log: (l) => outputChannel().appendLine(l),

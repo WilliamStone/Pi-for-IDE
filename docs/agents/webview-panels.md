@@ -140,6 +140,17 @@ only; **legacy `piIde.webview` tabs get no serializer — they're swept closed
 too** — no identity to reopen, and drafts survive app-side anyway). Normal
 adoption keeps the tab in place; the sweep only replaces genuinely dead ones.
 
+Reopen carries the dead tab's on-screen state as `OrphanInfo` hints —
+`tab.label` (`Pi — <name>` form) and `tab.group.viewColumn`, snapshotted at
+enumeration since the tab is closed by then. `sessions-feature`'s
+`reopenSession` first warms the session list (`reload()` when `sessionById`
+misses — the sweep usually runs before the tree's first poll, so without it
+cwd falls back to the *configured* directory and the title degrades to
+`Pi for IDE — <cwd>`), then prefers `sessionTitle(s)`, else strips the
+`Pi — ` prefix back off the label, and passes the orphan's `viewColumn`
+through `openSession` so the replacement lands back in the original group
+(later session orphans stack beside the first via `sessionPanels.column()`).
+
 Sweep correctness edges (both unit-tested in `panel-revival.test.mjs`):
 
 - A tab the user closed inside the grace window is **not** reopened —
@@ -152,3 +163,21 @@ Sweep correctness edges (both unit-tested in `panel-revival.test.mjs`):
 Diagnostics: `[revive] serializer registered for viewType=…`,
 `[revive] deserialize fired viewType=… state=…`,
 `[revive] no deserialize for … — closing dead tab`.
+
+### TreeView visibility events can lag (sessions sidebar)
+
+Same platform family, different event (VSCodium 1.140): clicking the Pi
+activity-bar icon rendered the sidebar immediately, but
+`sessionsView.onDidChangeVisibility` (and with it `setVisible(true)` →
+`tick` → first `pull`) arrived ~10 s later — log proof: `ensureStarted:
+reusing` and `sessions poll: base resolved` share a millisecond, ~10 s after
+`boundOrigin`/`resolvedOrigin` were already usable. The wait was event
+latency, not server time.
+
+Mitigation lives in `SessionsTreeProvider.kick()`: a status-broadcast kick
+also pulls while **invisible** when the list has never been loaded
+(`listVersion === -1`) — the last pre-ready stage emit (`Waiting for the
+server API…`) fires after `boundOrigin` is set, so the warm pull lands data
+seconds before the user opens the view. `sessions-feature` also fires one
+kick at registration to cover cross-window attach (no status broadcasts in
+this window at all). Once loaded, the invisible gate applies as before.

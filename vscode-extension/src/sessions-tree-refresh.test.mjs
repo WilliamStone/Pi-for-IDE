@@ -100,6 +100,30 @@ test("awaiting/running 快照随轮询更新（状态栏指示器数据源）", 
   assert.deepEqual([...p.awaitingSessionIds], ["s1"]);
 });
 
+test("kick 暖拍：不可见但清单未加载时放行，已加载则跳过", async (t) => {
+  const { restore } = fakeServer();
+  t.after(restore);
+  let fetches = 0;
+  const inner = globalThis.fetch;
+  globalThis.fetch = async (u) => {
+    fetches++;
+    return inner(u);
+  };
+  const p = new SessionsTreeProvider(async () => "http://x", memento(), () => []);
+
+  // 不可见 + 未加载 → 暖拍放行（可见性事件滞后时数据先备好）。
+  p.kick();
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(p.sessionById("s1")?.name, "name-s1", "暖拍已取回清单");
+  assert.ok(fetches > 0, "确实发了请求");
+
+  // 不可见 + 已加载 → 跳过（省流口径不变）。
+  const afterWarm = fetches;
+  p.kick();
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(fetches, afterWarm, "已暖后 kick 不再发请求");
+});
+
 test("启动中 → hint 区分 'is starting'，off↔starting 翻转也 fire", async () => {
   let starting = true;
   const p = new SessionsTreeProvider(async () => undefined, memento(), () => [], () => starting);

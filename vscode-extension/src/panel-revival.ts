@@ -24,14 +24,24 @@ import {
 } from "./session-panels";
 import type { PiPanelPersistState, PiWebWebviewPanel } from "./webviewProvider";
 
+/** 扫尾重开时透传给调用方的孤儿 tab 现场——deserialize 不来时 state
+ *  拿不到，tab 自带的 label/viewColumn 是仅剩的身份与位置线索。 */
+export interface OrphanInfo {
+  /** 死 tab 标题（session tab 是 "Pi — <name>" 形态，解析归调用方）。 */
+  label?: string;
+  /** 死 tab 原所在组——尽量回摆原列；组已消失时由宿主落位。 */
+  viewColumn?: vscode.ViewColumn;
+}
+
 export interface OrphanRevivalDeps {
   /** 会话/composer 面板注册表——deserialize 时按键收养。 */
   sessionPanels: SessionPanels;
   /** 主面板与设置面板单例——deserialize 时 adopt 接管。 */
   mainPanel: PiWebWebviewPanel;
   settingsPanel: PiWebWebviewPanel;
-  /** 扫尾关死 tab 后的等价重开（session→树里的打开动作，main/settings→reveal）。 */
-  reopenSession: (sessionId: string) => unknown;
+  /** 扫尾关死 tab 后的等价重开（session→树里的打开动作，main/settings→reveal）。
+   *  orphan 带上死 tab 的 label/原列——调用方据以恢复标题与落位。 */
+  reopenSession: (sessionId: string, orphan?: OrphanInfo) => unknown;
   reopenMain: () => unknown;
   reopenSettings: () => unknown;
   log: (line: string) => void;
@@ -50,6 +60,9 @@ interface OrphanTab {
   /** 裸 viewType——注册名、revived 键。 */
   rawVt: string;
   kind: PiViewType;
+  /** 枚举时快照的死 tab 现场（扫尾时 tab 已关，读属性不可靠——先存）。 */
+  label?: string;
+  viewColumn?: vscode.ViewColumn;
 }
 
 export function registerOrphanPanelRevival(
@@ -124,7 +137,14 @@ export function registerOrphanPanelRevival(
       const kind = parsePiViewType(input.viewType);
       if (!kind) continue;
       const rawVt = barePiViewType(input.viewType);
-      orphans.push({ tab, providerVt: input.viewType, rawVt, kind });
+      orphans.push({
+        tab,
+        providerVt: input.viewType,
+        rawVt,
+        kind,
+        label: tab.label,
+        viewColumn: tab.group?.viewColumn,
+      });
       if (kind.kind === "legacy") continue;
       if (registered.has(rawVt)) continue;
       registered.add(rawVt);
@@ -151,18 +171,25 @@ export function registerOrphanPanelRevival(
   context.subscriptions.push(tabEvents);
 
   const sweep = (): void => {
-    for (const { tab, providerVt, rawVt, kind } of orphans) {
+    for (const { tab, providerVt, rawVt, kind, label, viewColumn } of orphans) {
       if (revived.has(rawVt)) continue;
       if (closedOrphans.has(tab) || closedViewTypes.has(providerVt)) continue;
       log(`[revive] no deserialize for ${rawVt} — closing dead tab`);
       void Promise.resolve(vscode.window.tabGroups.close(tab)).then(
         (closed) => {
           // close 返回 false = tab 已不在（用户关了/平台清了）——不重开。
-          if (!closed) return undefined;
-          if (kind?.kind === "session") return deps.reopenSession(kind.id);
-          if (kind?.kind === "main") return deps.reopenMain();
-          if (kind?.kind === "settings") return deps.reopenSettings();
-          return undefined; // composer/legacy：只关不重开
+          if (!closed) return;
+          const reopen =
+            kind?.kind === "session"
+              ? deps.reopenSession(kind.id, { label, viewColumn })
+              : kind?.kind === "main"
+                ? deps.reopenMain()
+                : kind?.kind === "settings"
+                  ? deps.reopenSettings()
+                  : undefined; // composer/legacy：只关不重开
+          // 重开是 fire-and-forget——失败（含 reject）只损失一个 tab，
+          // 不外溢成 unhandled rejection 噪声。
+          void Promise.resolve(reopen).then(undefined, () => undefined);
         },
         () => undefined,
       );

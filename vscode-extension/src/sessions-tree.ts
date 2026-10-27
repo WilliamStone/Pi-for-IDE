@@ -160,9 +160,12 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
     if (this.visible) this.timer = setTimeout(() => void this.tick(), POLL_MS);
   }
 
-  /** 状态广播触发的即时补拍——服务绑口/握手推进时不必等 2.5s 节拍。 */
+  /** 状态广播触发的即时补拍——服务绑口/握手推进时不必等 2.5s 节拍。
+   *  不可见但清单从未加载也放行：onDidChangeVisibility 实测可滞后 ~10s
+   *  才投递（点开侧栏到事件到达），先把数据备好，视图一开即直出；
+   *  已加载过则维持"不可见不轮询"的省流口径。 */
   kick(): void {
-    if (!this.visible) return;
+    if (!this.visible && this.listVersion !== -1) return;
     void this.pull();
   }
 
