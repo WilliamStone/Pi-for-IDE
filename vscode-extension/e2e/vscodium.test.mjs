@@ -447,9 +447,10 @@ test("VSCodium G: ext host restart → orphaned session tab adopted, no duplicat
   }
 });
 
-// ── H 段：窗口重载路径——vsix 更新实际走 reloadWindow，deserialize 可能
-//    按可见性懒触发（后台孤儿不进注册表→点会话开新 tab，即用户实报）。
-//    重启宿主（G）已证收养成立；本段测窗口重载下同一链是否依然闭环。
+// ── H 段：窗口重载路径——vsix 更新实际走 reloadWindow。deserialize 按
+//    tab 懒触发（后台孤儿的输入不 resolve 就不来），故后台孤儿留作
+//    懒占位：树点开同会话 → openSession 原位交换（关占位+原组重开），
+//    用户视角=点了会话、tab 活了、仍只有 1 个。断言的就是这个不重影闭环。
 test("VSCodium H: window reload → orphan session tab adopted, no duplicate", { timeout: 300_000 }, async (t) => {
   markCover("H reload-adopt", "ran");
   const ctx = prerequisites(t, "H reload-adopt");
@@ -482,7 +483,8 @@ test("VSCodium H: window reload → orphan session tab adopted, no duplicate", {
     await waitForFrame(win, (u) => u.includes("session=e2e-seed-01"), 60000);
 
     // 把会话 tab 压到后台（点开文件 tab）——懒 deserialize 的关键变量：
-    // 孤儿不可见时，窗口重载后它是否仍被反序列化。
+    // 恢复时它不是组内活动编辑器 → 不 resolve → 留作懒占位，
+    // 由下面点开会话行的原位交换接管。
     await win.locator('.tabs-container .tab:has-text("hello.txt")').first()
       .click()
       .catch(() => {});

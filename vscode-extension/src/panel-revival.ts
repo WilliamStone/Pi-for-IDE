@@ -1,19 +1,26 @@
-// 孤儿面板接管与扫尾（扩展升级/宿主重启后 tab 还在、扩展侧对象已死）。
+// 孤儿面板接管（扩展升级/宿主重启后 tab 还在、扩展侧对象已死）。
 //
-// 两条路径殊途同归：
-//   收养 —— 对每个枚举到的 pi viewType 注册 WebviewPanelSerializer，
-//     VS Code 为存活面板回调 deserializeWebviewPanel → adopt() 原地接管
-//     （tab 位置保留、无关闭闪烁；注册必须按裸 viewType，枚举到的
-//     TabInputWebview.viewType 是 mainThreadWebview- 前缀的 providerId
-//     形态，剥前缀由 barePiViewType 统一做）。
-//   扫尾 —— deserialize 是否/何时触发取决于平台语义（重载恢复路径、
-//     宿主重启、版本差异；实测 VSCodium 1.140 有注册了却永不回调的
-//     情形）。宽限期后仍没被认领的孤儿判定死态：关掉、按 kind 重开等价
-//     活 tab。composer 无 state 拿不到 cwd、legacy 无身份——只关不重开。
-//     宽限期内被用户手动关掉的 tab 不重开（尊重显式关闭）。
+// deserializeWebviewPanel 是按 tab 懒触发的——恢复出的编辑器输入只在
+// 成为组内活动编辑器（被渲染/被点开）时才 resolve → 命中已注册 reviver
+// → deserialize → adopt() 原地接管（tab 位置与 DOM 全保）。后台孤儿
+// 永不 resolve，也没有任何扩展侧 API 能强制它 resolve。因此：
 //
-// 面板包壳与身份恢复在 webviewProvider.adopt()，viewType 解析在
-// session-panels.ts——本模块只做"枚举→注册→路由→扫尾"的编排。
+//   可收养孤儿（session/composer/main/settings）——枚举即注册
+//     serializer（裸 viewType，TabInputWebview.viewType 可能带
+//     mainThreadWebview- 前缀，剥前缀由 barePiViewType 统一做），然后
+//     留作"懒占位"：标题照常显示、不碍事；被点开即原地收养。永不扫尾——
+//     关+重开换来的是闪烁与位置漂移，而占位符本身零成本。
+//   不可收养孤儿（legacy 裸 piIde.webview）——身份不可考，deserialize
+//     来了也映射不回，占位是纯陷阱：枚举即关。
+//
+// 树点开/reveal 命中孤儿占位 → 原位交换重开（OrphanRegistry.take*）：API
+// 不给激活任意 tab 的能力，关占位+同列重开是最接近"激活"的等价物，且
+// 杜绝与死 tab 并存的重影。手关/被收养/被取走的孤儿从登记处摘除。
+//
+// deserialize 分派按 kind：session 已不存在（清单已载而查无此会话）→
+// 关窗自清理；composer 无 state 拿不到身份 → 关；main/settings → adopt
+// 到对应单例。面板包壳与身份恢复在 webviewProvider.adopt()，viewType
+// 解析在 session-panels.ts——本模块只做"枚举→注册→路由→登记"的编排。
 
 import * as vscode from "vscode";
 import {
@@ -24,13 +31,66 @@ import {
 } from "./session-panels";
 import type { PiPanelPersistState, PiWebWebviewPanel } from "./webviewProvider";
 
-/** 扫尾重开时透传给调用方的孤儿 tab 现场——deserialize 不来时 state
- *  拿不到，tab 自带的 label/viewColumn 是仅剩的身份与位置线索。 */
-export interface OrphanInfo {
-  /** 死 tab 标题（session tab 是 "Pi — <name>" 形态，解析归调用方）。 */
+/** 枚举时登记的孤儿 tab——kind/label/原列是交换重开时仅剩的位置与身份
+ *  线索（deserialize 路径用不到它们，拿的是平台回传的 state）。 */
+export interface OrphanTab {
+  tab: vscode.Tab;
+  /** 枚举时的原始形态（可能带 mainThreadWebview- 前缀）。 */
+  providerVt: string;
+  /** 裸 viewType——注册名、登记处键。 */
+  rawVt: string;
+  kind: PiViewType;
+  /** 快照兜底——swap 时优先 live 读 tab.label/tab.group（用户可能拖过组）。 */
   label?: string;
-  /** 死 tab 原所在组——尽量回摆原列；组已消失时由宿主落位。 */
   viewColumn?: vscode.ViewColumn;
+}
+
+/** 孤儿登记处：枚举填入，deserialize 收养/手关/交换取走时摘除。
+ *  对 openSession/reveal 暴露 take*——取出即摘除（归调用方处置）。 */
+export class OrphanRegistry {
+  private readonly byTab = new Map<vscode.Tab, OrphanTab>();
+
+  get size(): number {
+    return this.byTab.size;
+  }
+
+  add(orphan: OrphanTab): void {
+    this.byTab.set(orphan.tab, orphan);
+  }
+
+  /** 摘除：按 tab 对象（手关事件），或按 viewType（deserialize 侧只有
+   *  panel.viewType；也兜 tab 移组换对象后手关事件对不上的情形——
+   *  统一归一成裸值比对）。 */
+  drop(ref: vscode.Tab | string): void {
+    if (typeof ref !== "string") {
+      this.byTab.delete(ref);
+      return;
+    }
+    const raw = barePiViewType(ref);
+    for (const [tab, orphan] of this.byTab) {
+      if (orphan.rawVt === raw) this.byTab.delete(tab);
+    }
+  }
+
+  /** 树点开同会话 → 取孤儿做原位交换。 */
+  takeSession(id: string): OrphanTab | undefined {
+    return this.takeWhere((o) => o.kind?.kind === "session" && o.kind.id === id);
+  }
+
+  /** main/settings 单例孤儿：reveal 前取走交换。 */
+  takeKind(kind: "main" | "settings" | "composer"): OrphanTab | undefined {
+    return this.takeWhere((o) => o.kind?.kind === kind);
+  }
+
+  private takeWhere(pred: (o: OrphanTab) => boolean): OrphanTab | undefined {
+    for (const [tab, orphan] of this.byTab) {
+      if (pred(orphan)) {
+        this.byTab.delete(tab);
+        return orphan;
+      }
+    }
+    return undefined;
+  }
 }
 
 export interface OrphanRevivalDeps {
@@ -39,38 +99,20 @@ export interface OrphanRevivalDeps {
   /** 主面板与设置面板单例——deserialize 时 adopt 接管。 */
   mainPanel: PiWebWebviewPanel;
   settingsPanel: PiWebWebviewPanel;
-  /** 扫尾关死 tab 后的等价重开（session→树里的打开动作，main/settings→reveal）。
-   *  orphan 带上死 tab 的 label/原列——调用方据以恢复标题与落位。 */
-  reopenSession: (sessionId: string, orphan?: OrphanInfo) => unknown;
-  reopenMain: () => unknown;
-  reopenSettings: () => unknown;
+  /** 孤儿登记处——枚举填入；openSession/reveal 侧按需取走交换。 */
+  orphans: OrphanRegistry;
+  /** 会话是否仍在清单中：false=确认消失 → deserialize 收窗自清理；
+   *  undefined=未知（清单未加载/服务未达）→ 乐观收养——误杀真孤儿的
+   *  代价比多活一个占位高。 */
+  sessionExists?: (sessionId: string) => boolean | undefined;
   log: (line: string) => void;
-  /** 扫尾宽限期（ms）。默认 5s——deserialize 在可用的平台语义下随注册
-   *  近乎即达，宽限只兜"来晚了"的情形；不来的环境（实测存在）里它就是
-   *  死 tab 的滞留时长，不宜拉长。 */
-  sweepGraceMs?: number;
-}
-
-const DEFAULT_SWEEP_GRACE_MS = 5000;
-
-interface OrphanTab {
-  tab: vscode.Tab;
-  /** 枚举时的原始形态（可能带 mainThreadWebview- 前缀）——手关比对用。 */
-  providerVt: string;
-  /** 裸 viewType——注册名、revived 键。 */
-  rawVt: string;
-  kind: PiViewType;
-  /** 枚举时快照的死 tab 现场（扫尾时 tab 已关，读属性不可靠——先存）。 */
-  label?: string;
-  viewColumn?: vscode.ViewColumn;
 }
 
 export function registerOrphanPanelRevival(
   context: vscode.ExtensionContext,
   deps: OrphanRevivalDeps,
 ): void {
-  const { sessionPanels, log } = deps;
-  const revived = new Set<string>();
+  const { sessionPanels, orphans, log } = deps;
 
   const dispatch = async (
     panel: vscode.WebviewPanel,
@@ -79,6 +121,11 @@ export function registerOrphanPanelRevival(
   ): Promise<void> => {
     switch (kind?.kind) {
       case "session":
+        if (deps.sessionExists?.(kind.id) === false) {
+          log(`[revive] session ${kind.id} no longer exists — closing orphan`);
+          panel.dispose();
+          return;
+        }
         await sessionPanels.adopt(kind.id, panel, state);
         return;
       case "composer": {
@@ -112,7 +159,7 @@ export function registerOrphanPanelRevival(
     // 先记触达行——deserialize 若抛错，入口日志仍留证（失败默吞会
     // 表现得像"serializer 没被调用"，排障无据可依）。
     log(`[revive] deserialize fired viewType=${String(panel?.viewType)} state=${JSON.stringify(state ?? null)}`);
-    revived.add(barePiViewType(panel?.viewType ?? ""));
+    orphans.drop(barePiViewType(panel?.viewType ?? ""));
     try {
       await dispatch(panel, parsePiViewType(panel?.viewType ?? ""), state);
     } catch (e) {
@@ -127,17 +174,24 @@ export function registerOrphanPanelRevival(
 
   // 枚举现存 pi webview tab——serializer 按 viewType 精确匹配，viewType
   // 是动态值，只能从 tabGroups 反推逐注册。裸 `piIde.webview`（旧版统一
-  // viewType）身份不可考：不注册 serializer，但仍进孤儿清单扫尾关掉。
+  // viewType）身份不可考：不注册不留占位，枚举即关。
   const registered = new Set<string>();
-  const orphans: OrphanTab[] = [];
   for (const group of vscode.window.tabGroups.all) {
     for (const tab of group.tabs) {
       const input = tab.input;
       if (!(input instanceof vscode.TabInputWebview)) continue;
       const kind = parsePiViewType(input.viewType);
       if (!kind) continue;
+      if (kind.kind === "legacy") {
+        log(`[revive] legacy orphan ${input.viewType} — closing (unrecoverable)`);
+        void Promise.resolve(vscode.window.tabGroups.close(tab)).then(
+          undefined,
+          () => undefined,
+        );
+        continue;
+      }
       const rawVt = barePiViewType(input.viewType);
-      orphans.push({
+      orphans.add({
         tab,
         providerVt: input.viewType,
         rawVt,
@@ -145,7 +199,6 @@ export function registerOrphanPanelRevival(
         label: tab.label,
         viewColumn: tab.group?.viewColumn,
       });
-      if (kind.kind === "legacy") continue;
       if (registered.has(rawVt)) continue;
       registered.add(rawVt);
       log(`[revive] serializer registered for viewType=${rawVt}`);
@@ -156,45 +209,17 @@ export function registerOrphanPanelRevival(
       );
     }
   }
-  if (orphans.length === 0) return;
 
-  // 宽限期内被用户手动关掉的孤儿：扫尾不得把它们再开回来。
-  const closedOrphans = new Set<vscode.Tab>();
-  const closedViewTypes = new Set<string>();
-  const tabEvents = vscode.window.tabGroups.onDidChangeTabs((e) => {
-    for (const t of e.closed) {
-      closedOrphans.add(t);
-      const i = t.input;
-      if (i instanceof vscode.TabInputWebview) closedViewTypes.add(i.viewType);
-    }
-  });
-  context.subscriptions.push(tabEvents);
-
-  const sweep = (): void => {
-    for (const { tab, providerVt, rawVt, kind, label, viewColumn } of orphans) {
-      if (revived.has(rawVt)) continue;
-      if (closedOrphans.has(tab) || closedViewTypes.has(providerVt)) continue;
-      log(`[revive] no deserialize for ${rawVt} — closing dead tab`);
-      void Promise.resolve(vscode.window.tabGroups.close(tab)).then(
-        (closed) => {
-          // close 返回 false = tab 已不在（用户关了/平台清了）——不重开。
-          if (!closed) return;
-          const reopen =
-            kind?.kind === "session"
-              ? deps.reopenSession(kind.id, { label, viewColumn })
-              : kind?.kind === "main"
-                ? deps.reopenMain()
-                : kind?.kind === "settings"
-                  ? deps.reopenSettings()
-                  : undefined; // composer/legacy：只关不重开
-          // 重开是 fire-and-forget——失败（含 reject）只损失一个 tab，
-          // 不外溢成 unhandled rejection 噪声。
-          void Promise.resolve(reopen).then(undefined, () => undefined);
-        },
-        () => undefined,
-      );
-    }
-  };
-  const sweepTimer = setTimeout(sweep, deps.sweepGraceMs ?? DEFAULT_SWEEP_GRACE_MS);
-  context.subscriptions.push({ dispose: () => clearTimeout(sweepTimer) });
+  // 手关的孤儿从登记处摘除——openSession 不再拿它做交换（按 viewType
+  // 兜底 tab 移组换对象后对不上的情形）。收养路径在 deserialize 里摘除，
+  // 交换路径在 take* 里摘除。
+  context.subscriptions.push(
+    vscode.window.tabGroups.onDidChangeTabs((e) => {
+      for (const t of e.closed) {
+        orphans.drop(t);
+        const i = t.input;
+        if (i instanceof vscode.TabInputWebview) orphans.drop(i.viewType);
+      }
+    }),
+  );
 }

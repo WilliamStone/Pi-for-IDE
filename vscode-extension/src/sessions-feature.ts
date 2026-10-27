@@ -12,7 +12,11 @@ import { readInstanceMarker } from "./instance-coordination";
 import { managedRuntimeRoot } from "./managedRuntime";
 import { currentServerStatus, onServerStatus, outputChannel } from "./server-status";
 import { watchPendingOpens } from "./pending-open";
-import { registerOrphanPanelRevival } from "./panel-revival";
+import {
+  OrphanRegistry,
+  registerOrphanPanelRevival,
+  type OrphanTab,
+} from "./panel-revival";
 import { PiIdeServer } from "./piIdeServer";
 import { SessionPanels } from "./session-panels";
 import { sessionTitle } from "./sessions-model";
@@ -128,6 +132,26 @@ export function registerSessionsFeature(
     }),
   );
 
+  // 孤儿占位登记处（panel-revival 枚举填入）——deserialize 按 tab 懒
+  // 触发，没被点开的孤儿永远是占位符：点它 → adopt 原地收养；reveal/
+  // openSession 命中 → 这里关占位+原位重开做交换（API 不给激活任意
+  // tab，交换是最接近"激活"的等价物，且杜绝与死占位并存的重影）。
+  const orphans = new OrphanRegistry();
+  const closeOrphan = async (orphan: OrphanTab): Promise<void> => {
+    try {
+      await vscode.window.tabGroups.close(orphan.tab);
+    } catch {
+      /* 已不在——照常重开 */
+    }
+  };
+  // 交换列：孤儿当前组优先（live 读——用户可能拖过组），枚举快照兜底。
+  const orphanColumn = (o: OrphanTab | undefined): vscode.ViewColumn | undefined =>
+    o ? (o.tab.group?.viewColumn ?? o.viewColumn) : undefined;
+  // 死 tab 标题回会话名：setTitleOverride 产出 "Pi — <name>"，剥前缀
+  // 还原；其他形态（如 "Pi for IDE — <cwd>" 兜底标题）不当作会话名用。
+  const titleFromOrphanLabel = (label: string | undefined): string | undefined =>
+    label?.startsWith("Pi — ") ? label.slice("Pi — ".length) : undefined;
+
   // 设置页单例面板——?view=settings（加载即弹设置面板的精简壳）。
   const settingsPanel = new PiWebWebviewPanel(
     context.extensionUri,
@@ -150,7 +174,9 @@ export function registerSessionsFeature(
       void ensureServer();
       settingsPanel.panelSection =
         typeof section === "string" && section ? section : undefined;
-      await settingsPanel.reveal(cwd, openViewColumn());
+      const orphan = orphans.takeKind("settings");
+      if (orphan) await closeOrphan(orphan);
+      await settingsPanel.reveal(cwd, orphanColumn(orphan) ?? openViewColumn());
     }),
   );
 
@@ -162,7 +188,9 @@ export function registerSessionsFeature(
         ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
         ?? "";
       void ensureServer();
-      await provider.reveal(cwd, openViewColumn());
+      const orphan = orphans.takeKind("main");
+      if (orphan) await closeOrphan(orphan);
+      await provider.reveal(cwd, orphanColumn(orphan) ?? openViewColumn());
     }),
   );
 
@@ -211,6 +239,16 @@ export function registerSessionsFeature(
   };
 
   const openSession = async (id: string, title?: string, viewColumn?: vscode.ViewColumn) => {
+    // 孤儿占位交换：树点开命中死 tab → 关占位，原组原列+死 tab 标题
+    // 透传给新面板。会话可能被外部删掉——补一拍拿真相（cwd/标题都依赖
+    // sessionById），查无此会话时死 tab 标题兜底。
+    const orphan = orphans.takeSession(id);
+    if (orphan) {
+      await closeOrphan(orphan);
+      if (!sessionsProvider.sessionById(id)) await sessionsProvider.reload();
+      viewColumn ??= orphanColumn(orphan);
+      title ??= titleFromOrphanLabel(orphan.tab.label ?? orphan.label);
+    }
     // 面板 cwd 用会话自己的目录——跨项目点开不受当前配置 cwd 影响。
     const cwd = sessionsProvider.sessionById(id)?.cwd
       ?? resolveConfiguredCwd()
@@ -219,7 +257,9 @@ export function registerSessionsFeature(
     const perSession = piConfig().get<string>("sessionTabs", "perSession") === "perSession";
     if (!perSession) {
       void ensureServer();
-      await provider.reveal(cwd, viewColumn ?? openViewColumn(), id);
+      const mainOrphan = orphans.takeKind("main");
+      if (mainOrphan) await closeOrphan(mainOrphan);
+      await provider.reveal(cwd, viewColumn ?? orphanColumn(mainOrphan) ?? openViewColumn(), id);
       return;
     }
     const panel = sessionPanels.forKey(id);
@@ -240,7 +280,15 @@ export function registerSessionsFeature(
         ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
         ?? "";
       void ensureServer();
-      await provider.reveal(cwd, openViewColumn(), id);
+      // 该会话的占位孤儿与主面板占位都可能存在——两处都收走，重影清零。
+      const sessionOrphan = orphans.takeSession(id);
+      const mainOrphan = orphans.takeKind("main");
+      for (const o of [sessionOrphan, mainOrphan]) if (o) await closeOrphan(o);
+      await provider.reveal(
+        cwd,
+        orphanColumn(sessionOrphan) ?? orphanColumn(mainOrphan) ?? openViewColumn(),
+        id,
+      );
     },
     openSession,
     openProject: async (cwd: string, label?: string) => {
@@ -287,25 +335,17 @@ export function registerSessionsFeature(
   if (pendingWatcher) context.subscriptions.push(pendingWatcher);
 
   // 孤儿面板接管（扩展升级/宿主重启后 tab 还在、扩展侧对象已死）——
-  // 枚举→serializer 注册→deserialize 收养→扫尾关重开，编排在
-  // panel-revival.ts；此处只接宿主侧依赖。
+  // 枚举→serializer 注册→懒占位：点开 deserialize 原地收养，reveal/
+  // openSession 命中由本文件各入口做原位交换，编排在 panel-revival.ts；
+  // 此处只接宿主侧依赖。sessionExists：清单已载而查无此会话才算"已删"
+  // ——未加载时乐观收养（误杀真孤儿的代价比多活一个占位高）。
   registerOrphanPanelRevival(context, {
     sessionPanels,
     mainPanel: provider,
     settingsPanel,
-    // 扫尾重开带死 tab 现场：列表未暖先补拍（cwd/标题都依赖 sessionById，
-    // 服务不可达则照常兜底）；label 的 "Pi — " 前缀是 setTitleOverride 的
-    // 产出形态，剥回裸名再传——外部删掉的会话至少保住标题。
-    reopenSession: async (id, orphan) => {
-      if (!sessionsProvider.sessionById(id)) await sessionsProvider.reload();
-      const s = sessionsProvider.sessionById(id);
-      const hinted = orphan?.label?.startsWith("Pi — ")
-        ? orphan.label.slice("Pi — ".length)
-        : undefined;
-      return openSession(id, s ? sessionTitle(s) : hinted, orphan?.viewColumn);
-    },
-    reopenMain: () => provider.reveal(resolveConfiguredCwd(), openViewColumn()),
-    reopenSettings: () => settingsPanel.reveal(resolveConfiguredCwd(), openViewColumn()),
+    orphans,
+    sessionExists: (id) =>
+      sessionsProvider.listLoaded ? !!sessionsProvider.sessionById(id) : undefined,
     log: (l) => outputChannel().appendLine(l),
   });
 

@@ -82,10 +82,11 @@ an existing `WebviewPanel` (tabs are read-only otherwise). It matches viewType
 exactly, so dynamic viewTypes are discovered by enumerating
 `vscode.window.tabGroups` at activation (`TabInputWebview.viewType`) and
 registering one serializer per pi viewType. The whole revival concern —
-enumerate → register → dispatch on deserialize → sweep — lives in
+enumerate → register → dispatch on deserialize → orphan registry — lives in
 `panel-revival.ts` (`registerOrphanPanelRevival`); `sessions-feature.ts` only
-wires its deps. Registration at activation covers everything: panels created
-later reappear in the next activation's enumeration.
+wires its deps and the reveal-path swaps. Registration at activation covers
+everything: panels created later reappear in the next activation's
+enumeration.
 
 **Trap — `TabInputWebview.viewType` is the providerId form**, i.e.
 `mainThreadWebview-piIde.webview.s.<id>` (observed on VSCodium 1.140), not the
@@ -94,9 +95,9 @@ viewType (`piIde.webview.s.<id>`), so the `mainThreadWebview-` prefix must be
 stripped before registering — registering the enumerated value verbatim
 silently never fires `deserializeWebviewPanel`. `barePiViewType` in
 `session-panels.ts` owns the strip: every viewType comparison (registration
-name, the `revived` mark on `panel.viewType`, `SessionPanels.adopt`'s stored
-viewType) must go through it — a mixed raw/prefixed comparison silently misses
-(e.g. the sweep closing a successfully adopted live tab).
+name, the `OrphanRegistry.drop` key on `panel.viewType`,
+`SessionPanels.adopt`'s stored viewType) must go through it — a mixed
+raw/prefixed comparison silently misses.
 
 - `deserializeWebviewPanel(panel, state)` → `PiWebWebviewPanel.adopt(panel,
   state)` → `attachPanel` (shared with `createWebviewPanel` path: icon, shell
@@ -112,12 +113,13 @@ viewType) must go through it — a mixed raw/prefixed comparison silently misses
   it. sessionId also comes from the viewType for `s.*`; composers rely on
   state (`sessionId` if it landed a session, else `cwd` → `new:<cwd>` key,
   else `panel.dispose()`).
-- Bare `piIde.webview` orphans (pre-unique builds) get **no** serializer →
-  VS Code closes them — dead tabs disappearing is the desired cleanup.
+- Bare `piIde.webview` orphans (pre-unique builds) get **no** serializer and
+  **no** placeholder — closed at enumeration (identity is unrecoverable;
+  drafts survive app-side anyway).
 - Duplicate orphans (same viewType twice) → `SessionPanels.adopt` keeps the
   registered panel and disposes the extra.
 
-### deserialize is lazy per-tab — orphan sweep
+### deserialize is lazy per-tab — lazy placeholders
 
 `deserializeWebviewPanel` fires **only for editor inputs that get resolved**,
 not on registration. Verified in the installed VSCodium build
@@ -138,47 +140,36 @@ not on registration. Verified in the installed VSCodium build
   (registration arrives raw, inputs compare prefixed) — stripping the
   prefix before registering is required and correct.
 
-Consequence: an orphan that is never activated can never be adopted — there
-is no extension-side API to force `resolve()` (tabGroups exposes tabs, not
-inputs), so the sweep close+reopen is structural, not just a timing
-fallback. Clicking a dead orphan inside the grace window still revives it
-in place (resolve → deserialize → adopt → sweep skips via `revived`).
+Consequence: an orphan that is never activated can never be adopted — and
+there is no extension-side API to force `resolve()` (tabGroups exposes tabs,
+not inputs). So adoptable orphans are kept as **lazy placeholders** instead
+of being swept: the tab keeps its serialized title, looks normal, and:
 
-So `panel-revival.ts` adds a **sweep fallback**: every enumerated pi orphan
-is recorded; `deserialize` marks `revived.add(barePiViewType(panel.viewType))`
-on entry; 5 s after registration (grace window — deserialize, when the
-platform offers it at all, arrives with registration; a longer window only
-lengthens dead-tab dwell in environments where it never comes), orphans whose viewType never
-got a deserialize call are `tabGroups.close`d and an equivalent live tab is
-opened (session → `openSession(id)`, main/settings → `provider.reveal` /
-`settingsPanel.reveal`; composers can't recover cwd without state → close
-only; **legacy `piIde.webview` tabs get no serializer — they're swept closed
-too** — no identity to reopen, and drafts survive app-side anyway). Normal
-adoption keeps the tab in place; the sweep only replaces genuinely dead ones.
+- **clicked** → resolve → deserialize → `adopt` revives it in place (same
+  DOM node, exact position — the best outcome);
+- **targeted by openSession/reveal** (tree click, pending-open, settings,
+  openOriginal, openSessionFull) → the matching `OrphanRegistry.take*` pulls
+  it out and `sessions-feature` swaps it: close the placeholder, reopen an
+  equivalent live tab at `tab.group.viewColumn` (live-read first, snapshot
+  fallback) with the dead label's `Pi — ` prefix stripped back to a session
+  title — no duplicate ever coexists with the placeholder;
+- **never touched** → harmless tombstone (title stays correct);
+- **manually closed** → `onDidChangeTabs` drops it from the registry.
 
-Reopen carries the dead tab's on-screen state as `OrphanInfo` hints —
-`tab.label` (`Pi — <name>` form) and `tab.group.viewColumn`, snapshotted at
-enumeration since the tab is closed by then. `sessions-feature`'s
-`reopenSession` first warms the session list (`reload()` when `sessionById`
-misses — the sweep usually runs before the tree's first poll, so without it
-cwd falls back to the *configured* directory and the title degrades to
-`Pi for IDE — <cwd>`), then prefers `sessionTitle(s)`, else strips the
-`Pi — ` prefix back off the label, and passes the orphan's `viewColumn`
-through `openSession` so the replacement lands back in the original group
-(later session orphans stack beside the first via `sessionPanels.column()`).
+Only un-adoptable orphans are closed proactively: legacy `piIde.webview` at
+enumeration, and in `dispatch` a session whose id is confirmed gone
+(`sessionExists` → `sessionsProvider.listLoaded && !sessionById`) or a
+composer with no `sessionId`/`cwd` in state — clicking one disposes the
+panel, so the placeholder self-cleans instead of showing a blank panel.
 
-Sweep correctness edges (both unit-tested in `panel-revival.test.mjs`):
-
-- A tab the user closed inside the grace window is **not** reopened —
-  `onDidChangeTabs` records closes during the window, and `tabGroups.close`
-  returning false (already gone) also suppresses the reopen.
-- `revived` is keyed by the *bare* viewType — a `mainThreadWebview-`-prefixed
-  `panel.viewType` still marks the orphan revived (mixed forms would make the
-  sweep kill a live adopted tab).
+The earlier close+reopen sweep was removed: mass tab death at T+5 s bought
+"live" tabs nobody was looking at, while the placeholder + swap costs
+nothing visible and preserves exact position/DOM on click-adopt.
 
 Diagnostics: `[revive] serializer registered for viewType=…`,
 `[revive] deserialize fired viewType=… state=…`,
-`[revive] no deserialize for … — closing dead tab`.
+`[revive] session <id> no longer exists — closing orphan`,
+`[revive] legacy orphan … — closing (unrecoverable)`.
 
 ### TreeView visibility events can lag (sessions sidebar)
 

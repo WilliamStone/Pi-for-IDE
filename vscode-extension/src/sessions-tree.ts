@@ -110,6 +110,12 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
     return this.workspaceOnly;
   }
 
+  /** 清单是否成功加载过——孤儿 deserialize 侧判"会话已删"用：未加载
+   *  时无法断言缺失（服务未达/还没轮过），只能乐观收养。 */
+  get listLoaded(): boolean {
+    return this.listVersion !== -1;
+  }
+
   sessionById(id: string): ApiSession | undefined {
     return this.sessions.find((s) => s.id === id);
   }
