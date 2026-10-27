@@ -85,6 +85,14 @@ registering one serializer per pi viewType (`sessions-feature.ts`
 `revivePanel`). Registration at activation covers everything: panels created
 later reappear in the next activation's enumeration.
 
+**Trap — `TabInputWebview.viewType` is the providerId form**, i.e.
+`mainThreadWebview-piIde.webview.s.<id>` (observed on VSCodium 1.140), not the
+raw viewType. `registerWebviewPanelSerializer` matches the panel's *raw*
+viewType (`piIde.webview.s.<id>`), so the `mainThreadWebview-` prefix must be
+stripped before registering — registering the enumerated value verbatim
+silently never fires `deserializeWebviewPanel`. `parsePiViewType` strips the
+prefix for classification; the registration site strips it for the name.
+
 - `deserializeWebviewPanel(panel, state)` → `PiWebWebviewPanel.adopt(panel,
   state)` → `attachPanel` (shared with `createWebviewPanel` path: icon, shell
   html, dispose/bridge hooks) + state restore + fire-and-forget `refresh()`

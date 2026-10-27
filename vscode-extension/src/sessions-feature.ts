@@ -330,11 +330,18 @@ export function registerSessionsFeature(
       if (!(input instanceof vscode.TabInputWebview)) continue;
       const kind = parsePiViewType(input.viewType);
       if (!kind || kind.kind === "legacy") continue;
-      if (registered.has(input.viewType)) continue;
-      registered.add(input.viewType);
-      outputChannel().appendLine(`[revive] serializer registered for viewType=${input.viewType}`);
+      // TabInputWebview.viewType 返回的是 providerId 形态
+      // `mainThreadWebview-<viewType>`——serializer 按面板真实 viewType
+      // 匹配，注册前必须剥前缀，否则 deserialize 永不触发（孤儿接不进
+      // 注册表：点会话开新 tab、tab 命令无归属）。
+      const rawVt = input.viewType.startsWith("mainThreadWebview-")
+        ? input.viewType.slice("mainThreadWebview-".length)
+        : input.viewType;
+      if (registered.has(rawVt)) continue;
+      registered.add(rawVt);
+      outputChannel().appendLine(`[revive] serializer registered for viewType=${rawVt}`);
       context.subscriptions.push(
-        vscode.window.registerWebviewPanelSerializer(input.viewType, {
+        vscode.window.registerWebviewPanelSerializer(rawVt, {
           deserializeWebviewPanel: revivePanel,
         }),
       );
