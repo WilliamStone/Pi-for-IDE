@@ -145,7 +145,7 @@ lib/
   display-path.ts           display-only ~ / ./ path shortening for settings panels
   default-cwd.ts            dated ~/pi-cwd/YYYYMMDD path for "Use default directory"
   worktree.ts               project/worktree resolution and git worktree operations
-  draft-store.ts            local draft persistence
+  draft-store.ts            composer drafts: in-memory Map + per-key localStorage mirror (pi-draft:<key>, sync write, 512KB image guard, LRU 200, hydrateDrafts on load; session delete clears via handleSessionDeleted)
   extension-ui-queue.ts     FIFO queues for extension dialogs and custom panels, by request id; isBlockingExtensionUiRequest() (which method a run waits on)
   session-stats-format.ts   client-safe compact counts, costs and active durations of the stats toolbar and agent switcher
   turn-duration.ts          getTurnDurationMs() / formatTurnDuration(): a finished turn's length from its anchor to its last response's end, on pi's timestamps

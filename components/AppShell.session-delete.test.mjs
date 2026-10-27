@@ -25,6 +25,7 @@ function runHandleSessionDeleted(capturedSelectedSession, active) {
     sessionKey: 0,
     routerReplaced: null,
     refreshBumped: false,
+    clearedDraft: null,
   };
   const context = vm.createContext({
     crypto: globalThis.crypto,
@@ -36,6 +37,7 @@ function runHandleSessionDeleted(capturedSelectedSession, active) {
     activeNewSessionDraftKeyRef: { current: null },
     invalidateWorkspaceRestore() {},
     clearTabOpenSession() {},
+    clearDraft: (id) => { state.clearedDraft = id; },
     setRefreshKey: () => { state.refreshBumped = true; },
     setNewSessionDraftId: (id) => { state.newSessionDraftId = id; },
     setSelectedSession: (value) => { state.setSelectedSession.push(value); },
@@ -66,6 +68,7 @@ test("a delete completing after the user navigated away keeps the new chat", () 
   assert.equal(state.newSessionDraftId, null);
   assert.equal(state.sessionKey, 0, "chat does not remount");
   assert.equal(state.routerReplaced, null, "URL does not move");
+  assert.equal(state.clearedDraft, "gone-session", "the deleted session's draft goes with it");
 });
 
 test("a delete completing while the user is still on it falls back to the empty composer", () => {
@@ -77,4 +80,5 @@ test("a delete completing while the user is still on it falls back to the empty 
   assert.ok(state.newSessionDraftId);
   assert.equal(state.sessionKey, 1, "chat remounts as a fresh composer");
   assert.equal(state.routerReplaced, `?cwd=${encodeURIComponent("/project-a")}`);
+  assert.equal(state.clearedDraft, "gone-session");
 });

@@ -39,7 +39,7 @@ import { setupPushSubscription } from "@/lib/push-client";
 import { getInitialNavigation, linkedSessionId, withTabOpen } from "@/lib/initial-navigation";
 import { clearTabOpenSession, getTabOpen, setTabOpenNewSession, setTabOpenSession } from "@/lib/tab-session";
 import { mergeCatalogRow } from "./session-catalog-helpers";
-import { getDraft, rekeyDraft } from "@/lib/draft-store";
+import { clearDraft, getDraft, rekeyDraft } from "@/lib/draft-store";
 import {
   contextForCwd,
   type NewSessionContext,
@@ -1207,6 +1207,10 @@ export function AppShell() {
 
   const handleSessionDeleted = useCallback((sessionId: string) => {
     invalidateWorkspaceRestore();
+    // The session's composer draft goes with it — its key becomes
+    // unreachable anyway. Drafts orphaned by deletes done elsewhere (the
+    // CLI, another surface) age out through the store's own eviction.
+    clearDraft(sessionId);
     setRefreshKey((k) => k + 1);
     // The DELETE can outlive a session switch: this callback's captured
     // selectedSession is from the delete click. Read the latest selection
