@@ -81,8 +81,10 @@ tab instead of activating the orphan.
 an existing `WebviewPanel` (tabs are read-only otherwise). It matches viewType
 exactly, so dynamic viewTypes are discovered by enumerating
 `vscode.window.tabGroups` at activation (`TabInputWebview.viewType`) and
-registering one serializer per pi viewType (`sessions-feature.ts`
-`revivePanel`). Registration at activation covers everything: panels created
+registering one serializer per pi viewType. The whole revival concern —
+enumerate → register → dispatch on deserialize → sweep — lives in
+`panel-revival.ts` (`registerOrphanPanelRevival`); `sessions-feature.ts` only
+wires its deps. Registration at activation covers everything: panels created
 later reappear in the next activation's enumeration.
 
 **Trap — `TabInputWebview.viewType` is the providerId form**, i.e.
@@ -90,8 +92,11 @@ later reappear in the next activation's enumeration.
 raw viewType. `registerWebviewPanelSerializer` matches the panel's *raw*
 viewType (`piIde.webview.s.<id>`), so the `mainThreadWebview-` prefix must be
 stripped before registering — registering the enumerated value verbatim
-silently never fires `deserializeWebviewPanel`. `parsePiViewType` strips the
-prefix for classification; the registration site strips it for the name.
+silently never fires `deserializeWebviewPanel`. `barePiViewType` in
+`session-panels.ts` owns the strip: every viewType comparison (registration
+name, the `revived` mark on `panel.viewType`, `SessionPanels.adopt`'s stored
+viewType) must go through it — a mixed raw/prefixed comparison silently misses
+(e.g. the sweep closing a successfully adopted live tab).
 
 - `deserializeWebviewPanel(panel, state)` → `PiWebWebviewPanel.adopt(panel,
   state)` → `attachPanel` (shared with `createWebviewPanel` path: icon, shell
@@ -123,14 +128,24 @@ build *does* deserialize on both "Restart Extension Host" and window reload.
 Root cause undetermined — treat deserialize timing as platform-dependent,
 not contract.
 
-So `sessions-feature.ts` adds a **sweep fallback**: every enumerated pi
-orphan is recorded; `revivePanel` marks `revived.add(panel.viewType)` on
-entry; 15 s after registration, orphans whose viewType never got a
-deserialize call are `tabGroups.close`d and an equivalent live tab is
+So `panel-revival.ts` adds a **sweep fallback**: every enumerated pi orphan
+is recorded; `deserialize` marks `revived.add(barePiViewType(panel.viewType))`
+on entry; 15 s after registration (grace window), orphans whose viewType never
+got a deserialize call are `tabGroups.close`d and an equivalent live tab is
 opened (session → `openSession(id)`, main/settings → `provider.reveal` /
 `settingsPanel.reveal`; composers can't recover cwd without state → close
-only). Normal adoption keeps the tab in place; the sweep only replaces
-genuinely dead ones.
+only; **legacy `piIde.webview` tabs get no serializer — they're swept closed
+too** — no identity to reopen, and drafts survive app-side anyway). Normal
+adoption keeps the tab in place; the sweep only replaces genuinely dead ones.
+
+Sweep correctness edges (both unit-tested in `panel-revival.test.mjs`):
+
+- A tab the user closed inside the grace window is **not** reopened —
+  `onDidChangeTabs` records closes during the window, and `tabGroups.close`
+  returning false (already gone) also suppresses the reopen.
+- `revived` is keyed by the *bare* viewType — a `mainThreadWebview-`-prefixed
+  `panel.viewType` still marks the orphan revived (mixed forms would make the
+  sweep kill a live adopted tab).
 
 Diagnostics: `[revive] serializer registered for viewType=…`,
 `[revive] deserialize fired viewType=… state=…`,

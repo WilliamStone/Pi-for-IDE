@@ -20,10 +20,18 @@ export type PiViewType =
   | { kind: "legacy" }
   | undefined;
 
-export function parsePiViewType(viewType: string): PiViewType {
-  const vt = viewType.startsWith("mainThreadWebview-")
+/** 剥 providerId 前缀拿裸 viewType——TabInputWebview.viewType 是
+ *  `mainThreadWebview-<viewType>` 形态；序列化注册、revived 标记、
+ *  面板归属比较等一切按 viewType 判等的场合都必须走它，两边形态
+ *  不一致会静默错配（扫尾把已收养活面板当孤儿关掉）。 */
+export function barePiViewType(viewType: string): string {
+  return viewType.startsWith("mainThreadWebview-")
     ? viewType.slice("mainThreadWebview-".length)
     : viewType;
+}
+
+export function parsePiViewType(viewType: string): PiViewType {
+  const vt = barePiViewType(viewType);
   if (vt === "piIde.webview") return { kind: "legacy" };
   if (vt === "piIde.webview.main") return { kind: "main" };
   if (vt === "piIde.webview.settings") return { kind: "settings" };
@@ -115,8 +123,9 @@ export class SessionPanels implements vscode.Disposable {
     // eslint-disable-next-line prefer-const -- 同 forKey：闭包先行声明，构造后回填。
     let p!: PiWebWebviewPanel;
     // 既有面板的 viewType 保持不变——包装壳按真实值建（URI 反查继续命中）。
+    // deserialize 到手的 panel.viewType 形态随平台变，先归一成裸值。
     p = this.deps.createPanel(
-      panel.viewType,
+      barePiViewType(panel.viewType),
       () => this.deleteKeyOf(p),
       (sessionId, title) => this.rekey(p, sessionId, title),
     );

@@ -12,8 +12,9 @@ import { readInstanceMarker } from "./instance-coordination";
 import { managedRuntimeRoot } from "./managedRuntime";
 import { currentServerStatus, onServerStatus, outputChannel } from "./server-status";
 import { watchPendingOpens } from "./pending-open";
+import { registerOrphanPanelRevival } from "./panel-revival";
 import { PiIdeServer } from "./piIdeServer";
-import { SessionPanels, parsePiViewType } from "./session-panels";
+import { SessionPanels } from "./session-panels";
 import { sessionTitle } from "./sessions-model";
 import { registerSessionCommands, SessionsTreeProvider } from "./sessions-tree";
 import { PiWebWebviewPanel } from "./webviewProvider";
@@ -282,115 +283,18 @@ export function registerSessionsFeature(
   });
   if (pendingWatcher) context.subscriptions.push(pendingWatcher);
 
-  // 孤儿面板接管（扩展升级/宿主重启后 tab 还在、扩展侧对象已死）：
-  // registerWebviewPanelSerializer 按 viewType 精确匹配，而 viewType 是
-  // 动态值——从 tabGroups 现存的 pi webview tab 反推、逐 viewType 注册；
-  // VS Code 对每个匹配面板回调 deserialize → adopt 接管（不是新开 tab）。
-  // 裸 `piIde.webview`（旧版统一 viewType）不注册——其面板无持久身份，
-  // 留给 VS Code 自行关闭（僵尸 tab 消失正是想要的净效果）。
-  const revivePanel = async (
-    panel: vscode.WebviewPanel,
-    state: { sessionId?: string; cwd?: string; title?: string; section?: string } | undefined,
-  ): Promise<void> => {
-    // 先记触达行——deserialize 若抛错，入口日志仍留证（失败默吞会
-    // 表现得像"serializer 没被调用"，排障无据可依）。
-    outputChannel().appendLine(
-      `[revive] deserialize fired viewType=${String(panel?.viewType)} state=${JSON.stringify(state ?? null)}`,
-    );
-    revived.add(panel.viewType);
-    const kind = parsePiViewType(panel?.viewType ?? "");
-    try {
-      await revivePanelDispatch(panel, kind, state);
-    } catch (e) {
-      outputChannel().appendLine(`[revive] adopt failed: ${String(e)}`);
-      try { panel.dispose(); } catch { /* 已死 */ }
-    }
-  };
-  const revivePanelDispatch = async (
-    panel: vscode.WebviewPanel,
-    kind: ReturnType<typeof parsePiViewType>,
-    state: { sessionId?: string; cwd?: string; title?: string; section?: string } | undefined,
-  ): Promise<void> => {
-    switch (kind?.kind) {
-      case "session":
-        await sessionPanels.adopt(kind.id, panel, state);
-        return;
-      case "composer": {
-        // 已落地会话的 composer 持 sessionId；否则按 cwd 回 new:<cwd> 键；
-        // 两者皆无的孤儿救不回有用状态——关掉。
-        const sid = typeof state?.sessionId === "string" && state.sessionId ? state.sessionId : "";
-        const cwd = typeof state?.cwd === "string" && state.cwd ? state.cwd : "";
-        const key = sid || (cwd ? `new:${cwd}` : "");
-        if (!key) {
-          panel.dispose();
-          return;
-        }
-        await sessionPanels.adopt(key, panel, state);
-        return;
-      }
-      case "main":
-        provider.adopt(panel, state);
-        return;
-      case "settings":
-        settingsPanel.adopt(panel, state);
-        return;
-      default:
-        panel.dispose();
-    }
-  };
-  const registered = new Set<string>();
-  const revived = new Set<string>();
-  const orphanTabs: Array<{
-    tab: vscode.Tab;
-    rawVt: string;
-    kind: ReturnType<typeof parsePiViewType>;
-  }> = [];
-  for (const group of vscode.window.tabGroups.all) {
-    for (const tab of group.tabs) {
-      const input = tab.input;
-      if (!(input instanceof vscode.TabInputWebview)) continue;
-      const kind = parsePiViewType(input.viewType);
-      if (!kind || kind.kind === "legacy") continue;
-      // TabInputWebview.viewType 返回的是 providerId 形态
-      // `mainThreadWebview-<viewType>`——serializer 按面板真实 viewType
-      // 匹配，注册前必须剥前缀，否则 deserialize 永不触发（孤儿接不进
-      // 注册表：点会话开新 tab、tab 命令无归属）。
-      const rawVt = input.viewType.startsWith("mainThreadWebview-")
-        ? input.viewType.slice("mainThreadWebview-".length)
-        : input.viewType;
-      if (!registered.has(rawVt)) {
-        registered.add(rawVt);
-        outputChannel().appendLine(`[revive] serializer registered for viewType=${rawVt}`);
-        context.subscriptions.push(
-          vscode.window.registerWebviewPanelSerializer(rawVt, {
-            deserializeWebviewPanel: revivePanel,
-          }),
-        );
-      }
-      orphanTabs.push({ tab, rawVt, kind });
-    }
-  }
-  // 兜底扫尾：deserialize 是否/何时触发取决于平台语义（重载恢复路径、
-  // 宿主重启、版本差异）——宽限期后仍没被认领的孤儿保持死态（壳死在
-  // 旧宿主），与其让用户撞上死 tab，直接关掉重开等价活 tab；
-  // 正常 deserialize 的（revived 命中）原地收养不动。
-  const sweepTimer = setTimeout(() => {
-    for (const { tab, rawVt, kind } of orphanTabs) {
-      if (revived.has(rawVt)) continue;
-      outputChannel().appendLine(
-        `[revive] no deserialize for ${rawVt} — closing dead tab`,
-      );
-      void vscode.window.tabGroups.close(tab).then(() => {
-        if (kind?.kind === "session") return openSession(kind.id);
-        if (kind?.kind === "main")
-          return provider.reveal(resolveConfiguredCwd(), openViewColumn());
-        if (kind?.kind === "settings")
-          return settingsPanel.reveal(resolveConfiguredCwd(), openViewColumn());
-        return undefined; // composer：无 state 拿不到 cwd，只关不重开
-      });
-    }
-  }, 15000);
-  context.subscriptions.push({ dispose: () => clearTimeout(sweepTimer) });
+  // 孤儿面板接管（扩展升级/宿主重启后 tab 还在、扩展侧对象已死）——
+  // 枚举→serializer 注册→deserialize 收养→扫尾关重开，编排在
+  // panel-revival.ts；此处只接宿主侧依赖。
+  registerOrphanPanelRevival(context, {
+    sessionPanels,
+    mainPanel: provider,
+    settingsPanel,
+    reopenSession: (id) => openSession(id),
+    reopenMain: () => provider.reveal(resolveConfiguredCwd(), openViewColumn()),
+    reopenSettings: () => settingsPanel.reveal(resolveConfiguredCwd(), openViewColumn()),
+    log: (l) => outputChannel().appendLine(l),
+  });
 
   return { settingsPanel };
 }

@@ -86,6 +86,8 @@ export class PiWebWebviewPanel extends vscode.Disposable {
   /** 上次渲染 iframe 用的服务器实例与 URL——变了才重载 iframe。 */
   private lastServer: PiIdeServer | undefined;
   private lastUrl: string | undefined;
+  /** 上次推给 shell 落盘的身份快照 JSON——没变不空推（refresh 高频）。 */
+  private lastPersistJson = "";
   /** 最近一次发到 shell 的失败文案（重放用——shell 上线晚于事件时会丢推送）。 */
   private lastShellError: string | undefined;
   /** shell 脚本已执行（"shell painted" 回执）——冷启动慢时给加载浮窗。 */
@@ -449,7 +451,6 @@ export class PiWebWebviewPanel extends vscode.Disposable {
   /** 面板身份快照推给 shell 落盘（webview setState）——宿主重启后
    *  serializer 接管孤儿面板时凭它恢复 sessionId/cwd/标题。面板没开
    *  或内容没变时不发（refresh 高频，省得空推）。 */
-  private lastPersistJson = "";
   private pushPersistState(): void {
     if (!this.panel) return;
     const state: PiPanelPersistState = {

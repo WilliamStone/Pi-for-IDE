@@ -82,6 +82,40 @@ const notify = (level) => async (text) => {
   calls.messages.push({ level, text });
 };
 
+// 面板复活测试面：TabInputWebview 仅需 instanceof + viewType；
+// tabGroups 供 panel-revival 枚举/关闭/变更事件，serializers 记录注册。
+export class TabInputWebview {
+  constructor(viewType) {
+    this.viewType = viewType;
+  }
+}
+
+export const calls2 = {
+  serializers: new Map(), // viewType -> serializer
+  closedTabs: [],
+};
+
+const tabEventListeners = new Set();
+export const tabGroups = {
+  all: [],
+  close: async (tab) => {
+    calls2.closedTabs.push(tab);
+    for (const g of tabGroups.all) {
+      const i = g.tabs.indexOf(tab);
+      if (i >= 0) {
+        g.tabs.splice(i, 1);
+        for (const cb of tabEventListeners) cb({ closed: [tab], opened: [], changed: [] });
+        return true;
+      }
+    }
+    return false;
+  },
+  onDidChangeTabs: (cb) => {
+    tabEventListeners.add(cb);
+    return { dispose: () => tabEventListeners.delete(cb) };
+  },
+};
+
 export const window = {
   activeTextEditor: undefined,
   createOutputChannel: () => ({ appendLine: () => {}, show: () => {}, dispose: () => {} }),
@@ -94,6 +128,11 @@ export const window = {
   showTextDocument: async (doc, opts) => {
     calls.showTextDocument.push({ doc, opts });
     return doc;
+  },
+  tabGroups,
+  registerWebviewPanelSerializer: (viewType, serializer) => {
+    calls2.serializers.set(viewType, serializer);
+    return { dispose: () => calls2.serializers.delete(viewType) };
   },
 };
 
