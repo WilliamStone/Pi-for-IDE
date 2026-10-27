@@ -346,6 +346,9 @@ export function registerSessionsFeature(
     orphans,
     sessionExists: (id) =>
       sessionsProvider.listLoaded ? !!sessionsProvider.sessionById(id) : undefined,
+    // 清单加载/刷新时补一轮枚举——重载下 tab 恢复晚于激活，清单到达
+    // 时编辑器多半已就位；onDidChangeTabs 漏报时这是第二道兜底。
+    onExtraEnumerate: sessionsProvider.onDidChangeTreeData,
     log: (l) => outputChannel().appendLine(l),
   });
 

@@ -32,7 +32,9 @@ const DRIFT_DIFF = [
   "-before", "+after", "",
 ].join("\n");
 
-export function seedSession(root, workspace) {
+export function seedSession(root, workspace, opts = {}) {
+  const id = opts.id ?? "e2e-seed-01";
+  const firstMessage = opts.firstMessage ?? "e2e seed turn";
   const agentDir = path.join(root, "agent");
   const dir = path.join(agentDir, "sessions", sessionDirName(workspace));
   mkdirSync(dir, { recursive: true });
@@ -50,9 +52,9 @@ export function seedSession(root, workspace) {
   const iso = (d) => new Date(t + d).toISOString();
   const msg = (role, content, extra) => ({ role, content, timestamp: t, ...extra });
   const entries = [
-    { type: "session", version: 3, id: "e2e-seed-01", timestamp: iso(0), cwd: workspace },
+    { type: "session", version: 3, id, timestamp: iso(0), cwd: workspace },
     { type: "message", id: "e2u1", parentId: null, timestamp: iso(1),
-      message: msg("user", [{ type: "text", text: "e2e seed turn" }]) },
+      message: msg("user", [{ type: "text", text: firstMessage }]) },
     { type: "message", id: "e2a1", parentId: "e2u1", timestamp: iso(2),
       message: msg("assistant", [
         { type: "toolCall", id: "e2write", name: "write",
@@ -75,7 +77,7 @@ export function seedSession(root, workspace) {
       message: msg("assistant", [{ type: "text", text: "done" }],
         { api: "openai-completions", provider: "e2e", model: "e2e", stopReason: "stop" }) },
   ];
-  const name = `${iso(0).replace(/:/g, "-").replace(/\./g, "-")}_e2eseed01.jsonl`;
+  const name = `${iso(0).replace(/:/g, "-").replace(/\./g, "-")}_${id.replace(/-/g, "")}.jsonl`;
   const sessionFile = path.join(dir, name);
   writeFileSync(sessionFile, entries.map((e) => JSON.stringify(e)).join("\n") + "\n");
   return { agentDir, sessionFile, files };

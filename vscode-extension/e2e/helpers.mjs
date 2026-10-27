@@ -243,15 +243,84 @@ export function killNewRunPids(before, marker) {
   }
 }
 
-/** 命令面板执行命令（F1 → 键入 → Enter）。 */
+/**
+ * 命令面板执行命令（F1 → 键入 → Enter）。
+ * fill 会覆盖 F1 预填的 ">" 前缀——必须显式带上，否则查询落到
+ * 文件模式、零匹配、Enter 空转，命令从未执行且 palette 残留拦截
+ * 后续点击（2026-10 实测踩过：G/H 因此空验）。
+ */
 export async function runCommand(page, name) {
   await page.keyboard.press("F1");
   const box = page.locator(".quick-input-widget input");
   await box.waitFor({ state: "visible", timeout: 15000 });
-  await box.fill(name);
-  // 等候选渲染再回车
-  await page.waitForTimeout(400);
+  await box.fill(`>${name}`);
+  // 等候选渲染；零匹配立刻报错（否则静默空转使测试空验）
+  await page.waitForTimeout(500);
+  const rows = await page.locator(".quick-input-widget .monaco-list-row").count();
+  if (!rows) {
+    await page.keyboard.press("Escape");
+    throw new Error(`runCommand: no matching results for "${name}"`);
+  }
   await page.keyboard.press("Enter");
+  await page.locator(".quick-input-widget").first()
+    .waitFor({ state: "hidden", timeout: 10000 })
+    .catch(() => {});
+}
+
+/** 证明窗口真的重载：page context 标记消失才算数（-3 abort 时重试一次）。 */
+export async function reloadWindow(page) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await page.evaluate(() => {
+      window.__piE2eReloadMark = 1;
+    });
+    await runCommand(page, "Developer: Reload Window");
+    try {
+      await page.waitForFunction(() => window.__piE2eReloadMark === undefined, undefined, { timeout: 30000 });
+      return;
+    } catch {
+      /* CodeWindow failed-to-load(-3) 等偶发中止——重试一次 */
+    }
+  }
+  throw new Error("Developer: Reload Window did not actually reload the window");
+}
+
+/** 证明扩展宿主真的重启：exthost.log 的 started 行数增加。 */
+export async function waitForNewExtensionHost(userDataDir, previousCount, timeout = 60000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const hits = findLogs(userDataDir);
+    for (const logFile of hits) {
+      try {
+        const n = (readFileSync(logFile, "utf8").match(/Extension host with pid \d+ started/g) ?? []).length;
+        if (n > previousCount) return;
+      } catch { /* 读不中重试 */ }
+    }
+    await new Promise((r) => setTimeout(r, 800));
+  }
+  throw new Error("extension host never restarted");
+}
+function findLogs(userDataDir) {
+  // logs/<ts>/window*/exthost/exthost.log
+  const out = [];
+  const logsDir = path.join(userDataDir, "logs");
+  if (!existsSync(logsDir)) return out;
+  for (const ts of readdirSync(logsDir)) {
+    const wdir = path.join(logsDir, ts);
+    for (const w of readdirSync(wdir).filter((d) => d.startsWith("window"))) {
+      const f = path.join(wdir, w, "exthost", "exthost.log");
+      if (existsSync(f)) out.push(f);
+    }
+  }
+  return out;
+}
+export function extensionHostStartCount(userDataDir) {
+  let n = 0;
+  for (const f of findLogs(userDataDir)) {
+    try {
+      n += (readFileSync(f, "utf8").match(/Extension host with pid \d+ started/g) ?? []).length;
+    } catch { /* ignore */ }
+  }
+  return n;
 }
 
 /**

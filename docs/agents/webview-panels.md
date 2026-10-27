@@ -80,13 +80,24 @@ tab instead of activating the orphan.
 `registerWebviewPanelSerializer(viewType, …)` is the **only** API that re-takes
 an existing `WebviewPanel` (tabs are read-only otherwise). It matches viewType
 exactly, so dynamic viewTypes are discovered by enumerating
-`vscode.window.tabGroups` at activation (`TabInputWebview.viewType`) and
-registering one serializer per pi viewType. The whole revival concern —
-enumerate → register → dispatch on deserialize → orphan registry — lives in
-`panel-revival.ts` (`registerOrphanPanelRevival`); `sessions-feature.ts` only
-wires its deps and the reveal-path swaps. Registration at activation covers
-everything: panels created later reappear in the next activation's
-enumeration.
+`vscode.window.tabGroups` (`TabInputWebview.viewType`) and registering one
+serializer per pi viewType. The whole revival concern — enumerate → register →
+dispatch on deserialize → orphan registry — lives in `panel-revival.ts`
+(`registerOrphanPanelRevival`); `sessions-feature.ts` only wires its deps and
+the reveal-path swaps.
+
+Enumeration is **re-entrant and reactive**, not one-shot at activation — a
+one-shot enumeration loses the race against editor restore: on window reload
+`tabGroups` is still empty when activation runs (e2e-proven: zero
+`[revive]` log lines post-reload), and under host restart it can be
+unsynced too. `enumerate()` therefore runs at activation, on every
+`onDidChangeTabs` (opened/changed), and on sessions-list load
+(`onExtraEnumerate` ← `sessionsProvider.onDidChangeTreeData`). Late
+registration is safe: inputs that already resolved sit in the revival pool
+and drain the moment a matching reviver registers. The enumeration also
+filters out live panels by viewType (`sessionPanels.all()` + open
+main/settings) — tabs the *current* host opened must never enter the orphan
+registry, or a later tree click would swap-kill a healthy tab.
 
 **Trap — `TabInputWebview.viewType` is the providerId form**, i.e.
 `mainThreadWebview-piIde.webview.s.<id>` (observed on VSCodium 1.140), not the
@@ -142,8 +153,14 @@ not on registration. Verified in the installed VSCodium build
 
 Consequence: an orphan that is never activated can never be adopted — and
 there is no extension-side API to force `resolve()` (tabGroups exposes tabs,
-not inputs). So adoptable orphans are kept as **lazy placeholders** instead
-of being swept: the tab keeps its serialized title, looks normal, and:
+not inputs). Note the path matters (e2e-verified): **window reload** restores
+webview inputs as lazy `IG` inputs (active-in-group resolves at restore →
+auto-adopt once its serializer registers; background stays lazy until
+clicked). **Extension-host restart** keeps the already-resolved `Mp` inputs —
+`resolve()` is not re-run, `deserialize` never fires, and the orphan is a
+permanent dead shell recoverable only by the reveal-path swap. So adoptable
+orphans are kept as **lazy placeholders** instead of being swept: the tab
+keeps its serialized title, looks normal, and:
 
 - **clicked** → resolve → deserialize → `adopt` revives it in place (same
   DOM node, exact position — the best outcome);

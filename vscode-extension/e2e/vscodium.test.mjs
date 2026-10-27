@@ -1,12 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { _electron as electron } from "playwright";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  cleanElectronEnv, findVscodium, guardAttachRange, installVsix, latestVsix,
-  makeFixture, openPiPanelViaEditorTitle, releaseAttachGuard, runCommand, waitForFrame,
+  cleanElectronEnv, extensionHostStartCount, findVscodium, guardAttachRange,
+  installVsix, latestVsix, makeFixture, openPiPanelViaEditorTitle,
+  releaseAttachGuard, reloadWindow, runCommand, waitForFrame,
+  waitForNewExtensionHost,
 } from "./helpers.mjs";
 import { seedAgentConfig, seedSession } from "./session-fixture.mjs";
 
@@ -375,10 +377,13 @@ test("VSCodium F: hotkey passthrough reaches workbench", { timeout: 300_000 }, a
   }
 });
 
-// ── G 段：孤儿收养——"Developer: Restart Extension Host" 只重启扩展宿主、
-//    tab 保留，与插件更新同构。收养成功 → 再点同会话复用原 tab（仍 1 个
-//    "Pi —" tab）；deserialize 不触发 → 会开出第 2 个 tab。
-test("VSCodium G: ext host restart → orphaned session tab adopted, no duplicate", { timeout: 300_000 }, async (t) => {
+// ── G 段：宿主重启路径的孤儿占位——"Developer: Restart Extension Host"
+//    只重启扩展宿主、tab 保留，与插件更新同构。实测该路径下 webview
+//    输入不回到惰性态：deserialize 永不触发，孤儿是永久死壳占位（标题
+//    仍在、内容已死）。恢复走树点开的原位交换：关死壳 + 原组重开。
+//    断言死壳摘除（旧节点 isConnected=false）、无重影（仍 1 个 tab）、
+//    活 iframe 重新到达——DOM 身份断言不适用（本路径无收养）。
+test("VSCodium G: ext host restart → orphan stays placeholder; tree-click swaps in place", { timeout: 300_000 }, async (t) => {
   markCover("G orphan-adopt", "ran");
   const ctx = prerequisites(t, "G orphan-adopt");
   if (!ctx) return;
@@ -416,29 +421,36 @@ test("VSCodium G: ext host restart → orphaned session tab adopted, no duplicat
     await win.locator('.part.statusbar').first()
       .click({ position: { x: 500, y: 12 } })
       .catch(() => {});
+    const hostBefore = extensionHostStartCount(fixture.userDataDir);
     await runCommand(win, "Developer: Restart Extension Host");
+    await waitForNewExtensionHost(fixture.userDataDir, hostBefore);
     // 激活期枚举+serializer 注册+（若平台支持）deserialize——给足余量，
     // 再等会话树重填充（树条目出现本身说明扩展已复活）。
     await new Promise((r) => setTimeout(r, 15000));
+    // 重启后死壳占位仍在原地（标签照旧）——不为它多开 tab。
+    const preClick = await win
+      .locator('.tabs-container .tab:has-text("e2e seed turn")')
+      .count();
+    assert.equal(preClick, 1, "dead placeholder should persist — exactly 1 session tab");
     const row2 = win.locator('.monaco-list-row:has-text("e2e seed turn")').first();
     await row2.waitFor({ state: "visible", timeout: 120000 });
     await row2.click();
-    await new Promise((r) => setTimeout(r, 4000));
+    // 交换落地 = 死壳被关（旧节点摘除）+ 同位置活面板（iframe 重新到达）。
+    await waitForFrame(win, (u) => u.includes("session=e2e-seed-01"), 60000);
+    await new Promise((r) => setTimeout(r, 2000));
     const seedTabs = await win
       .locator('.tabs-container .tab:has-text("e2e seed turn")')
       .count();
     assert.equal(
       seedTabs, 1,
-      `orphan should be adopted (still 1 session tab), got ${seedTabs} — deserialize likely never fired`,
+      `swap should leave exactly 1 session tab, got ${seedTabs}`,
     );
-    // DOM 身份断言：收养 = 原 tab 节点仍在 DOM；被关掉重开 = 节点已摘除
-    // ——seedTabs==1 单靠计数区分不了这两条路径。
     const orphanAlive = await orphanTabHandle
       .evaluate((el) => el.isConnected)
       .catch(() => false);
     assert.equal(
-      orphanAlive, true,
-      "original tab node replaced — orphan was closed & reopened, not adopted",
+      orphanAlive, false,
+      "dead shell should be closed by the swap — no revive path under host restart",
     );
     markCover("G orphan-adopt", "verified");
   } finally {
@@ -491,7 +503,7 @@ test("VSCodium H: window reload → orphan session tab adopted, no duplicate", {
     await win.locator('.part.statusbar').first()
       .click({ position: { x: 500, y: 12 } })
       .catch(() => {});
-    await runCommand(win, "Developer: Reload Window");
+    await reloadWindow(win);
     // 重载后 workbench 重建——等面板与扩展激活落地。
     await win.waitForSelector(".monaco-workbench", { timeout: 90000 });
     await new Promise((r) => setTimeout(r, 15000));
@@ -507,6 +519,180 @@ test("VSCodium H: window reload → orphan session tab adopted, no duplicate", {
       `window-reload orphan should be adopted (still 1 session tab), got ${seedTabs}`,
     );
     markCover("H reload-adopt", "verified");
+  } finally {
+    await app.close().catch(() => {});
+    releaseAttachGuard(guard);
+  }
+});
+
+// ── I 段：窗口重载 + 后台孤儿——deserialize 按 tab 懒触发（恢复时仅
+//    组内活动者 resolve），后台孤儿留作惰性占位符，永不主动关闭。
+//    三去向同测：s01 活动者自动收养 / s03 点占位原地收养 / s02 树点
+//    同会话原位交换（关占位+同组重开，不重影）。占位惰性断言为关键
+//    证据：后台孤儿的 session iframe 绝不加载。
+test("VSCodium I: reload leaves background orphans as lazy placeholders; click adopts, tree-click swaps", { timeout: 300_000 }, async (t) => {
+  markCover("I lazy-orphan", "ran");
+  const ctx = prerequisites(t, "I lazy-orphan");
+  if (!ctx) return;
+  const fixture = makeFixture();
+  seedSession(fixture.root, fixture.workspace);
+  seedSession(fixture.root, fixture.workspace, { id: "e2e-seed-02", firstMessage: "e2e seed two" });
+  seedSession(fixture.root, fixture.workspace, { id: "e2e-seed-03", firstMessage: "e2e seed three" });
+  const seed = { agentDir: path.join(fixture.root, "agent") };
+  const guard = await guardAttachRange(fixture.port, fixture.port + 9);
+  if (guard.oursPort) {
+    releaseAttachGuard(guard);
+    coverSkip(t, "I lazy-orphan", `real pi-web instance on :${guard.oursPort}`);
+    return;
+  }
+  const { app, win } = await reachPiFrame(ctx, fixture, {
+    PI_CODING_AGENT_DIR: seed.agentDir,
+  });
+  const piTab = (name) => `.tabs-container .tab:has-text("${name}")`;
+  const hasSessionFrame = (id) =>
+    win.frames().some((f) => f.url().includes(`session=${id}`));
+  try {
+    const actBar = win.locator('.activitybar [aria-label*="Pi Sessions"]').first();
+    if (await actBar.count()) {
+      await actBar.click();
+    } else {
+      await runCommand(win, "Pi Sessions");
+    }
+    // 依次点开三个会话——同键锚定 sessionPanels.column()，全叠进会话组。
+    for (const [row, id] of [
+      ["e2e seed turn", "e2e-seed-01"],
+      ["e2e seed two", "e2e-seed-02"],
+      ["e2e seed three", "e2e-seed-03"],
+    ]) {
+      const r = win.locator(`.monaco-list-row:has-text("${row}")`).first();
+      await r.waitFor({ state: "visible", timeout: 120000 });
+      await r.click();
+      await waitForFrame(win, (u) => u.includes(`session=${id}`), 60000);
+    }
+    // 点回 seed-01 的 tab → 它是组内活动编辑器，02/03 沦为后台孤儿。
+    await win.locator(piTab("e2e seed turn")).first().click();
+    await win.locator(".part.statusbar").first()
+      .click({ position: { x: 500, y: 12 } })
+      .catch(() => {});
+    await reloadWindow(win);
+    await win.waitForSelector(".monaco-workbench", { timeout: 90000 });
+    // 激活枚举+serializer 注册在数秒内；留足余量再断言占位惰性。
+    await new Promise((r) => setTimeout(r, 12000));
+
+    // s01 自动收养落地（帧出现 = deserialize 链整条走通）；若后台孤儿
+    // 也有帧则说明恢复路径 eager-resolve——dump 现场便于取证。
+    await waitForFrame(win, (u) => u.includes("session=e2e-seed-01"), 60000);
+    await new Promise((r) => setTimeout(r, 1500));
+    const frames = win.frames().map((f) => f.url()).filter((u) => u.startsWith("http"));
+    t.diagnostic(`frames post-reload: ${JSON.stringify(frames)}`);
+    const tabDump = await win
+      .locator(".tabs-container .tab")
+      .evaluateAll((els) =>
+        els.map((el) => `${el.getAttribute("aria-label")}|sel=${el.getAttribute("aria-selected")}`)
+      )
+      .catch(() => ["<dump failed>"]);
+    t.diagnostic(`tabs post-reload: ${JSON.stringify(tabDump)}`);
+    assert.equal(hasSessionFrame("e2e-seed-02"), false,
+      "background orphan e2e-seed-02 loaded without a click — placeholder not inert");
+    assert.equal(hasSessionFrame("e2e-seed-03"), false,
+      "background orphan e2e-seed-03 loaded without a click — placeholder not inert");
+    assert.equal(await win.locator(piTab("e2e seed two")).count(), 1);
+    assert.equal(await win.locator(piTab("e2e seed three")).count(), 1);
+
+    // 去向二：点死占位本身 → deserialize → adopt 原地复活（节点保留）。
+    const t3Handle = await win.locator(piTab("e2e seed three")).first().elementHandle();
+    await win.locator(piTab("e2e seed three")).first().click();
+    await waitForFrame(win, (u) => u.includes("session=e2e-seed-03"), 60000);
+    const stillThere = await t3Handle.evaluate((el) => el.isConnected).catch(() => false);
+    assert.equal(stillThere, true, "clicked placeholder should adopt in place — same DOM node");
+
+    // 去向三：树点同会话 → openSession 原位交换（占位收走，活面板落原组）。
+    const row2 = win.locator('.monaco-list-row:has-text("e2e seed two")').first();
+    await row2.waitFor({ state: "visible", timeout: 120000 });
+    await row2.click();
+    await waitForFrame(win, (u) => u.includes("session=e2e-seed-02"), 60000);
+    assert.equal(await win.locator(piTab("e2e seed two")).count(), 1,
+      "swap must leave exactly one session-02 tab — no placeholder/duplicate");
+    assert.equal(await win.locator(piTab("e2e seed three")).count(), 1);
+    markCover("I lazy-orphan", "verified");
+  } finally {
+    await app.close().catch(() => {});
+    releaseAttachGuard(guard);
+  }
+});
+
+// ── J 段：已删会话的占位自清理——重载恢复出的后台孤儿是惰性输入，
+//    点开才 resolve → deserialize → sessionExists=false → 原地关窗。
+//    （宿主重启路径下输入不回惰性态、deserialize 永不触发——死壳只由
+//    reveal/交换路径兜底，本段专测重载链。）
+test("VSCodium J: deleted session's orphan placeholder self-cleans on click (window reload)", { timeout: 300_000 }, async (t) => {
+  markCover("J orphan-selfclean", "ran");
+  const ctx = prerequisites(t, "J orphan-selfclean");
+  if (!ctx) return;
+  const fixture = makeFixture();
+  seedSession(fixture.root, fixture.workspace);
+  const seed2 = seedSession(fixture.root, fixture.workspace, {
+    id: "e2e-seed-02",
+    firstMessage: "e2e seed two",
+  });
+  const guard = await guardAttachRange(fixture.port, fixture.port + 9);
+  if (guard.oursPort) {
+    releaseAttachGuard(guard);
+    coverSkip(t, "J orphan-selfclean", `real pi-web instance on :${guard.oursPort}`);
+    return;
+  }
+  const { app, win } = await reachPiFrame(ctx, fixture, {
+    PI_CODING_AGENT_DIR: seed2.agentDir,
+  });
+  const piTab = (name) => `.tabs-container .tab:has-text("${name}")`;
+  try {
+    const actBar = win.locator('.activitybar [aria-label*="Pi Sessions"]').first();
+    if (await actBar.count()) {
+      await actBar.click();
+    } else {
+      await runCommand(win, "Pi Sessions");
+    }
+    for (const [row, id] of [
+      ["e2e seed turn", "e2e-seed-01"],
+      ["e2e seed two", "e2e-seed-02"],
+    ]) {
+      const r = win.locator(`.monaco-list-row:has-text("${row}")`).first();
+      await r.waitFor({ state: "visible", timeout: 120000 });
+      await r.click();
+      await waitForFrame(win, (u) => u.includes(`session=${id}`), 60000);
+    }
+    // seed-01 回活动位 → seed-02 成后台孤儿（重载恢复时惰性、不 resolve）。
+    await win.locator(piTab("e2e seed turn")).first().click();
+    await win.locator(".part.statusbar").first()
+      .click({ position: { x: 500, y: 12 } })
+      .catch(() => {});
+    await reloadWindow(win);
+    await win.waitForSelector(".monaco-workbench", { timeout: 90000 });
+    await new Promise((r) => setTimeout(r, 10000));
+
+    // s01 自动收养（帧到达 = 复活链整条走通）；s02 仍是死占位。
+    await waitForFrame(win, (u) => u.includes("session=e2e-seed-01"), 120000);
+    const row2 = win.locator('.monaco-list-row:has-text("e2e seed two")').first();
+    await row2.waitFor({ state: "visible", timeout: 120000 });
+
+    // 删 s02 文件 → 轮询拾到 → 行消失 = "清单已载且查无此会话"成立。
+    rmSync(seed2.sessionFile, { force: true });
+    await row2.waitFor({ state: "detached", timeout: 60000 });
+
+    // 点死占位 → resolve → deserialize → sessionExists=false → 自关。
+    const dead = win.locator(piTab("e2e seed two")).first();
+    await dead.waitFor({ state: "visible", timeout: 30000 });
+    const qi = win.locator(".quick-input-widget:visible").first();
+    if (await qi.count().catch(() => 0)) {
+      t.diagnostic(`quick-input blocking click: ${(await qi.innerText().catch(() => "")).slice(0, 300)}`);
+      await win.keyboard.press("Escape");
+      await qi.waitFor({ state: "hidden", timeout: 5000 }).catch(() => {});
+    }
+    await dead.click();
+    await dead.waitFor({ state: "detached", timeout: 30000 });
+    assert.equal(await win.locator(piTab("e2e seed two")).count(), 0,
+      "deleted session's placeholder should dispose itself on click");
+    markCover("J orphan-selfclean", "verified");
   } finally {
     await app.close().catch(() => {});
     releaseAttachGuard(guard);

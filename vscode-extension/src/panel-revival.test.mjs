@@ -160,6 +160,27 @@ test("takeKind 按 main/settings 取孤儿", (t) => {
   assert.equal(orphans.takeKind("composer"), undefined);
 });
 
+test("晚到的孤儿 tab 由 onDidChangeTabs 补枚举补注册（重载恢复晚于激活）", (t) => {
+  const { orphans } = setup(t, []);
+  const tab = orphanTab("piIde.webview.s.sess-late");
+  stub.tabGroups.open(tab);
+  assert.ok(
+    stub.calls2.serializers.has("piIde.webview.s.sess-late"),
+    "opened 事件触发重扫 → serializer 补注册",
+  );
+  assert.equal(orphans.takeSession("sess-late")?.tab, tab, "晚到孤儿也进登记处");
+});
+
+test("枚举滤掉活面板 tab——不误登孤儿（响应式枚举前提）", (t) => {
+  const { orphans, sessionPanels } = setup(t, []);
+  sessionPanels.forKey("live-1"); // 活面板 viewType = piIde.webview.s.live-1
+  stub.tabGroups.open(orphanTab("piIde.webview.s.live-1"));
+  assert.equal(
+    orphans.takeSession("live-1"), undefined,
+    "同 viewType 的活面板 tab 不进孤儿登记处",
+  );
+});
+
 test("legacy 裸 piIde.webview 孤儿不注册不留占位——枚举即关", (t) => {
   const tab = orphanTab("mainThreadWebview-piIde.webview");
   const { orphans } = setup(t, [tab]);

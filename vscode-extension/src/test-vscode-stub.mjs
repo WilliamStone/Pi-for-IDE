@@ -98,6 +98,12 @@ export const calls2 = {
 const tabEventListeners = new Set();
 export const tabGroups = {
   all: [],
+  // 补一枚 tab 进首个组并发 opened 事件——镜像 close，供"晚到 tab
+  // 重扫补注册"的用例驱动枚举。
+  open: (tab) => {
+    (tabGroups.all[0] ??= { tabs: [] }).tabs.push(tab);
+    for (const cb of tabEventListeners) cb({ closed: [], opened: [tab], changed: [] });
+  },
   close: async (tab) => {
     calls2.closedTabs.push(tab);
     for (const g of tabGroups.all) {
