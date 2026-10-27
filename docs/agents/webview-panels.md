@@ -111,3 +111,27 @@ prefix for classification; the registration site strips it for the name.
   VS Code closes them — dead tabs disappearing is the desired cleanup.
 - Duplicate orphans (same viewType twice) → `SessionPanels.adopt` keeps the
   registered panel and disposes the extra.
+
+### deserialize timing is not guaranteed — orphan sweep
+
+Observed (VSCodium 1.140, real user profile): registration happens
+(`[revive] serializer registered for viewType=piIde.webview.s.<id>`) yet
+`deserializeWebviewPanel` **never fires** for the matching orphans — no
+`[revive] deserialize fired` line, tabs stay dead, session clicks open
+duplicates. In the e2e profile (clean user-data/extensions dirs) the same
+build *does* deserialize on both "Restart Extension Host" and window reload.
+Root cause undetermined — treat deserialize timing as platform-dependent,
+not contract.
+
+So `sessions-feature.ts` adds a **sweep fallback**: every enumerated pi
+orphan is recorded; `revivePanel` marks `revived.add(panel.viewType)` on
+entry; 15 s after registration, orphans whose viewType never got a
+deserialize call are `tabGroups.close`d and an equivalent live tab is
+opened (session → `openSession(id)`, main/settings → `provider.reveal` /
+`settingsPanel.reveal`; composers can't recover cwd without state → close
+only). Normal adoption keeps the tab in place; the sweep only replaces
+genuinely dead ones.
+
+Diagnostics: `[revive] serializer registered for viewType=…`,
+`[revive] deserialize fired viewType=… state=…`,
+`[revive] no deserialize for … — closing dead tab`.

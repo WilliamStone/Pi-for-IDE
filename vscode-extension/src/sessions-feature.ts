@@ -292,10 +292,25 @@ export function registerSessionsFeature(
     panel: vscode.WebviewPanel,
     state: { sessionId?: string; cwd?: string; title?: string; section?: string } | undefined,
   ): Promise<void> => {
-    const kind = parsePiViewType(panel.viewType);
+    // 先记触达行——deserialize 若抛错，入口日志仍留证（失败默吞会
+    // 表现得像"serializer 没被调用"，排障无据可依）。
     outputChannel().appendLine(
-      `[revive] viewType=${panel.viewType} kind=${kind?.kind ?? "?"} state=${JSON.stringify(state ?? null)}`,
+      `[revive] deserialize fired viewType=${String(panel?.viewType)} state=${JSON.stringify(state ?? null)}`,
     );
+    revived.add(panel.viewType);
+    const kind = parsePiViewType(panel?.viewType ?? "");
+    try {
+      await revivePanelDispatch(panel, kind, state);
+    } catch (e) {
+      outputChannel().appendLine(`[revive] adopt failed: ${String(e)}`);
+      try { panel.dispose(); } catch { /* 已死 */ }
+    }
+  };
+  const revivePanelDispatch = async (
+    panel: vscode.WebviewPanel,
+    kind: ReturnType<typeof parsePiViewType>,
+    state: { sessionId?: string; cwd?: string; title?: string; section?: string } | undefined,
+  ): Promise<void> => {
     switch (kind?.kind) {
       case "session":
         await sessionPanels.adopt(kind.id, panel, state);
@@ -324,6 +339,12 @@ export function registerSessionsFeature(
     }
   };
   const registered = new Set<string>();
+  const revived = new Set<string>();
+  const orphanTabs: Array<{
+    tab: vscode.Tab;
+    rawVt: string;
+    kind: ReturnType<typeof parsePiViewType>;
+  }> = [];
   for (const group of vscode.window.tabGroups.all) {
     for (const tab of group.tabs) {
       const input = tab.input;
@@ -337,16 +358,39 @@ export function registerSessionsFeature(
       const rawVt = input.viewType.startsWith("mainThreadWebview-")
         ? input.viewType.slice("mainThreadWebview-".length)
         : input.viewType;
-      if (registered.has(rawVt)) continue;
-      registered.add(rawVt);
-      outputChannel().appendLine(`[revive] serializer registered for viewType=${rawVt}`);
-      context.subscriptions.push(
-        vscode.window.registerWebviewPanelSerializer(rawVt, {
-          deserializeWebviewPanel: revivePanel,
-        }),
-      );
+      if (!registered.has(rawVt)) {
+        registered.add(rawVt);
+        outputChannel().appendLine(`[revive] serializer registered for viewType=${rawVt}`);
+        context.subscriptions.push(
+          vscode.window.registerWebviewPanelSerializer(rawVt, {
+            deserializeWebviewPanel: revivePanel,
+          }),
+        );
+      }
+      orphanTabs.push({ tab, rawVt, kind });
     }
   }
+  // 兜底扫尾：deserialize 是否/何时触发取决于平台语义（重载恢复路径、
+  // 宿主重启、版本差异）——宽限期后仍没被认领的孤儿保持死态（壳死在
+  // 旧宿主），与其让用户撞上死 tab，直接关掉重开等价活 tab；
+  // 正常 deserialize 的（revived 命中）原地收养不动。
+  const sweepTimer = setTimeout(() => {
+    for (const { tab, rawVt, kind } of orphanTabs) {
+      if (revived.has(rawVt)) continue;
+      outputChannel().appendLine(
+        `[revive] no deserialize for ${rawVt} — closing dead tab`,
+      );
+      void vscode.window.tabGroups.close(tab).then(() => {
+        if (kind?.kind === "session") return openSession(kind.id);
+        if (kind?.kind === "main")
+          return provider.reveal(resolveConfiguredCwd(), openViewColumn());
+        if (kind?.kind === "settings")
+          return settingsPanel.reveal(resolveConfiguredCwd(), openViewColumn());
+        return undefined; // composer：无 state 拿不到 cwd，只关不重开
+      });
+    }
+  }, 15000);
+  context.subscriptions.push({ dispose: () => clearTimeout(sweepTimer) });
 
   return { settingsPanel };
 }

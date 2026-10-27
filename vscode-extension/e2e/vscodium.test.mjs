@@ -375,6 +375,142 @@ test("VSCodium F: hotkey passthrough reaches workbench", { timeout: 300_000 }, a
   }
 });
 
+// ── G 段：孤儿收养——"Developer: Restart Extension Host" 只重启扩展宿主、
+//    tab 保留，与插件更新同构。收养成功 → 再点同会话复用原 tab（仍 1 个
+//    "Pi —" tab）；deserialize 不触发 → 会开出第 2 个 tab。
+test("VSCodium G: ext host restart → orphaned session tab adopted, no duplicate", { timeout: 300_000 }, async (t) => {
+  markCover("G orphan-adopt", "ran");
+  const ctx = prerequisites(t, "G orphan-adopt");
+  if (!ctx) return;
+  const fixture = makeFixture();
+  const seed = seedSession(fixture.root, fixture.workspace);
+  const guard = await guardAttachRange(fixture.port, fixture.port + 9);
+  if (guard.oursPort) {
+    releaseAttachGuard(guard);
+    coverSkip(t, "G orphan-adopt", `real pi-web instance on :${guard.oursPort}`);
+    return;
+  }
+  const { app, win } = await reachPiFrame(ctx, fixture, {
+    PI_CODING_AGENT_DIR: seed.agentDir,
+  });
+  try {
+    // 树点开 seed 会话 → session tab（viewType piIde.webview.s.e2e-seed-01）
+    const actBar = win.locator('.activitybar [aria-label*="Pi Sessions"]').first();
+    if (await actBar.count()) {
+      await actBar.click();
+    } else {
+      await runCommand(win, "Pi Sessions");
+    }
+    const row = win.locator('.monaco-list-row:has-text("e2e seed turn")').first();
+    await row.waitFor({ state: "visible", timeout: 60000 });
+    await row.click();
+    const tabSel = '.tabs-container .tab:has-text("e2e seed turn")';
+    const tabEl = win.locator(tabSel).first();
+    await tabEl.waitFor({ state: "visible", timeout: 60000 });
+    const orphanTabHandle = await tabEl.elementHandle();
+    await waitForFrame(win, (u) => u.includes("session=e2e-seed-01"), 60000);
+
+    // 重启扩展宿主——扩展侧对象死、tab 留：孤儿态的精确复现。
+    // 焦点还在 webview OOPIF 里（F1 会被 iframe 吃掉）——先点宿主
+    // 状态栏空白处把键盘焦点拉回 workbench。
+    await win.locator('.part.statusbar').first()
+      .click({ position: { x: 500, y: 12 } })
+      .catch(() => {});
+    await runCommand(win, "Developer: Restart Extension Host");
+    // 激活期枚举+serializer 注册+（若平台支持）deserialize——给足余量，
+    // 再等会话树重填充（树条目出现本身说明扩展已复活）。
+    await new Promise((r) => setTimeout(r, 15000));
+    const row2 = win.locator('.monaco-list-row:has-text("e2e seed turn")').first();
+    await row2.waitFor({ state: "visible", timeout: 120000 });
+    await row2.click();
+    await new Promise((r) => setTimeout(r, 4000));
+    const seedTabs = await win
+      .locator('.tabs-container .tab:has-text("e2e seed turn")')
+      .count();
+    assert.equal(
+      seedTabs, 1,
+      `orphan should be adopted (still 1 session tab), got ${seedTabs} — deserialize likely never fired`,
+    );
+    // DOM 身份断言：收养 = 原 tab 节点仍在 DOM；被关掉重开 = 节点已摘除
+    // ——seedTabs==1 单靠计数区分不了这两条路径。
+    const orphanAlive = await orphanTabHandle
+      .evaluate((el) => el.isConnected)
+      .catch(() => false);
+    assert.equal(
+      orphanAlive, true,
+      "original tab node replaced — orphan was closed & reopened, not adopted",
+    );
+    markCover("G orphan-adopt", "verified");
+  } finally {
+    await app.close().catch(() => {});
+    releaseAttachGuard(guard);
+  }
+});
+
+// ── H 段：窗口重载路径——vsix 更新实际走 reloadWindow，deserialize 可能
+//    按可见性懒触发（后台孤儿不进注册表→点会话开新 tab，即用户实报）。
+//    重启宿主（G）已证收养成立；本段测窗口重载下同一链是否依然闭环。
+test("VSCodium H: window reload → orphan session tab adopted, no duplicate", { timeout: 300_000 }, async (t) => {
+  markCover("H reload-adopt", "ran");
+  const ctx = prerequisites(t, "H reload-adopt");
+  if (!ctx) return;
+  const fixture = makeFixture();
+  const seed = seedSession(fixture.root, fixture.workspace);
+  const guard = await guardAttachRange(fixture.port, fixture.port + 9);
+  if (guard.oursPort) {
+    releaseAttachGuard(guard);
+    coverSkip(t, "H reload-adopt", `real pi-web instance on :${guard.oursPort}`);
+    return;
+  }
+  const { app, win } = await reachPiFrame(ctx, fixture, {
+    PI_CODING_AGENT_DIR: seed.agentDir,
+  });
+  try {
+    const actBar = win.locator('.activitybar [aria-label*="Pi Sessions"]').first();
+    if (await actBar.count()) {
+      await actBar.click();
+    } else {
+      await runCommand(win, "Pi Sessions");
+    }
+    const row = win.locator('.monaco-list-row:has-text("e2e seed turn")').first();
+    await row.waitFor({ state: "visible", timeout: 60000 });
+    await row.click();
+    await win.waitForSelector(
+      '.tabs-container .tab:has-text("e2e seed turn")',
+      { timeout: 60000 },
+    );
+    await waitForFrame(win, (u) => u.includes("session=e2e-seed-01"), 60000);
+
+    // 把会话 tab 压到后台（点开文件 tab）——懒 deserialize 的关键变量：
+    // 孤儿不可见时，窗口重载后它是否仍被反序列化。
+    await win.locator('.tabs-container .tab:has-text("hello.txt")').first()
+      .click()
+      .catch(() => {});
+    await win.locator('.part.statusbar').first()
+      .click({ position: { x: 500, y: 12 } })
+      .catch(() => {});
+    await runCommand(win, "Developer: Reload Window");
+    // 重载后 workbench 重建——等面板与扩展激活落地。
+    await win.waitForSelector(".monaco-workbench", { timeout: 90000 });
+    await new Promise((r) => setTimeout(r, 15000));
+    const row2 = win.locator('.monaco-list-row:has-text("e2e seed turn")').first();
+    await row2.waitFor({ state: "visible", timeout: 120000 });
+    await row2.click();
+    await new Promise((r) => setTimeout(r, 4000));
+    const seedTabs = await win
+      .locator('.tabs-container .tab:has-text("e2e seed turn")')
+      .count();
+    assert.equal(
+      seedTabs, 1,
+      `window-reload orphan should be adopted (still 1 session tab), got ${seedTabs}`,
+    );
+    markCover("H reload-adopt", "verified");
+  } finally {
+    await app.close().catch(() => {});
+    releaseAttachGuard(guard);
+  }
+});
+
 /** fixture agentDir 里最新会话文件出现 turn 错误时，提取 errorMessage。 */
 function lastTurnError(agentDir) {
   try {
