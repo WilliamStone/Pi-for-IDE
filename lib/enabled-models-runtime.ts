@@ -134,6 +134,12 @@ export interface EnabledModelsViewOptions {
   providerNames: Map<string, string>;
   customProviders: ReadonlySet<string>;
   scope: "global" | "project";
+  /** Domain `input` was built from; the view describes and edits that domain. */
+  editScope: "global" | "project";
+  /** Whether the project file carries `enabledModels` (and so shadows global). */
+  hasProjectKey: boolean;
+  /** Parse state of the project settings file; "corrupt" blocks project writes. */
+  projectFile: "absent" | "ok" | "corrupt";
   settingsPath: string;
   modelError?: string;
 }
@@ -144,6 +150,9 @@ export function buildEnabledModelsView({
   providerNames,
   customProviders,
   scope,
+  editScope,
+  hasProjectKey,
+  projectFile,
   settingsPath,
   modelError,
 }: EnabledModelsViewOptions): EnabledModelsView {
@@ -187,8 +196,13 @@ export function buildEnabledModelsView({
     availableTotal: input.availableRefs.length,
     providers,
     scope,
+    editScope,
+    hasProjectKey,
+    projectFile,
     settingsPath,
-    editable: scope === "global",
+    // Global is always writable — a project key only shadows it. The project
+    // domain is writable once its key exists; a corrupt file blocks it.
+    editable: editScope === "global" || (hasProjectKey && projectFile === "ok"),
     ...(modelError ? { modelError } : {}),
   };
 }

@@ -109,9 +109,15 @@ export interface EnabledModelsView {
   providers: EnabledModelsProviderView[];
   /** Which settings file the effective value comes from. */
   scope: "global" | "project";
-  /** That file's path, shortened for display, e.g. `~/.pi/agent/settings.json`. */
+  /** Which domain `patterns`/`providers` render and edits write to. */
+  editScope: "global" | "project";
+  /** The project file carries its own `enabledModels` and shadows the global one. */
+  hasProjectKey: boolean;
+  /** Parse state of `<cwd>/.pi/settings.json`; "corrupt" blocks project writes. */
+  projectFile: "absent" | "ok" | "corrupt";
+  /** The edited file's path, shortened for display, e.g. `~/.pi/agent/settings.json`. */
   settingsPath: string;
-  /** False when project settings shadow the global value pi-web can write. */
+  /** Whether the rendered domain accepts writes. Global always does; project only with a writable `enabledModels` key. */
   editable: boolean;
   modelError?: string;
 }

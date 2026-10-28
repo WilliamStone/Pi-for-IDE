@@ -55,6 +55,12 @@ export interface EnabledModelsController {
     renames: { from: string; to: string }[],
     modelRenames: { from: string; to: string }[],
   ) => void;
+  /** Switch the domain the rendered list edits; `view.editScope` echoes the server's pick. */
+  setEditScope: (scope: "global" | "project") => void;
+  /** Write the current selection as this project's own `enabledModels`. */
+  createProjectConfig: () => void;
+  /** Remove the project's `enabledModels` key, falling back to global. */
+  clearProjectConfig: () => void;
 }
 
 type MutationBody =
@@ -67,11 +73,16 @@ type MutationBody =
       renames: { from: string; to: string }[];
       modelRenames: { from: string; to: string }[];
       fullyEnabled: string[];
-    };
+    }
+  | { op: "project-create" }
+  | { op: "project-clear" };
 
 const FAILURE_KEYS: Record<string, string> = {
   "last-model": "models.enabledLastModel",
   "project-scope": "models.enabledProjectScope",
+  "project-corrupt": "models.projectFileCorrupt",
+  "project-exists": "models.projectExists",
+  "project-absent": "models.projectAbsent",
 };
 
 export function useEnabledModels(cwd?: string | null, onChanged?: () => void): EnabledModelsController {
@@ -84,16 +95,23 @@ export function useEnabledModels(cwd?: string | null, onChanged?: () => void): E
   const mutateRef = useRef<((key: string, body: MutationBody) => void) | null>(null);
 
   const [reloadKey, setReloadKey] = useState(0);
+  // undefined = "show the effective domain"; the server's `view.editScope`
+  // echoes the actual pick back into this state on every response.
+  const [editScope, setEditScopeState] = useState<"global" | "project" | undefined>(undefined);
 
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
-    const query = cwd ? `?cwd=${encodeURIComponent(cwd)}` : "";
+    const params = new URLSearchParams();
+    if (cwd) params.set("cwd", cwd);
+    if (editScope) params.set("edit", editScope);
+    const query = params.size ? `?${params}` : "";
     fetch(`/api/models/enabled${query}`, { signal: controller.signal })
       .then(async (res) => {
         const data = await res.json() as EnabledModelsView & { error?: string };
         if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
         setView(data);
+        setEditScopeState(data.editScope);
         setFailure(null);
       })
       .catch((error: unknown) => {
@@ -104,7 +122,7 @@ export function useEnabledModels(cwd?: string | null, onChanged?: () => void): E
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [cwd, reloadKey]);
+  }, [cwd, reloadKey, editScope]);
 
   const mutate = useCallback((key: string, body: MutationBody) => {
     // A save can land while a switch is still in flight; queue it rather than
@@ -121,7 +139,7 @@ export function useEnabledModels(cwd?: string | null, onChanged?: () => void): E
         const res = await fetch("/api/models/enabled", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...body, ...(cwd ? { cwd } : {}) }),
+          body: JSON.stringify({ ...body, scope: editScope, ...(cwd ? { cwd } : {}) }),
         });
         const data = await res.json() as EnabledModelsView & { error?: string; reason?: string };
         if (!res.ok || data.error) {
@@ -130,6 +148,7 @@ export function useEnabledModels(cwd?: string | null, onChanged?: () => void): E
           return;
         }
         setView(data);
+        setEditScopeState(data.editScope);
         // The chat picker's list comes from /api/models, which the PUT already
         // invalidated server-side — tell the host to reload it now rather than
         // when the settings surface closes, or a settings tab left open keeps
@@ -145,7 +164,7 @@ export function useEnabledModels(cwd?: string | null, onChanged?: () => void): E
         if (queued) mutateRef.current?.(queued.key, queued.body);
       }
     })();
-  }, [cwd, onChanged]);
+  }, [cwd, onChanged, editScope]);
 
   mutateRef.current = mutate;
 
@@ -160,6 +179,11 @@ export function useEnabledModels(cwd?: string | null, onChanged?: () => void): E
   const clearScope = useCallback(() => mutate("clear", { op: "clear" }), [mutate]);
   const pruneStale = useCallback(() => mutate("prune", { op: "prune" }), [mutate]);
   const refresh = useCallback(() => setReloadKey((key) => key + 1), []);
+  const setEditScope = useCallback((scope: "global" | "project") => {
+    setEditScopeState(scope);
+  }, []);
+  const createProjectConfig = useCallback(() => mutate("project", { op: "project-create" }), [mutate]);
+  const clearProjectConfig = useCallback(() => mutate("project", { op: "project-clear" }), [mutate]);
   // Resync writes and returns the fresh view, so it doubles as the reload
   // models.json needs after a save. The providers that are fully enabled right
   // now are the intent to preserve across whatever the save changed.
@@ -184,6 +208,9 @@ export function useEnabledModels(cwd?: string | null, onChanged?: () => void): E
     pruneStale,
     refresh,
     resync,
+    setEditScope,
+    createProjectConfig,
+    clearProjectConfig,
   };
 }
 
