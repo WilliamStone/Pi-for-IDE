@@ -308,11 +308,12 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 
 // ── Provider detail ───────────────────────────────────────────────────────────
 
-function ProviderDetail({ name, editingName, provider, onChange, onEditingNameChange, onRename, onDelete, onAddModels, enabledModels }: {
+function ProviderDetail({ name, editingName, provider, onChange, onEditingNameChange, onRename, onDelete, onAddModels, enabledModels, contextSettings }: {
   name: string; editingName: string; provider: ProviderEntry;
   onChange: (p: ProviderEntry) => void; onEditingNameChange: (n: string) => void;
   onRename: (n: string) => void; onDelete: () => void;
   onAddModels: (models: DiscoveredModel[]) => void; enabledModels: EnabledModelsController;
+  contextSettings: ModelContextSettings;
 }) {
   const { t } = useI18n();
   const [discoveryState, setDiscoveryState] = useState<ModelDiscoveryState>({ phase: "idle" });
@@ -551,6 +552,11 @@ function ProviderDetail({ name, editingName, provider, onChange, onEditingNameCh
           </>
         )}
       </div>
+
+      {/* Per-model scope switches, same surface OAuth/API-key details get —
+          customs were upstream's "just delete from models.json" exception;
+          pi's own /scoped-models treats every provider alike. */}
+      <EnabledModelsSection providerId={name} controller={enabledModels} contextSettings={contextSettings} />
 
     </div>
   );
@@ -2142,6 +2148,7 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null, onModelsCh
           onDelete={() => deleteProvider(selection.name)}
           onAddModels={(models) => addDiscoveredModels(selection.name, models)}
           enabledModels={enabledModels}
+          contextSettings={contextSettings(selection.name)}
         />
       );
     }
