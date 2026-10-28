@@ -1838,13 +1838,13 @@ function AddProviderPicker({
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
-  onClose: () => void; embedded?: boolean; cwd?: string | null;
+export function ModelsConfig({ onClose, embedded = false, cwd = null, onModelsChanged }: {
+  onClose: () => void; embedded?: boolean; cwd?: string | null; onModelsChanged?: () => void;
 }) {
   const { t } = useI18n();
   // `enabledModels` lives in pi's settings, not models.json, so these switches
   // apply immediately instead of waiting for this panel's Save button.
-  const enabledModels = useEnabledModels(cwd);
+  const enabledModels = useEnabledModels(cwd, onModelsChanged);
   const [config, setConfig] = useState<ModelsJson>({ providers: {} });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1874,12 +1874,18 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
    */
   const [providerNameDraft, setProviderNameDraft] = useState<{ provider: string; name: string } | null>(null);
 
+  const onModelsChangedRef = useRef(onModelsChanged);
+  useEffect(() => { onModelsChangedRef.current = onModelsChanged; }, [onModelsChanged]);
+
   const refreshAuthProviders = useCallback(() => {
     fetch("/api/auth/providers")
       .then((r) => r.json())
       .then((d: { oauthProviders?: OAuthProvider[]; apiKeyProviders?: ApiKeyProvider[] }) => {
         if (Array.isArray(d.oauthProviders)) setOauthProviders(d.oauthProviders);
         if (Array.isArray(d.apiKeyProviders)) setApiKeyProviders(d.apiKeyProviders);
+        // A key save/removal or a completed sign-in can expose (or drop) a
+        // provider's models — keep the chat picker's list in step.
+        onModelsChangedRef.current?.();
       })
       .catch(() => {})
       .finally(() => setAuthListed(true));

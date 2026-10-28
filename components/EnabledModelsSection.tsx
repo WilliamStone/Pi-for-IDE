@@ -74,7 +74,7 @@ const FAILURE_KEYS: Record<string, string> = {
   "project-scope": "models.enabledProjectScope",
 };
 
-export function useEnabledModels(cwd?: string | null): EnabledModelsController {
+export function useEnabledModels(cwd?: string | null, onChanged?: () => void): EnabledModelsController {
   const [view, setView] = useState<EnabledModelsView | null>(null);
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState<string | null>(null);
@@ -130,6 +130,11 @@ export function useEnabledModels(cwd?: string | null): EnabledModelsController {
           return;
         }
         setView(data);
+        // The chat picker's list comes from /api/models, which the PUT already
+        // invalidated server-side — tell the host to reload it now rather than
+        // when the settings surface closes, or a settings tab left open keeps
+        // the picker on the old scope.
+        onChanged?.();
       } catch (error) {
         setFailure({ message: error instanceof Error ? error.message : String(error) });
       } finally {
@@ -140,7 +145,7 @@ export function useEnabledModels(cwd?: string | null): EnabledModelsController {
         if (queued) mutateRef.current?.(queued.key, queued.body);
       }
     })();
-  }, [cwd]);
+  }, [cwd, onChanged]);
 
   mutateRef.current = mutate;
 

@@ -258,6 +258,7 @@ export function AppShell() {
     });
   }, [selectedSession]);
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
+  const refreshModels = useCallback(() => setModelsRefreshKey((key) => key + 1), []);
   const [projectTrust, setProjectTrust] = useState<ProjectTrustStatus | null>(null);
   const [projectTrustDialogOpen, setProjectTrustDialogOpen] = useState(false);
   const [projectTrustBusy, setProjectTrustBusy] = useState(false);
@@ -2867,6 +2868,7 @@ export function AppShell() {
         projectTrust={projectTrust}
         onOpenTrustDialog={openProjectTrustDialog}
         onProjectTrustChanged={handleProjectTrustChanged}
+        onModelsChanged={refreshModels}
       />
     )}
     {/* After Settings, so it opens above it (z-index 1100 over 1000) when Settings › MCP asks for it. */}

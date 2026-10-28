@@ -53,6 +53,9 @@ interface Props {
   /** 嵌入设置页（?view=settings）：面板就是这个 tab 的内容——固定不关，
    * 挡板点击/× 按钮/Escape 全部失效。 */
   pinned?: boolean;
+  /** Models tab changes that affect the chat model list (enabledModels,
+   * models.json saves, provider auth) — fires as they land, not on close. */
+  onModelsChanged?: () => void;
 }
 
 export function SettingsSectionIcon({ section, size = 16, strokeWidth = 1.8 }: { section: SettingsSection; size?: number; strokeWidth?: number }) {
@@ -517,6 +520,7 @@ export function SettingsPanel({
   onOpenTrustDialog,
   onProjectTrustChanged,
   pinned,
+  onModelsChanged,
 }: Props) {
   const { t } = useI18n();
   const [section, setSection] = useState<SettingsSection>(initialSection);
@@ -623,7 +627,7 @@ export function SettingsPanel({
 
         <main className="settings-dialog-main">
           {sectionHost("general", <GeneralSettings sessionId={sessionId} onSessionReloaded={onSessionReloaded} quoteSelectionEnabled={quoteSelectionEnabled} onQuoteSelectionChange={onQuoteSelectionChange} />)}
-          {sectionHost("models", <ModelsConfig embedded cwd={cwd} onClose={onClose} />)}
+          {sectionHost("models", <ModelsConfig embedded cwd={cwd} onClose={onClose} onModelsChanged={onModelsChanged} />)}
           {/* Visited sections stay mounted, so the ones whose answer depends on trust take the page's
               status and load again in place when trusting from Settings › MCP changes it. */}
           {cwd && sectionHost("skills", <SkillsConfig embedded key={cwd} cwd={cwd} trust={projectTrust} onClose={onClose} />)}
