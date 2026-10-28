@@ -18,6 +18,8 @@ import {
   type OrphanTab,
 } from "./panel-revival";
 import { PiIdeServer } from "./piIdeServer";
+import { openProjectSettings } from "./project-settings";
+import { sessionIdOf } from "./session-id";
 import { SessionPanels } from "./session-panels";
 import { sessionTitle } from "./sessions-model";
 import { registerSessionCommands, SessionsTreeProvider } from "./sessions-tree";
@@ -178,6 +180,32 @@ export function registerSessionsFeature(
       if (orphan) await closeOrphan(orphan);
       await settingsPanel.reveal(cwd, orphanColumn(orphan) ?? openViewColumn());
     }),
+  );
+
+  // `<dir>/.pi/settings.json` 直达编辑器：视图菜单→配置 cwd；树右键
+  // →该项自己的目录（项目组→group.root，会话→session.cwd——pi 严格按
+  // cwd 解析项目级设置，子目录会话用会话自己的 cwd 才对应）。文件不
+  // 存在→绑定路径的 untitled，保存才落盘。
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "piIde.sessions.editProjectSettings",
+      async (item?: vscode.TreeItem) => {
+        const ctx = item?.contextValue ?? "";
+        const dir = !item
+          ? resolveConfiguredCwd() ??
+            vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
+          : ctx.includes("piIde.project")
+            ? (item as { group?: { root?: string } }).group?.root
+            : sessionsProvider.sessionDir(sessionIdOf(item));
+        if (!dir) {
+          void vscode.window.showWarningMessage(
+            "No project directory to open .pi/settings.json for.",
+          );
+          return;
+        }
+        await openProjectSettings(dir);
+      },
+    ),
   );
 
   // 完整应用页入口（无 view=chat）——chat-only tab 精简掉的侧栏/设置/文件

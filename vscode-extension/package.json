@@ -201,6 +201,12 @@
         "icon": "$(settings-gear)"
       },
       {
+        "command": "piIde.sessions.editProjectSettings",
+        "title": "%cmd.sessions.editProjectSettings%",
+        "category": "Pi for IDE",
+        "icon": "$(json)"
+      },
+      {
         "command": "piIde.session.openFull",
         "title": "%cmd.session.openFull%",
         "category": "Pi for IDE",
@@ -583,6 +589,11 @@
           "command": "piIde.settings",
           "when": "view == 'piIde.sessions'",
           "group": "sessions@2"
+        },
+        {
+          "command": "piIde.sessions.editProjectSettings",
+          "when": "view == 'piIde.sessions'",
+          "group": "sessions@3"
         }
       ],
       "editor/title/context": [
@@ -637,6 +648,11 @@
           "command": "piIde.session.copyWorkspacePath",
           "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session.*\\.hasDir/",
           "group": "piweb@5"
+        },
+        {
+          "command": "piIde.sessions.editProjectSettings",
+          "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session.*\\.hasDir/",
+          "group": "piweb@6"
         },
         {
           "command": "piIde.session.rename",
@@ -697,6 +713,11 @@
           "command": "piIde.project.copyWorkspacePath",
           "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.project/",
           "group": "piweb@3"
+        },
+        {
+          "command": "piIde.sessions.editProjectSettings",
+          "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.project/",
+          "group": "piweb@4"
         }
       ]
     }

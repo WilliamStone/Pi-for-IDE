@@ -4,12 +4,35 @@
 // assert on them.
 import * as fsp from "node:fs/promises";
 
-export const calls = { executeCommand: [], showTextDocument: [], messages: [] };
+export const calls = { executeCommand: [], showTextDocument: [], openTextDocument: [], appliedEdits: [], messages: [] };
 
 export const Uri = {
-  file: (p) => ({ scheme: "file", fsPath: p, path: p, toString: () => `file://${p}` }),
+  file: (p) => ({
+    scheme: "file",
+    fsPath: p,
+    path: p,
+    with: (change) => ({ scheme: change.scheme ?? "file", fsPath: p, path: p, toString: () => `${change.scheme ?? "file"}://${p}` }),
+    toString: () => `file://${p}`,
+  }),
   parse: (s) => ({ scheme: s.split(":")[0], toString: () => s }),
 };
+
+export class Position {
+  constructor(line, character) {
+    this.line = line;
+    this.character = character;
+  }
+}
+export class WorkspaceEdit {
+  constructor() { this.ops = []; }
+  insert(uri, pos, text) { this.ops.push({ kind: "insert", uri, pos, text }); }
+}
+export class Selection {
+  constructor(anchor, active) {
+    this.anchor = anchor;
+    this.active = active ?? anchor;
+  }
+}
 
 export const FileType = { Unknown: 0, File: 1, Directory: 2, SymbolicLink: 64 };
 
@@ -57,11 +80,21 @@ export const workspace = {
   workspaceFolders: [],
   getWorkspaceFolder: () => undefined,
   asRelativePath: (uri) => uri.fsPath,
-  openTextDocument: async ({ content, language } = {}) => ({
-    getText: () => content,
-    language,
-  }),
+  openTextDocument: async (arg = {}) => {
+    // Uri 入参（含 untitled 路径绑定）→ 带 uri 的 doc；{content,language}
+    // 选项 → 纯文本 doc。记录入参供"延迟写入"类断言。
+    if (arg && arg.fsPath !== undefined) {
+      calls.openTextDocument.push(arg);
+      return { uri: arg };
+    }
+    const { content, language } = arg;
+    return { getText: () => content, language };
+  },
   findFiles: async () => [],
+  applyEdit: async (we) => {
+    calls.appliedEdits.push(we);
+    return true;
+  },
 };
 
 export class RelativePattern {
@@ -133,6 +166,15 @@ export const window = {
   showInformationMessage: notify("info"),
   showTextDocument: async (doc, opts) => {
     calls.showTextDocument.push({ doc, opts });
+    // 返回值兼作 TextEditor：无 edit 的 doc（如 URI 打开的）补一个记录
+    // 插入文本的 edit——测试据此断言 untitled 骨架被注入。
+    if (doc && typeof doc === "object" && !doc.edit) {
+      doc.__inserted = "";
+      doc.edit = async (fn) => {
+        fn({ insert: (_pos, text) => { doc.__inserted += text; } });
+        return true;
+      };
+    }
     return doc;
   },
   tabGroups,

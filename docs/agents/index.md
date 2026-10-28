@@ -204,6 +204,7 @@ vscode-extension/src/
   extension.ts            activation, commands, status bar, update checks
   webviewProvider.ts      single-document webview shell (postMessage-driven states; CSP + static resources/shell.js; create/adopt share attachPanel; persistState for serializer revive — see docs/agents/webview-panels.md)
   session-panels.ts       per-key panel registry + viewType naming/parse (s./n/main/settings) + URI reverse lookup + orphan adopt
+  project-settings.ts     <dir>/.pi/settings.json direct-to-editor: path-bound untitled + {} skeleton when absent (nothing on disk until save; any seeded key would silently become a project override)
 
 components/
   AppShell.tsx             layout, URL state, tab management

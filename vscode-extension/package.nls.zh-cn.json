@@ -50,6 +50,7 @@
   "cmd.sessions.filterWorkspace": "只看本工作区会话",
   "cmd.sessions.showAll": "显示全部会话",
   "cmd.sessions.cycleViewMode": "切换 分组/最近 视图",
+  "cmd.sessions.editProjectSettings": "编辑项目 settings.json",
 
   "cmd.project.pin": "置顶项目",
   "cmd.project.unpin": "取消项目置顶",

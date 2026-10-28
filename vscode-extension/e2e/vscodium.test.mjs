@@ -699,6 +699,60 @@ test("VSCodium J: deleted session's orphan placeholder self-cleans on click (win
   }
 });
 
+// ── K 段：项目级 settings.json 直达编辑器——视图菜单命令对缺失文件开
+//    "路径绑定的 untitled"：断言打开后磁盘仍无文件（延迟写入语义）、
+//    Ctrl+S 后落盘为合法 JSON 空对象（骨架零覆盖键）；文件存在后再调
+//    命令走普通打开，不再产生第二个 settings.json tab。
+test("VSCodium K: Edit Project settings.json — untitled until save, then file editor", { timeout: 300_000 }, async (t) => {
+  markCover("K project-settings", "ran");
+  const ctx = prerequisites(t, "K project-settings");
+  if (!ctx) return;
+  const fixture = makeFixture();
+  const guard = await guardAttachRange(fixture.port, fixture.port + 9);
+  if (guard.oursPort) {
+    releaseAttachGuard(guard);
+    coverSkip(t, "K project-settings", `real pi-web instance on :${guard.oursPort}`);
+    return;
+  }
+  const { app, win } = await reachPiFrame(ctx, fixture);
+  try {
+    const target = path.join(fixture.workspace, ".pi", "settings.json");
+    const tabSel = '.tabs-container .tab:has-text("settings.json")';
+
+    // 键盘焦点拉回 workbench——pi-web iframe 持焦时 F1 被吃（同 G 段）。
+    await win.locator('.part.statusbar').first()
+      .click({ position: { x: 500, y: 12 } })
+      .catch(() => {});
+    await runCommand(win, "Edit Project settings.json");
+    await win.waitForSelector(tabSel, { timeout: 30000 });
+    // 延迟写入：untitled 已开但磁盘仍无文件。
+    await win.waitForSelector(`${tabSel}.dirty`, { timeout: 15000 });
+    assert.equal(existsSync(target), false, "untitled must not touch disk before save");
+
+    // 点 tab 激活并把 DOM 焦点交给编辑器，Ctrl+S 落到活动编辑器上。
+    await win.locator(tabSel).first().click();
+    await win.keyboard.press("Control+S");
+    for (let i = 0; i < 50 && !existsSync(target); i++) {
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    assert.equal(existsSync(target), true, "save should materialize .pi/settings.json");
+    assert.deepEqual(JSON.parse(readFileSync(target, "utf8")), {});
+
+    // 文件存在后再调命令 → 普通打开：仍只有 1 个 settings.json tab、不脏。
+    await runCommand(win, "Edit Project settings.json");
+    await new Promise((r) => setTimeout(r, 1500));
+    assert.equal(await win.locator(tabSel).count(), 1, "existing file should focus the same editor");
+    assert.equal(
+      await win.locator(`${tabSel}.dirty`).count(), 0,
+      "re-opened file editor must not be dirty",
+    );
+    markCover("K project-settings", "verified");
+  } finally {
+    await app.close().catch(() => {});
+    releaseAttachGuard(guard);
+  }
+});
+
 /** fixture agentDir 里最新会话文件出现 turn 错误时，提取 errorMessage。 */
 function lastTurnError(agentDir) {
   try {
