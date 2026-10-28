@@ -13,6 +13,9 @@
 - **Cross-window coordination**: a shared server mutex serializes version checks / spawn / upgrades across windows; server shutdown requires consent — a stop request is refused while another client is still connected; instance markers are monotonic and never evict a newer instance.
 - **Upgrade UX**: toasts gained a one-click **Install** that applies the plan directly, a verdict line ranks local/registry/current candidates, and repeated prompts for the same decision are deduplicated per session.
 - **Server resilience**: an EPIPE guard and a 300 s watchdog let the spawned server survive extension-host restarts; the sidebar auto-starts the server when it's opened.
+- **Session tabs survive reloads and updates**: restored session/composer/main/settings tabs stay as lazy placeholders with their real titles instead of duplicating into parallel `Pi for IDE — <cwd>` tabs. The active tab is adopted in place on window reload; background tabs stay inert until clicked, then adopt the same DOM node; tree clicks swap the placeholder for a live panel in the same group — no orphaned duplicates.
+- **Session list without the 10 s wait**: sidebar population no longer waits for the delayed visibility event — polling is kicked by the server-ready broadcast and at view registration, so the first list lands as soon as the server answers.
+- **Empty-after-reload hardened**: a transient session-resolution miss during server startup now retries instead of silently showing an empty transcript, and a failed scroll-restore can no longer leave the message list permanently hidden. Degenerate responses are logged to the output channel for diagnosis.
 - Requires pi-web-for-ide ≥ 0.12.2-2 for the newest capabilities (running/awaiting snapshots, session UI state, shutdown consent); older compatible builds degrade gracefully.
 
 ## [0.2.0] - 2026-10-20
