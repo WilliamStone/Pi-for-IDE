@@ -102,7 +102,7 @@ test("dispose 的面板从注册表摘除（下次按键新建）", () => {
 });
 
 test("adopt：孤儿 tab 以既有 viewType 注册进键映射；URI 反查继续命中", async () => {
-  const { registry, created } = makeRegistry();
+  const { registry } = makeRegistry();
   const orphan = { viewType: "piIde.webview.s.s-9", disposed: false, dispose() { this.disposed = true; } };
   const p = await registry.adopt("s-9", orphan, { sessionId: "s-9", cwd: "/repo" });
   assert.equal(registry.forKey("s-9"), p, "接管后点同会话复用它而非新开");
@@ -135,7 +135,7 @@ test("parsePiViewType：各形态归类，前缀与非本扩展不命中", () =>
 });
 
 test("column()：首个面板列回落点；有面板后锚其列", () => {
-  const { registry, created } = makeRegistry();
+  const { registry } = makeRegistry();
   assert.equal(registry.column(), 1, "空注册表回落 fallbackColumn");
   const p = registry.forKey("s-a");
   p.currentViewColumn = 3;
