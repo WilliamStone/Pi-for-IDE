@@ -152,6 +152,47 @@ owners. Nobody kills anyone — the server dies of silence.
   vscode dep — driven by `two-process-coordination.test.mjs`, which
   races real child processes over real files).
 
+### Panel visibility & the connection-pool trap
+
+Hidden webview tabs keep `document.visibilityState === "visible"` inside
+the OOPIF iframe (measured; see `webview-panels.md`) — the Page
+Visibility API cannot throttle a background panel. A hidden session
+panel's SSE (`/api/agent/<id>/events`) therefore kept a slot in the
+host's per-origin HTTP/1.1 pool (~6); ~6 session tabs starved later
+panel navigations (the settings panel measured 8s timeouts → offline
+fallback loop on a healthy server).
+
+Contract (bridge layer — `HOST_CAPABILITIES` in `src/bridge.ts`, not the
+server-handshake registry above):
+
+- **Push**: `webviewProvider.attachPanel` listens to
+  `WebviewPanel.onDidChangeViewState` and posts
+  `{source:"host", payload:{kind:"panelVisible", visible}}`, which the
+  shell forwards to the page's `onEmbedHostNotification` listeners.
+- **Pull**: the page subscribes, then sends `{kind:"getPanelVisibility"}`
+  → a per-panel interception answers `{kind:"getPanelVisibility",
+  visible}` (the shared `Bridge` does not know which panel asked, so the
+  reply lives in the `attachPanel` closure next to `sessionSelected`).
+  The pull closes the load-window race: a hide notification posted while
+  the iframe document was still `about:blank` is dropped, and without it
+  the panel would stay hidden-but-streaming until the next view-state
+  change. Ordering is safe by FIFO — the reply is posted synchronously
+  (before `bridge.handle`'s `await`) on the same `webview.postMessage`
+  channel as pushes, so a stale reply cannot land after a newer push.
+
+Page side (`hooks/useAgentSession.ts` + `lib/embed/panel-visibility.ts`):
+`false` → `closeEvents()` releases the SSE slot; `true` → reconnect +
+`loadSession` + `reconcileAgentState` (events emitted while hidden were
+missed — reconcile is the lost-event safety net). Duplicate `visible`
+notifications after a real suspend resume only once. Lease renewal is
+deliberately NOT gated: renewal is a transient POST that holds no pool
+slot, and keeping the lease prevents another client from stealing the
+session while its panel is hidden.
+
+Presence interplay: a suspended panel drops its "open client connection"
+signal — the extension's own `/api/embed/heartbeat` keeps the server
+alive regardless, so the watchdog contract is unaffected.
+
 ### Rejected: client registry
 
 An earlier design tracked windows in `globalStorage/runtime/clients.json` with

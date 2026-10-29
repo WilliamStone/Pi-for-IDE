@@ -28,6 +28,8 @@ import type { SessionStatsInfo } from "@/lib/pi-types";
 import { mergeSessionStats, type SessionFileStats } from "@/lib/session-stats";
 import { useActiveFile } from "@/components/embed/useActiveFile";
 import { TurnSnapshotTracker } from "@/lib/embed/turn-snapshot";
+import { isEmbedMode, onEmbedHostNotification, sendEmbedRequest } from "@/lib/embed/bridge";
+import { createPanelVisibilityGate } from "@/lib/embed/panel-visibility";
 import { userMessageKey } from "@/lib/prompt-recovery";
 import { carryMessageKeys, messageRenderKeys } from "@/lib/message-keys";
 import { AgentEventConnection } from "@/lib/agent-event-connection";
@@ -1438,6 +1440,37 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       window.removeEventListener("online", reconcile);
     };
   }, [agentRunning, reconcileAgentState]);
+
+  // Embed 宿主按 tab 可见态直推 panelVisible（隐藏 webview 不触发页面
+  // visibility，iframe 恒见 visible——后台 SSE 照占宿主同源连接池，面板
+  // 一多会饿死新面板导航）。隐藏释放事件流；复现恢复 + 重同步
+  // （loadSession 消息体 + reconcileAgentState 运行态兜底——隐藏期间
+  // agent 可能跑完/排队/被 compaction 动过）。
+  useEffect(() => {
+    if (!isEmbedMode()) return;
+    const gate = createPanelVisibilityGate({
+      suspend: () => closeEvents(),
+      resume: () => {
+        const sid = sessionIdRef.current;
+        if (!sid) return;
+        maintainEventsConnected(sid);
+        void loadSession(sid);
+        void reconcileAgentState(sid);
+      },
+    });
+    // 加载窗口期内发生的隐藏会被 postMessage 丢给未加载文档——订阅后主动
+    // 拉一次当前态补上。旧版宿主无此 kind → 回 {} 或超时 → 按默认可见
+    // （= 未加 gate 前的行为）。lease 有意不挂进 gate：续约是瞬态 POST
+    // 不占连接池，隐藏期保住租约可防会话被其他客户端抢走。
+    void sendEmbedRequest<{ visible?: boolean }>({ kind: "getPanelVisibility" })
+      .then((res) => {
+        if (typeof res?.visible === "boolean") gate.handle(res.visible);
+      })
+      .catch(() => {});
+    return onEmbedHostNotification((msg) => {
+      if (msg.kind === "panelVisible") gate.handle(msg.visible === true);
+    });
+  }, [closeEvents, maintainEventsConnected, loadSession, reconcileAgentState]);
 
   useEffect(() => {
     agentRunningRef.current = agentRunning;

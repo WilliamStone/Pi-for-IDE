@@ -284,6 +284,19 @@ export class PiWebWebviewPanel extends vscode.Disposable {
       this.onDisposed?.();
     });
 
+    // 隐藏 tab 的 webview 不触发页面 visibility（iframe 恒见 visible）——
+    // 后台 iframe 的 SSE 照占同源连接池（~6/主机），面板一多会饿死新面板
+    // 导航。按 tab 可见态直推 panelVisible：pi-web 侧收 false 即释放事件
+    // 流、收 true 恢复并重同步。面板创建/deserialize 必然可见，iframe 首
+    // 载默认按可见处理——无需补发初始态。
+    panel.onDidChangeViewState((e) => {
+      if (this.panel !== e.webviewPanel) return;
+      void e.webviewPanel.webview.postMessage({
+        source: "host",
+        payload: { kind: "panelVisible", visible: e.webviewPanel.visible },
+      });
+    });
+
     // Bridge messages from the pi-web iframe to VSCode APIs and relay
     // responses back. Messages arrive as { source: "embed", id, request }.
     panel.webview.onDidReceiveMessage(async (message) => {
@@ -299,6 +312,17 @@ export class PiWebWebviewPanel extends vscode.Disposable {
       if (message.request?.kind === "sessionSelected" && typeof message.request.sessionId === "string") {
         this.bindSession(message.request.sessionId);
         this.onSessionBound?.(message.request.sessionId, message.request.title);
+        return;
+      }
+      // 页面订阅后拉当前可见态——补「iframe 加载窗口期内的隐藏通知被
+      // postMessage 给未加载文档丢弃」的洞。回答的是本面板（Bridge 是
+      // 共享实例不知道问的是谁），故在 per-panel 闭包里拦截。
+      if (message.request?.kind === "getPanelVisibility") {
+        panel.webview.postMessage({
+          source: "host",
+          id: message.id,
+          payload: { kind: "getPanelVisibility", visible: panel.visible },
+        });
         return;
       }
       try {

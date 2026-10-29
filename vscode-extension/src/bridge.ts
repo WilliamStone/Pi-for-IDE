@@ -360,6 +360,8 @@ const HOST_CAPABILITIES = [
   "revertEdit",
   "mention",
   "activeEditorChanged",
+  "getPanelVisibility",
+  "panelVisible",
 ] as const;
 
 interface GetCapabilitiesRequest {

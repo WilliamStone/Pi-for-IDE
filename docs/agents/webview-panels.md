@@ -89,6 +89,23 @@ configured cwd; `piIde.sessions.editProjectSettingsHere` reads
 `commandPalette: when:false`. Any view/title command that *uses* its arg
 should be treated as suspect on this view.
 
+## Hidden tabs keep `document.visibilityState === "visible"`
+
+Measured (debug-vis probe, real VSCodium): an editor tab whose
+WebviewPanel is fully covered still reports `visibilityState ===
+"visible"` inside the OOPIF iframe — `retainContextWhenHidden` keeps the
+webview alive and the Page Visibility API never fires. In-page logic that
+pauses on `visibilitychange`/`document.hidden` is dead code in embed mode
+(upstream `useAgentSession` leans on it for lease/reconcile — harmless
+there because standalone keeps working, useless for panel throttling).
+
+Consequence that bit us: a hidden session panel's SSE held a slot in the
+host's per-origin connection pool (~6 for HTTP/1.1); ~6 session tabs
+starved later panel navigations. Fix is extension-side truth
+(`WebviewPanel.visible` pushed over the bridge) — the message contract,
+the load-window race, and why leases stay ungated are in
+`embed-protocol.md` → "Panel visibility & the connection-pool trap".
+
 ## Orphan panels & serializer revival
 
 Extension update kills the whole extension host — extension-side objects
