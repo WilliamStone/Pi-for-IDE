@@ -269,14 +269,17 @@ dumped iframe document proves the page fully *rendered*: sidebar, message
 list, composer are all in the DOM, and JS runs (the proxied SSE opens on
 the host). Only the pixels never reach the screen.
 
-Strongest hypothesis: a Chromium/Electron **OOPIF compositing wedge**
-under mass-restore — every session panel is a webview containing one more
-iframe, and a dozen simultaneous guest creations leave some frames
-uncomposited. To discriminate from "chrome without content", dump the
-iframe DOM (`Developer: Open Webview Developer Tools`): complete DOM +
-zero paint = wedge; chrome present + empty message list = the
-fetch-state failure above. Resizing a group sash is the functional test —
-a compositor wedge repaints on resize, a content failure does not.
+Mental model: on iframe-based-webview builds (VSCodium logs
+`Using standard dev tools to debug iframe based webview`) the nesting is
+**two** OOPIF layers — workbench's webview iframe → shell document →
+inner pi-web iframe. A wedge at *either* layer renders the whole panel
+blank, so "resize repaints it" only discriminates the shallow kind:
+the reported case did **not** recover on sash drags, i.e. deeper than a
+simple compositor stall — outer-layer wedge or a harder renderer hang
+(JS alive, compositor output dead). The `Reload Page` outcome then
+discriminates further: it rebuilds everything at/below the webview
+document, so success = wedge at shell level or inner OOPIF; failure =
+outer workbench layer, where close-and-reopen is the only cure left.
 
 Escape hatch: **Reload Page** on the tab context menu
 (`piIde.tab.reloadPage` → `PiWebWebviewPanel.reloadPage()`): re-assigning

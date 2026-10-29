@@ -219,11 +219,52 @@ Side effects to know:
 - **Residual risk:** the proxy moves the bottleneck to the extension host's
   file descriptors (thousands, vs 6) and postMessage throughput — SSE event
   volume is small text deltas, well inside webview messaging budgets.
+- **The pool is not empty afterwards — mass-restore still storms it.**
+  Evicting SSE leaves only *short-lived* traffic in the pool, but a
+  window reload with N session panels fires N iframe navigations + ~30
+  asset/API fetches per page through the same ~6 slots. Boot fetches
+  queue and mostly survive; a mount-path fetch that fails can still
+  wedge a page into the silent-empty state (the transient amplifier
+  behind "chrome without content", see webview-panels.md), and the
+  concurrent guest/OOPIF creation itself is a separate N-panel stress
+  ("paint wedge", same doc). Single-panel usage is unaffected.
+- **Test marker, not class name.** Production minification renames the
+  shim class (`EventSource.name` became `"i"`), so page-side assertions
+  must check the explicit `EventSource.__piProxied` marker the
+  installer sets — the same lesson applies to any build-mangled
+  identity check (e2e section M verifies marker + URL contract +
+  `eventproxy` output line + concurrent settings load).
 
 Files: `lib/embed/event-source.ts` (page-side class + install, unit-tested
 in `event-source.test.mjs`), `vscode-extension/src/event-proxy.ts`
 (host-side pump, unit-tested in `event-proxy.test.mjs`), wiring in
 `webviewProvider.attachPanel` + `embedUrl.ts`.
+
+### Alternatives weighed for the pool problem
+
+- **Raise the Chromium cap** — `--max-connections-per-host` is an
+  Electron *main-process* flag; an extension can't reach it, and
+  "start your IDE with a flag" isn't shippable.
+- **HTTP/2** — would multiplex everything over one connection, but
+  browsers only accept h2 over TLS; a local self-signed cert won't pass
+  inside a webview.
+- **Origin sharding** (`localhost` / `127.0.0.1` / `[::1]` are separate
+  pools) — also separates `localStorage`; drafts and settings would
+  split per shard. Rejected.
+- **WebSocket endpoint** — an upgraded WS connection doesn't occupy the
+  HTTP/1.1 pool either, so this works in principle; it needs a server
+  endpoint plus per-panel sockets, similar effort to the proxy for less
+  reuse value across IDE hosts.
+- **Server-side SSE aggregator** (one stream multiplexing all sessions,
+  fanned out by the shell) — Chromium-side drops to 1 connection, but
+  needs the aggregator endpoint + shell routing + a page-side
+  EventSource stand-in: three layers instead of one bridge seam.
+- **Page-side visibility gate** (suspend hidden tabs' SSE) — hidden
+  webviews don't expose a usable `document.visibilityState`, and the
+  host would have to push view-state; was implemented, then reverted
+  (`4f65fc9`) once the proxy made the underlying constraint disappear.
+  Hidden panels now keep their streams — they cost nothing and stay
+  warm (no resync flash on reveal).
 
 ### Rejected: client registry
 
