@@ -650,11 +650,6 @@
           "group": "piweb@5"
         },
         {
-          "command": "piIde.sessions.editProjectSettings",
-          "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session.*\\.hasDir/",
-          "group": "piweb@6"
-        },
-        {
           "command": "piIde.session.rename",
           "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session/",
           "group": "piweb.mod@0"

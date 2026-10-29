@@ -1,7 +1,7 @@
-// `<cwd>/.pi/settings.json` 直达编辑器——Pi Sessions 视图菜单与树
-// 右键共用。pi 严格按 cwd 解析项目级设置（不向上找 projectRoot），
-// 目标目录由调用方按入口语义给出（视图→配置 cwd；项目→group.root；
-// 会话→session.cwd）。
+// `<cwd>/.pi/settings.json` 直达编辑器——Pi Sessions 视图菜单与项目
+// 节点右键共用。pi 严格按 cwd 解析项目级设置（不向上找
+// projectRoot），目标目录由调用方按入口语义给出（视图→配置 cwd；
+// 项目组→group.root）。
 //
 // 文件不存在时开"路径绑定的 untitled"：磁盘零写入，用户保存时才落
 // 盘（`.pi/` 由 VS Code 保存路径自动创建）。
