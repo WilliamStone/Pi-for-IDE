@@ -69,6 +69,26 @@ resourceFilename =~ /webview-.*piIde\.webview/           // new bases: precise
 Command-side targeting mirrors this: arg URI → `byViewTypeUri` (exact panel);
 missing/foreign URI → `sessionPanels.active()` fallback (old bases only).
 
+## view/title menu commands get the tree's selection as arg
+
+Measured (L-segment e2e + `[settings]` output log): a `view/title` (the
+view `…` overflow) menu command on a TreeView is invoked with the **tree's
+current selected element as its first arg** — the same `TreeItem`
+`view/item/context` passes. Right-clicking a row also selects it, so a
+handler that branches on `item` silently tracks "the last tree element the
+user touched": the project-settings view menu opened the last
+right-clicked project's `settings.json` instead of the workspace's (log
+proof: `item=cv=piIde.project.wsForeign` on both invocations).
+
+Corollary: a command id shared between `view/title` and `view/item/context`
+cannot tell which entry fired — the args are identical items. When the two
+entries need different targets, register **separate command ids**:
+`piIde.sessions.editProjectSettings` ignores its arg and resolves the
+configured cwd; `piIde.sessions.editProjectSettingsHere` reads
+`item.group.root`; the item variant is hidden from the palette via
+`commandPalette: when:false`. Any view/title command that *uses* its arg
+should be treated as suspect on this view.
+
 ## Orphan panels & serializer revival
 
 Extension update kills the whole extension host — extension-side objects

@@ -183,21 +183,47 @@ export function registerSessionsFeature(
 
   // `<dir>/.pi/settings.json` 直达编辑器：视图菜单→配置 cwd；项目组
   // 右键→group.root。文件不存在→绑定路径的 untitled，保存才落盘。
+  // 注意：view/title 菜单命令会收到树当前选中项作参数（实测）——同一
+  // 命令两个入口共用会跟随"最后点过的项目节点"。视图入口必须完全
+  // 忽略参数只解析配置 cwd；项目节点走专用命令读 item.group.root。
+  const openSettingsAt = async (
+    dir: string | undefined,
+    via: string,
+    argDesc: string,
+  ) => {
+    outputChannel().appendLine(
+      `[settings] editProjectSettings(${via}): ${argDesc} dir=${dir ?? "?"}`,
+    );
+    if (!dir) {
+      void vscode.window.showWarningMessage(
+        "No project directory to open .pi/settings.json for.",
+      );
+      return;
+    }
+    await openProjectSettings(dir);
+  };
+  const argDesc = (item: vscode.TreeItem | undefined) =>
+    item === undefined ? "item=none" : `item=cv=${String(item.contextValue)}`;
   context.subscriptions.push(
     vscode.commands.registerCommand(
       "piIde.sessions.editProjectSettings",
       async (item?: vscode.TreeItem) => {
-        const dir = !item
-          ? resolveConfiguredCwd() ??
-            vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
-          : (item as { group?: { root?: string } }).group?.root;
-        if (!dir) {
-          void vscode.window.showWarningMessage(
-            "No project directory to open .pi/settings.json for.",
-          );
-          return;
-        }
-        await openProjectSettings(dir);
+        await openSettingsAt(
+          resolveConfiguredCwd() ??
+            vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+          "view",
+          argDesc(item),
+        );
+      },
+    ),
+    vscode.commands.registerCommand(
+      "piIde.sessions.editProjectSettingsHere",
+      async (item?: vscode.TreeItem) => {
+        await openSettingsAt(
+          (item as { group?: { root?: string } } | undefined)?.group?.root,
+          "item",
+          argDesc(item),
+        );
       },
     ),
   );

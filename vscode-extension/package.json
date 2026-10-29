@@ -207,6 +207,11 @@
         "icon": "$(json)"
       },
       {
+        "command": "piIde.sessions.editProjectSettingsHere",
+        "title": "%cmd.sessions.editProjectSettings%",
+        "icon": "$(json)"
+      },
+      {
         "command": "piIde.session.openFull",
         "title": "%cmd.session.openFull%",
         "category": "Pi for IDE",
@@ -445,6 +450,10 @@
         },
         {
           "command": "piIde.sessions.filterWorkspace",
+          "when": "false"
+        },
+        {
+          "command": "piIde.sessions.editProjectSettingsHere",
           "when": "false"
         },
         {
@@ -710,7 +719,7 @@
           "group": "piweb@3"
         },
         {
-          "command": "piIde.sessions.editProjectSettings",
+          "command": "piIde.sessions.editProjectSettingsHere",
           "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.project/",
           "group": "piweb@4"
         }

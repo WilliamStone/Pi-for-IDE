@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { _electron as electron } from "playwright";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -762,6 +762,130 @@ test("VSCodium K: Edit Project settings.json — untitled until save, then file 
       "re-opened file editor must not be dirty",
     );
     markCover("K project-settings", "verified");
+  } finally {
+    await app.close().catch(() => {});
+    releaseAttachGuard(guard);
+  }
+});
+
+// ── L 段：视图 ... 菜单的 Edit Project settings.json 必须钉本工作区，
+//    不得跟随"树里最后点过的项目节点"（实测回归根因：view/title 菜单
+//    命令会收到树当前选中项作 item 参数）。右键项目行把 selection 留
+//    在外来项目上，再调视图菜单——output 日志 [settings] 行与
+//    settings.json tab 数双重定罪。
+test("VSCodium L: view-menu Edit Project settings.json targets the workspace, not the last-clicked project", { timeout: 300_000 }, async (t) => {
+  markCover("L viewmenu-settings", "ran");
+  const ctx = prerequisites(t, "L viewmenu-settings");
+  if (!ctx) return;
+  const fixture = makeFixture();
+  const foreignDir = path.join(fixture.root, "foreignproj");
+  mkdirSync(foreignDir, { recursive: true });
+  seedSession(fixture.root, fixture.workspace);
+  seedSession(fixture.root, foreignDir, { id: "e2e-seed-f1", firstMessage: "foreign turn" });
+  const seed = { agentDir: path.join(fixture.root, "agent") };
+  const guard = await guardAttachRange(fixture.port, fixture.port + 9);
+  if (guard.oursPort) {
+    releaseAttachGuard(guard);
+    coverSkip(t, "L viewmenu-settings", `real pi-web instance on :${guard.oursPort}`);
+    return;
+  }
+  const { app, win } = await reachPiFrame(ctx, fixture, {
+    PI_CODING_AGENT_DIR: seed.agentDir,
+  });
+  const tabSel = '.tabs-container .tab:has-text("settings.json")';
+  const menuItem = '.context-view .action-item:has-text("Edit Project settings.json")';
+  /** 递归找 logs 树下 output_logging_* 目录里的 "Pi for IDE" 通道日志。 */
+  const readPiLog = () => {
+    const logsDir = path.join(fixture.userDataDir, "logs");
+    if (!existsSync(logsDir)) return "";
+    const hits = [];
+    const walk = (dir) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) walk(p);
+        else if (e.name.includes("Pi for IDE") && e.name.endsWith(".log")) hits.push(p);
+      }
+    };
+    walk(logsDir);
+    return hits.map((f) => readFileSync(f, "utf8")).join("\n");
+  };
+  const settingsLogLines = () =>
+    readPiLog().split("\n").filter((l) => l.includes("[settings] editProjectSettings"));
+  const copyActiveEditorPath = async () => {
+    await runCommand(win, "File: Copy Path of Active File");
+    return await app.evaluate(({ clipboard }) => clipboard.readText());
+  };
+  try {
+    const actBar = win.locator('.activitybar [aria-label*="Pi Sessions"]').first();
+    if (await actBar.count()) {
+      await actBar.click();
+    } else {
+      await runCommand(win, "Pi Sessions");
+    }
+    // 两个项目组都出现（workspaceOnly 默认 false → 外来项目可见）。
+    const wsRow = win.locator('.monaco-list-row:has-text("ws")').first();
+    const foreignRow = win.locator('.monaco-list-row:has-text("foreignproj")').first();
+    await wsRow.waitFor({ state: "visible", timeout: 120000 });
+    await foreignRow.waitFor({ state: "visible", timeout: 30000 });
+
+    // 入口一：foreignproj 项目节点右键菜单——把 selection 留在外来
+    // 项目上并打开它的 untitled settings（落盘前不碰磁盘）。菜单先
+    // 渲染再算位置，立刻点会落在旧坐标上，留沉底时间（调试实测）。
+    await foreignRow.click({ button: "right" });
+    await win.locator(menuItem).first().waitFor({ state: "visible", timeout: 15000 });
+    await new Promise((r) => setTimeout(r, 800));
+    await win.locator(menuItem).first().click();
+    await win.locator(tabSel).first().waitFor({ state: "visible", timeout: 30000 });
+    const foreignOpened = await copyActiveEditorPath();
+    t.diagnostic(`project-node invocation opened: ${foreignOpened}`);
+    assert.ok(
+      foreignOpened.toLowerCase().includes("foreignproj"),
+      `project-node menu should open foreign settings, got ${foreignOpened}`,
+    );
+    assert.equal(await win.locator(tabSel).count(), 1);
+
+    // 入口二（被测）：视图标题 ... 菜单。selection 仍停在 foreignproj。
+    // 单视图容器的 ... 不在 pane-header（hidden），在侧栏 composite 标题栏。
+    const viewTitle = win.locator('.part.sidebar .composite.title').first();
+    await viewTitle.hover();
+    await viewTitle
+      .locator('[aria-label*="More Actions"]')
+      .first()
+      .click();
+    await win.locator(menuItem).first().waitFor({ state: "visible", timeout: 15000 });
+    await new Promise((r) => setTimeout(r, 800));
+    await win.locator(menuItem).first().click();
+
+    // 定罪依据一：output 日志——视图菜单调用的 dir= 必须是工作区，
+    // 不是 foreignproj（item= 形态作诊断输出，见日志行）。
+    for (let i = 0; i < 30 && settingsLogLines().length < 2; i++) {
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    const lines = settingsLogLines();
+    t.diagnostic(`[settings] log lines: ${JSON.stringify(lines)}`);
+    const last = lines.at(-1) ?? "";
+    assert.ok(last.includes("(view)"), `expected view-entry log line, got: ${last}`);
+    assert.ok(
+      last.toLowerCase().includes(fixture.workspace.toLowerCase()),
+      `view-title invocation must resolve dir to workspace ${fixture.workspace}, got: ${last}`,
+    );
+
+    // 定罪依据二：新开一个 settings.json tab（工作区的 untitled），
+    // 而不是把外地 pending untitled 重新激活（那样仍只有 1 个 tab）。
+    for (let i = 0; i < 20 && (await win.locator(tabSel).count()) < 2; i++) {
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    assert.equal(
+      await win.locator(tabSel).count(), 2,
+      "view-menu must open the workspace settings doc, not reactivate the foreign one",
+    );
+    const wsOpened = await copyActiveEditorPath();
+    t.diagnostic(`view-title invocation opened: ${wsOpened}`);
+    assert.ok(
+      wsOpened.toLowerCase().startsWith(fixture.workspace.toLowerCase()),
+      `view-menu must activate workspace settings, got ${wsOpened}`,
+    );
+    markCover("L viewmenu-settings", "verified");
   } finally {
     await app.close().catch(() => {});
     releaseAttachGuard(guard);
