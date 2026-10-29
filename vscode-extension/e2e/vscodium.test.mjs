@@ -699,11 +699,11 @@ test("VSCodium J: deleted session's orphan placeholder self-cleans on click (win
   }
 });
 
-// ── K 段：项目级 settings.json 直达编辑器——视图菜单命令对缺失文件开
+// ── K 段：项目级 .pi/settings.json 直达编辑器——视图菜单命令对缺失文件开
 //    "路径绑定的 untitled"：断言打开后磁盘仍无文件（延迟写入语义）、
 //    Ctrl+S 后落盘为合法 JSON 空对象（骨架零覆盖键）；文件存在后再调
 //    命令走普通打开，不再产生第二个 settings.json tab。
-test("VSCodium K: Edit Project settings.json — untitled until save, then file editor", { timeout: 300_000 }, async (t) => {
+test("VSCodium K: Edit Workspace .pi/settings.json — untitled until save, then file editor", { timeout: 300_000 }, async (t) => {
   markCover("K project-settings", "ran");
   const ctx = prerequisites(t, "K project-settings");
   if (!ctx) return;
@@ -723,7 +723,7 @@ test("VSCodium K: Edit Project settings.json — untitled until save, then file 
     await win.locator('.part.statusbar').first()
       .click({ position: { x: 500, y: 12 } })
       .catch(() => {});
-    await runCommand(win, "Edit Project settings.json");
+    await runCommand(win, "Edit Workspace .pi/settings.json");
     await win.waitForSelector(tabSel, { timeout: 30000 });
     // 延迟写入：untitled 已开但磁盘仍无文件。
     await win.waitForSelector(`${tabSel}.dirty`, { timeout: 15000 });
@@ -731,7 +731,7 @@ test("VSCodium K: Edit Project settings.json — untitled until save, then file 
 
     // 未保存再调命令：existsSync 看不见 pending untitled，漏判会
     // 往同一文档里再插一副骨架（保存即成坏 JSON）。只能激活。
-    await runCommand(win, "Edit Project settings.json");
+    await runCommand(win, "Edit Workspace .pi/settings.json");
     await new Promise((r) => setTimeout(r, 800));
     assert.equal(
       await win.locator(tabSel).count(), 1,
@@ -754,7 +754,7 @@ test("VSCodium K: Edit Project settings.json — untitled until save, then file 
     assert.deepEqual(JSON.parse(readFileSync(target, "utf8")), {});
 
     // 文件存在后再调命令 → 普通打开：仍只有 1 个 settings.json tab、不脏。
-    await runCommand(win, "Edit Project settings.json");
+    await runCommand(win, "Edit Workspace .pi/settings.json");
     await new Promise((r) => setTimeout(r, 1500));
     assert.equal(await win.locator(tabSel).count(), 1, "existing file should focus the same editor");
     assert.equal(
@@ -768,12 +768,12 @@ test("VSCodium K: Edit Project settings.json — untitled until save, then file 
   }
 });
 
-// ── L 段：视图 ... 菜单的 Edit Project settings.json 必须钉本工作区，
+// ── L 段：视图 ... 菜单的 Edit Workspace .pi/settings.json 必须钉本工作区，
 //    不得跟随"树里最后点过的项目节点"（实测回归根因：view/title 菜单
 //    命令会收到树当前选中项作 item 参数）。右键项目行把 selection 留
 //    在外来项目上，再调视图菜单——output 日志 [settings] 行与
 //    settings.json tab 数双重定罪。
-test("VSCodium L: view-menu Edit Project settings.json targets the workspace, not the last-clicked project", { timeout: 300_000 }, async (t) => {
+test("VSCodium L: view-menu Edit Workspace .pi/settings.json targets the workspace, not the last-clicked project", { timeout: 300_000 }, async (t) => {
   markCover("L viewmenu-settings", "ran");
   const ctx = prerequisites(t, "L viewmenu-settings");
   if (!ctx) return;
@@ -793,7 +793,10 @@ test("VSCodium L: view-menu Edit Project settings.json targets the workspace, no
     PI_CODING_AGENT_DIR: seed.agentDir,
   });
   const tabSel = '.tabs-container .tab:has-text("settings.json")';
-  const menuItem = '.context-view .action-item:has-text("Edit Project settings.json")';
+  const projectMenuItem =
+    '.context-view .action-item:has-text("Edit Project .pi/settings.json")';
+  const viewMenuItem =
+    '.context-view .action-item:has-text("Edit Workspace .pi/settings.json")';
   /** 递归找 logs 树下 output_logging_* 目录里的 "Pi for IDE" 通道日志。 */
   const readPiLog = () => {
     const logsDir = path.join(fixture.userDataDir, "logs");
@@ -832,10 +835,14 @@ test("VSCodium L: view-menu Edit Project settings.json targets the workspace, no
     // 项目上并打开它的 untitled settings（落盘前不碰磁盘）。菜单先
     // 渲染再算位置，立刻点会落在旧坐标上，留沉底时间（调试实测）。
     await foreignRow.click({ button: "right" });
-    await win.locator(menuItem).first().waitFor({ state: "visible", timeout: 15000 });
+    await win.locator(projectMenuItem).first().waitFor({ state: "visible", timeout: 15000 });
     await new Promise((r) => setTimeout(r, 800));
-    await win.locator(menuItem).first().click();
+    await win.locator(projectMenuItem).first().click();
     await win.locator(tabSel).first().waitFor({ state: "visible", timeout: 30000 });
+    // tab 出现≠已激活——showTextDocument 的激活有竞态；等 .active 再
+    // 复制路径，否则 copyPathOfActiveFile 会取到上一个编辑器（webview）。
+    await win.locator(`${tabSel}.active`).first()
+      .waitFor({ state: "visible", timeout: 15000 });
     const foreignOpened = await copyActiveEditorPath();
     t.diagnostic(`project-node invocation opened: ${foreignOpened}`);
     assert.ok(
@@ -852,9 +859,9 @@ test("VSCodium L: view-menu Edit Project settings.json targets the workspace, no
       .locator('[aria-label*="More Actions"]')
       .first()
       .click();
-    await win.locator(menuItem).first().waitFor({ state: "visible", timeout: 15000 });
+    await win.locator(viewMenuItem).first().waitFor({ state: "visible", timeout: 15000 });
     await new Promise((r) => setTimeout(r, 800));
-    await win.locator(menuItem).first().click();
+    await win.locator(viewMenuItem).first().click();
 
     // 定罪依据一：output 日志——视图菜单调用的 dir= 必须是工作区，
     // 不是 foreignproj（item= 形态作诊断输出，见日志行）。
@@ -879,6 +886,8 @@ test("VSCodium L: view-menu Edit Project settings.json targets the workspace, no
       await win.locator(tabSel).count(), 2,
       "view-menu must open the workspace settings doc, not reactivate the foreign one",
     );
+    await win.locator(`${tabSel}.active`).first()
+      .waitFor({ state: "visible", timeout: 15000 });
     const wsOpened = await copyActiveEditorPath();
     t.diagnostic(`view-title invocation opened: ${wsOpened}`);
     assert.ok(

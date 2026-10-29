@@ -202,7 +202,7 @@
       },
       {
         "command": "piIde.sessions.editProjectSettings",
-        "title": "%cmd.sessions.editProjectSettings%",
+        "title": "%cmd.sessions.editWorkspaceSettings%",
         "category": "Pi for IDE",
         "icon": "$(json)"
       },
