@@ -41,10 +41,6 @@ export interface PiPanelPersistState {
 export class PiWebWebviewPanel extends vscode.Disposable {
   private static nextSeq = 1;
   private readonly seq = PiWebWebviewPanel.nextSeq++;
-  /** attachPanel 登记的活动实例——统计同时可见面板数（连接池压力诊断）。 */
-  private static readonly livePanels = new Set<PiWebWebviewPanel>();
-  /** 上次已告警的可见面板数——只在数值变化时重告警，防抖。 */
-  private static lastPoolWarnCount = 0;
 
   /** 日志身份标签：多面板并存时 refresh/webview 行分不清是谁——
    *  会话面板按 sessionId 缩写，其余按 view 名 + 实例序号。 */
@@ -278,7 +274,6 @@ export class PiWebWebviewPanel extends vscode.Disposable {
     }, 6000);
     panel.onDidDispose(() => {
       this.panel = undefined;
-      PiWebWebviewPanel.livePanels.delete(this);
       this.currentCwd = undefined;
       // 缓存随面板销毁失效——新面板必须重新渲染 HTML，否则
       // 同实例同 URL 的提前返回会让新 webview 永久空白。
@@ -287,34 +282,6 @@ export class PiWebWebviewPanel extends vscode.Disposable {
       // 面板没了，等"上屏"的浮窗也收掉。
       for (const r of this.shellReadyWaiters.splice(0)) r();
       this.onDisposed?.();
-    });
-
-    // 隐藏 tab 的 webview 不触发页面 visibility（iframe 恒见 visible）——
-    // 后台 iframe 的 SSE 照占同源连接池（~6/主机），面板一多会饿死新面板
-    // 导航。按 tab 可见态直推 panelVisible：pi-web 侧收 false 即释放事件
-    // 流、收 true 恢复并重同步。面板创建/deserialize 必然可见，iframe 首
-    // 载默认按可见处理——无需补发初始态。
-    PiWebWebviewPanel.livePanels.add(this);
-    panel.onDidChangeViewState((e) => {
-      if (this.panel !== e.webviewPanel) return;
-      void e.webviewPanel.webview.postMessage({
-        source: "host",
-        payload: { kind: "panelVisible", visible: e.webviewPanel.visible },
-      });
-      // 可见面板逼近同源连接池上限时留诊断——下次「新面板卡 Connecting /
-      // 转 offline 兜底」时 output 里已有指向：先藏掉不看的 tab。
-      const visibleCount = [...PiWebWebviewPanel.livePanels]
-        .filter((i) => i.panel?.visible).length;
-      if (
-        visibleCount >= 5
-        && PiWebWebviewPanel.lastPoolWarnCount !== visibleCount
-      ) {
-        PiWebWebviewPanel.lastPoolWarnCount = visibleCount;
-        logLifecycle(
-          `[pool] ${visibleCount} Pi panels visible at once — each may hold ` +
-            `live connections; if a new panel stalls on "Connecting", hide unused tabs first`,
-        );
-      }
     });
 
     // Bridge messages from the pi-web iframe to VSCode APIs and relay
@@ -332,17 +299,6 @@ export class PiWebWebviewPanel extends vscode.Disposable {
       if (message.request?.kind === "sessionSelected" && typeof message.request.sessionId === "string") {
         this.bindSession(message.request.sessionId);
         this.onSessionBound?.(message.request.sessionId, message.request.title);
-        return;
-      }
-      // 页面订阅后拉当前可见态——补「iframe 加载窗口期内的隐藏通知被
-      // postMessage 给未加载文档丢弃」的洞。回答的是本面板（Bridge 是
-      // 共享实例不知道问的是谁），故在 per-panel 闭包里拦截。
-      if (message.request?.kind === "getPanelVisibility") {
-        panel.webview.postMessage({
-          source: "host",
-          id: message.id,
-          payload: { kind: "getPanelVisibility", visible: panel.visible },
-        });
         return;
       }
       try {

@@ -1,6 +1,5 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { _electron as electron } from "playwright";
 import path from "node:path";
@@ -896,117 +895,6 @@ test("VSCodium L: view-menu Edit Workspace .pi/settings.json targets the workspa
       `view-menu must activate workspace settings, got ${wsOpened}`,
     );
     markCover("L viewmenu-settings", "verified");
-  } finally {
-    await app.close().catch(() => {});
-    releaseAttachGuard(guard);
-  }
-});
-
-// ── M 段：隐藏会话面板必须释放它的 SSE 连接——隐藏 webview 不触发页面
-//    visibility（iframe 恒见 visible），后台 iframe 的 SSE 照占宿主同源
-//    连接池（~6/主机），面板一多会饿死新面板导航（settings 实测超时）。
-//    观测量取 netstat 服务端侧 ESTABLISHED 行数（每连接一行）：会话面板
-//    钉同列 → 同组只有 1 个 session tab 可见，s01 隐藏时其 SSE 应已释放；
-//    再于会话组顶开 hello.txt 盖住 s02 → 全部隐藏 → 稳态连接数应 -1。
-//    取样用 min-over-samples 滤掉 keep-alive/短轮询的瞬态噪声。
-test("VSCodium M: hiding a session panel releases its SSE connection", { timeout: 300_000 }, async (t) => {
-  markCover("M sse-release", "ran");
-  const ctx = prerequisites(t, "M sse-release");
-  if (!ctx) return;
-  const fixture = makeFixture();
-  seedSession(fixture.root, fixture.workspace);
-  seedSession(fixture.root, fixture.workspace, { id: "e2e-seed-02", firstMessage: "e2e seed two" });
-  const seed = { agentDir: path.join(fixture.root, "agent") };
-  const guard = await guardAttachRange(fixture.port, fixture.port + 9);
-  if (guard.oursPort) {
-    releaseAttachGuard(guard);
-    coverSkip(t, "M sse-release", `real pi-web instance on :${guard.oursPort}`);
-    return;
-  }
-  const { app, win } = await reachPiFrame(ctx, fixture, {
-    PI_CODING_AGENT_DIR: seed.agentDir,
-  });
-  // server 实绑端口不是 fixture.port——guardAttachRange 把 attach 范围
-  // 全占了，spawn 只能落范围外。从已加载 iframe 的 URL 里取真值。
-  let serverPort = 0;
-  /** 服务端侧 ESTABLISHED 行数——每连接一行（local addr 正好是 :port）。 */
-  const countConns = () => {
-    if (!serverPort) return -1;
-    const out = execFileSync("netstat", ["-ano"], { encoding: "utf8" });
-    return out.split("\n").filter((l) => {
-      const parts = l.trim().split(/\s+/);
-      return parts[0] === "TCP" && parts[1] === `127.0.0.1:${serverPort}`
-        && l.includes("ESTABLISHED");
-    }).length;
-  };
-  const steadyConns = async (samples = 8, gapMs = 500) => {
-    let min = Infinity;
-    for (let i = 0; i < samples; i++) {
-      min = Math.min(min, countConns());
-      await new Promise((r) => setTimeout(r, gapMs));
-    }
-    return min;
-  };
-  try {
-    const actBar = win.locator('.activitybar [aria-label*="Pi Sessions"]').first();
-    if (await actBar.count()) {
-      await actBar.click();
-    } else {
-      await runCommand(win, "Pi Sessions");
-    }
-    // 依次开 s01、s02——s02 最后激活（可见、SSE 开），s01 隐藏（gate 应已
-    // 释放其 SSE）。
-    for (const [row, id] of [
-      ["e2e seed turn", "e2e-seed-01"],
-      ["e2e seed two", "e2e-seed-02"],
-    ]) {
-      const r = win.locator(`.monaco-list-row:has-text("${row}")`).first();
-      await r.waitFor({ state: "visible", timeout: 120000 });
-      await r.click();
-      const f = await waitForFrame(win, (u) => u.includes(`session=${id}`), 90000);
-      serverPort = Number(new URL(f.url()).port) || serverPort;
-    }
-    t.diagnostic(`server bound on :${serverPort}`);
-    await new Promise((r) => setTimeout(r, 3000));
-    const before = await steadyConns();
-    t.diagnostic(`steady conns with s02 visible: ${before}`);
-
-    // 会话组是活动组时开 hello.txt → 落在组顶，盖住所有 session tab。
-    // 先点 s02 tab 保证会话组为活动组，再经活动栏 Explorer 开文件。
-    await win.locator('.tabs-container .tab:has-text("e2e seed two")').first().click();
-    const explorerIcon = win.locator('.activitybar [aria-label*="Explorer"]').first();
-    if (await explorerIcon.count()) await explorerIcon.click();
-    const explorerRow = win.locator('.explorer-viewlet .monaco-list-row:has-text("hello.txt")').first();
-    await explorerRow.waitFor({ state: "visible", timeout: 15000 });
-    await explorerRow.click();
-    // 等 s02 隐藏生效：稳态连接数应掉至少 1 条（其 SSE 关闭）。
-    let hiddenMin = Infinity;
-    for (let i = 0; i < 30; i++) {
-      await new Promise((r) => setTimeout(r, 500));
-      hiddenMin = Math.min(hiddenMin, countConns());
-      if (hiddenMin <= before - 1) break;
-    }
-    const after = await steadyConns(6);
-    t.diagnostic(`steady conns all-hidden: ${after}`);
-    assert.ok(
-      after <= before - 1,
-      `hiding the last visible session panel must release its SSE conn (before=${before} after=${after})`,
-    );
-
-    // 点回 s02 → 恢复可见 → SSE 重连，稳态连接回升。
-    await win.locator('.tabs-container .tab:has-text("e2e seed two")').first().click();
-    let restored = 0;
-    for (let i = 0; i < 30; i++) {
-      await new Promise((r) => setTimeout(r, 500));
-      restored = Math.max(restored, countConns());
-      if (restored >= after + 1) break;
-    }
-    t.diagnostic(`conns after s02 restored: ${restored}`);
-    assert.ok(
-      restored >= after + 1,
-      `re-shown session panel must re-open its SSE conn (after=${after} restored=${restored})`,
-    );
-    markCover("M sse-release", "verified");
   } finally {
     await app.close().catch(() => {});
     releaseAttachGuard(guard);

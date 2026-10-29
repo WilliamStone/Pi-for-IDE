@@ -181,13 +181,6 @@ export interface EmbedSessionSelectedRequest {
   title?: string;
 }
 
-/** 页面订阅宿主通知后主动拉一次面板当前可见态——补「iframe 加载窗口
- * 期内发生的隐藏通知被 postMessage 给未加载文档丢弃」的洞。响应
- * {kind:"getPanelVisibility", visible}；旧版宿主回 {} 按可见处理。 */
-export interface EmbedGetPanelVisibilityRequest {
-  kind: "getPanelVisibility";
-}
-
 export type EmbedRequest =
   | EmbedSessionSelectedRequest
   | EmbedOpenFileRequest
@@ -207,7 +200,6 @@ export type EmbedRequest =
   | EmbedRevertEditRequest
   | EmbedKeyPassthroughRequest
   | EmbedOpenInBrowserRequest
-  | EmbedGetPanelVisibilityRequest
   | EmbedGetCapabilitiesRequest;
 
 export interface EmbedCompleteAtResponse {
