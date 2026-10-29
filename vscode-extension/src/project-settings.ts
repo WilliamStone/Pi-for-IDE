@@ -29,6 +29,16 @@ export async function openProjectSettings(dir: string): Promise<void> {
     await vscode.window.showTextDocument(target);
     return;
   }
+  // 已开着的未保存 untitled（existsSync 看不见它——不在磁盘）：只
+  // 激活不改动，openTextDocument 会同路径返回同一 doc，再走注入
+  // 分支会在骨架上再叠一副骨架。
+  const pending = vscode.workspace.textDocuments.find(
+    (d) => d.uri.scheme === "untitled" && d.uri.fsPath === target.fsPath,
+  );
+  if (pending) {
+    await vscode.window.showTextDocument(pending);
+    return;
+  }
   const doc = await vscode.workspace.openTextDocument(target.with({ scheme: "untitled" }));
   // 先注入骨架再显示：untitled 打开即脏，显示后注入的窗口里用户
   // Ctrl+S 会落出空文件（坏 JSON）——WorkspaceEdit 不需可见编辑器。

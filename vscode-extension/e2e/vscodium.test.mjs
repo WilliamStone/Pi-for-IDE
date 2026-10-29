@@ -729,6 +729,21 @@ test("VSCodium K: Edit Project settings.json — untitled until save, then file 
     await win.waitForSelector(`${tabSel}.dirty`, { timeout: 15000 });
     assert.equal(existsSync(target), false, "untitled must not touch disk before save");
 
+    // 未保存再调命令：existsSync 看不见 pending untitled，漏判会
+    // 往同一文档里再插一副骨架（保存即成坏 JSON）。只能激活。
+    await runCommand(win, "Edit Project settings.json");
+    await new Promise((r) => setTimeout(r, 800));
+    assert.equal(
+      await win.locator(tabSel).count(), 1,
+      "re-invoke must reuse the pending untitled, not open a second tab",
+    );
+    const lines = await win.locator(".view-lines").allInnerTexts();
+    const squashed = lines.map((t2) => t2.replace(/\s+/g, ""));
+    assert.ok(
+      !squashed.some((t2) => t2.includes("{}{}")),
+      "re-invoke must not append a second skeleton to the pending untitled",
+    );
+
     // 点 tab 激活并把 DOM 焦点交给编辑器，Ctrl+S 落到活动编辑器上。
     await win.locator(tabSel).first().click();
     await win.keyboard.press("Control+S");

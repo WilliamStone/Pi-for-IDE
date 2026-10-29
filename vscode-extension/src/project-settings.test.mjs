@@ -27,7 +27,7 @@ registerHooks({
   },
 });
 
-const { calls } = await import("./test-vscode-stub.mjs");
+const { calls, workspace } = await import("./test-vscode-stub.mjs");
 const { projectSettingsFile, PROJECT_SETTINGS_SKELETON, openProjectSettings } =
   await import("./project-settings.ts");
 
@@ -69,6 +69,30 @@ test("absent file → path-bound untitled doc, skeleton inserted, no disk write"
     assert.equal(calls.showTextDocument.length, 1);
     // 关键不变式：打开动作不碰磁盘——文件仍不存在，保存才落盘。
     assert.ok(!existsSync(projectSettingsFile(dir)));
+  } finally {
+    cleanup();
+  }
+});
+
+test("pending unsaved untitled → re-invoke only activates, never re-inserts", async () => {
+  const { dir, cleanup } = tmp();
+  try {
+    // 磁盘无文件但编辑器里已有绑定同路径的未保存 untitled——
+    // existsSync 看不见它，漏判会把第二副骨架插进同一文档。
+    const pending = { uri: { scheme: "untitled", fsPath: projectSettingsFile(dir) } };
+    workspace.textDocuments.push(pending);
+    try {
+      calls.openTextDocument.length = 0;
+      calls.showTextDocument.length = 0;
+      calls.appliedEdits.length = 0;
+      await openProjectSettings(dir);
+      assert.equal(calls.openTextDocument.length, 0, "pending doc must be reused, not reopened");
+      assert.equal(calls.appliedEdits.length, 0, "activate-only — a second skeleton would corrupt the doc on save");
+      assert.equal(calls.showTextDocument.length, 1);
+      assert.equal(calls.showTextDocument[0].doc, pending);
+    } finally {
+      workspace.textDocuments.length = 0;
+    }
   } finally {
     cleanup();
   }
