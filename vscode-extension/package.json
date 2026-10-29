@@ -270,6 +270,12 @@
         "title": "%cmd.tab.revealInSessions%",
         "category": "Pi for IDE",
         "icon": "$(list-tree)"
+      },
+      {
+        "command": "piIde.tab.reloadPage",
+        "title": "%cmd.tab.reloadPage%",
+        "category": "Pi for IDE",
+        "icon": "$(refresh)"
       }
     ],
     "viewsContainers": {
@@ -523,6 +529,10 @@
           "when": "false"
         },
         {
+          "command": "piIde.tab.reloadPage",
+          "when": "false"
+        },
+        {
           "command": "piIde.sessions.cycleViewMode",
           "when": "false"
         }
@@ -615,6 +625,11 @@
           "command": "piIde.tab.revealInSessions",
           "when": "resourceFilename =~ /webview-.*piIde\\.webview\\.(s|n)/ || activeWebviewPanelId =~ /piIde\\.webview/ && !resourceSet",
           "group": "piweb@1"
+        },
+        {
+          "command": "piIde.tab.reloadPage",
+          "when": "resourceFilename =~ /webview-.*piIde\\.webview/ || activeWebviewPanelId =~ /piIde\\.webview/ && !resourceSet",
+          "group": "piweb@2"
         }
       ],
       "view/item/context": [

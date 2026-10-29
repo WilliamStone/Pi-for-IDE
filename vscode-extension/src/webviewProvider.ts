@@ -356,6 +356,27 @@ export class PiWebWebviewPanel extends vscode.Disposable {
     this.pushPersistState();
   }
 
+  /**
+   * 手动整页重载（tab 右键 Reload Page）——webview.html 重赋值是文档级
+   * 重建：新外壳 "shell painted"→markShellReady→replayShellState 重放
+   * 就绪 URL，iframe 随之重新导航。外层外壳 wedge 与内层 OOPIF 不画
+   * （DOM 完整但不上屏）共用这一条逃生通道。缓存清掉让 refresh 重探——
+   * 回放陈旧 lastUrl 会在服务已重启时把探测打进死源、干等 90s。
+   */
+  reloadPage(): void {
+    if (!this.panel) return;
+    logLifecycle(`reload page requested[${this.label()}]`);
+    this.shellReady = false;
+    this.lastServer = undefined;
+    this.lastUrl = undefined;
+    this.lastShellError = undefined;
+    this.lastPersistJson = ""; // 新外壳文档的 setState 是空白——重推身份快照
+    this.panel.webview.html = this.renderShell(currentServerStatus());
+    void this.refresh().catch((e) =>
+      logLifecycle(`reload refresh failed[${this.label()}]: ${String(e)}`),
+    );
+  }
+
   /** 只聚焦现有面板（不重载）。未创建时为空操作。 */
   focus(): void {
     if (this.panel) {

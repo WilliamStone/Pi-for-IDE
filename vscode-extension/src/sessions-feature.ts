@@ -367,6 +367,12 @@ export function registerSessionsFeature(
       const item = id ? sessionsProvider.revealItemFor(id) : undefined;
       if (item) await sessionsView.reveal(item, { select: true, focus: true, expand: true });
     }),
+    // tab 右键动作：整页重载——webview 快捷键不穿透进 iframe，菜单是
+    // 面板卡死/OOPIF 合成器 wedge（DOM 完整但不上屏）时最近的逃生通道。
+    // 所有 pi 面板类型（会话/composer/settings/主面板）共用此路径。
+    vscode.commands.registerCommand("piIde.tab.reloadPage", async (arg?: unknown) => {
+      tabPanelFor(arg)?.reloadPage();
+    }),
   );
 
   // 跨窗"打开会话"交接的消费端（pending-open.ts）：别窗口把异区会话

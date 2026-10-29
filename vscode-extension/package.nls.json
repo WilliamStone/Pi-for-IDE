@@ -43,6 +43,7 @@
   "cmd.project.copyWorkspacePath": "Copy Workspace Path",
   "cmd.tab.copyWorkspacePath": "Copy Workspace Path",
   "cmd.tab.revealInSessions": "Reveal in Sessions",
+  "cmd.tab.reloadPage": "Reload Page",
   "cmd.sessions.newSession": "New Session",
   "cmd.openOriginal": "Open Original Page",
   "cmd.settings": "Pi Settings",

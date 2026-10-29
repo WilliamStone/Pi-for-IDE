@@ -43,6 +43,7 @@
   "cmd.project.copyWorkspacePath": "复制工作区路径",
   "cmd.tab.copyWorkspacePath": "复制工作区路径",
   "cmd.tab.revealInSessions": "在会话列表中显示",
+  "cmd.tab.reloadPage": "重新加载页面",
   "cmd.sessions.newSession": "新建会话",
   "cmd.openOriginal": "打开原始页面",
   "cmd.settings": "Pi 设置",

@@ -258,6 +258,41 @@ list, cold and warm) returned 200 + full context every time — the failure
 needs a transient we have not isolated yet; the diagnostics above are the
 capture mechanism.
 
+### Reload: paint wedge — complete DOM, nothing on screen
+
+Distinct failure mode, reported with ~10 session tabs tiled across groups
+followed by `Developer: Reload Window`: several restored panels are
+visually blank (not even the app chrome) while the log shows the whole
+pipeline healthy per panel — `deserialize fired` → `serverReady` →
+`server probe passed` → `iframe page loaded` → `eventproxy open`. A
+dumped iframe document proves the page fully *rendered*: sidebar, message
+list, composer are all in the DOM, and JS runs (the proxied SSE opens on
+the host). Only the pixels never reach the screen.
+
+Strongest hypothesis: a Chromium/Electron **OOPIF compositing wedge**
+under mass-restore — every session panel is a webview containing one more
+iframe, and a dozen simultaneous guest creations leave some frames
+uncomposited. To discriminate from "chrome without content", dump the
+iframe DOM (`Developer: Open Webview Developer Tools`): complete DOM +
+zero paint = wedge; chrome present + empty message list = the
+fetch-state failure above. Resizing a group sash is the functional test —
+a compositor wedge repaints on resize, a content failure does not.
+
+Escape hatch: **Reload Page** on the tab context menu
+(`piIde.tab.reloadPage` → `PiWebWebviewPanel.reloadPage()`): re-assigning
+`webview.html` rebuilds the whole shell document and re-walks
+`shell painted → markShellReady → replayShellState → serverReady →
+probe → navigate` — the deepest reset available short of closing the
+tab. Webview-keyboard shortcuts never reach the iframe, so the menu item
+is the practical path. `reloadPage` also clears `lastUrl/lastServer/
+lastShellError/lastPersistJson` so `refresh()` re-probes against the
+*current* server instead of replaying a stale URL into the new shell.
+
+Untried mitigation (pending wedge confirmation): staggering `serverReady`
+posts during mass-restore so iframe navigations (and their OOPIF
+creations) serialize instead of landing in one tick — ~300 ms per panel
+slot, zero delay for the common single-panel case.
+
 ### Connection pool: SSE lives on the extension host, not the webview
 
 ~6 simultaneously-visible session panels used to exhaust Chromium's ~6
