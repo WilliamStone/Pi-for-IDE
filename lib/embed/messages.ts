@@ -4,7 +4,7 @@
 /** embed 功能的英文字符串。 */
 export const embedEnMessages: Record<string, string> = {
   "system.openInBrowser": "Open in Browser",
-  "system.serverRestarted": "The server restarted — reload to pick up the new build.",
+  "system.serverRestarted": "The server restarted — reloading to pick up the new build.",
   "system.reload": "Reload",
   "chat.fileReview": "File review",
   "chat.fileReviewCount": "{count} file(s)",
@@ -50,7 +50,7 @@ export const embedEnMessages: Record<string, string> = {
 /** embed 功能的繁体中文字符串。 */
 export const embedZhTWMessages: Record<string, string> = {
   "system.openInBrowser": "在瀏覽器中開啟",
-  "system.serverRestarted": "伺服器已重新啟動——重新載入以使用新版本。",
+  "system.serverRestarted": "伺服器已重新啟動——正在重新載入以使用新版本。",
   "system.reload": "重新載入",
   "chat.fileReview": "檔案審查",
   "chat.fileReviewCount": "{count} 個檔案",
@@ -96,7 +96,7 @@ export const embedZhTWMessages: Record<string, string> = {
 /** embed 功能的简体中文字符串。 */
 export const embedZhCNMessages: Record<string, string> = {
   "system.openInBrowser": "浏览器中打开",
-  "system.serverRestarted": "服务器已重启——刷新页面以使用新版本。",
+  "system.serverRestarted": "服务器已重启——正在刷新以使用新版本。",
   "system.reload": "刷新",
   "chat.fileReview": "文件审查",
   "chat.fileReviewCount": "{count} 个文件",

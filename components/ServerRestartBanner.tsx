@@ -5,9 +5,16 @@ import { useI18n } from "@/hooks/useI18n";
 import { SERVER_RESTARTED_EVENT } from "@/lib/boot-watch";
 
 // Top-center notice once the serving process changed under this page: the old
-// build is still in memory, so the page asks for a reload instead of silently
-// mixing builds. Covers standalone and browser tabs (embed hosts swap the
-// iframe URL themselves).
+// build is still in memory, so the page must reload instead of silently mixing
+// builds. Covers standalone and browser tabs (embed hosts swap the iframe URL
+// themselves). Reload is automatic after a short beat — the draft store
+// mirrors every keystroke into localStorage synchronously, so nothing
+// committed is lost, and the banner doubles as the "why did the page blink"
+// notice. The button remains for impatient users; detection itself only
+// fires on a healthy /api/agent/running response, so the reload always
+// lands on the new (already-up) server.
+const AUTO_RELOAD_MS = 1500;
+
 export function ServerRestartBanner() {
   const { t } = useI18n();
   const [restarted, setRestarted] = useState(false);
@@ -17,6 +24,12 @@ export function ServerRestartBanner() {
     window.addEventListener(SERVER_RESTARTED_EVENT, onRestart);
     return () => window.removeEventListener(SERVER_RESTARTED_EVENT, onRestart);
   }, []);
+
+  useEffect(() => {
+    if (!restarted) return;
+    const timer = setTimeout(() => window.location.reload(), AUTO_RELOAD_MS);
+    return () => clearTimeout(timer);
+  }, [restarted]);
 
   if (!restarted) return null;
   return (
