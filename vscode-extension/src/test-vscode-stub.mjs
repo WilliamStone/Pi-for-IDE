@@ -91,6 +91,7 @@ export const workspace = {
     return { getText: () => content, language };
   },
   findFiles: async () => [],
+  textDocuments: [],
   applyEdit: async (we) => {
     calls.appliedEdits.push(we);
     return true;
