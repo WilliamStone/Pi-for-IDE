@@ -12,6 +12,13 @@
   let lastProbe = '';   // 最近一次 serverReady 的探测地址——offline 兜底页回报后按它重探
   let offlineShown = false; // iframe 停在 SW offline 兜底页——load/display 判就绪都要排除它
   let offlineRetry = 0; // 兜底→重探→再兜底自愈链的连续重试计数，防服务真死时空转
+  const MAX_OFFLINE_RETRY = 3;
+  // 失败门文案两处共用（探测超时 / 重试耗尽）。浏览器侧的 wedged 状态
+  // 普通重试救不回来——必须提示重启 IDE。
+  const failureHtml =
+    'Cannot reach the Pi for IDE server.<br/>' +
+    'Check the output panel (View → Output → Pi for IDE), or run "Pi for IDE: Stop Server" and retry.<br/>' +
+    'If repeated attempts do not help, restart the IDE.';
 
   vscode.postMessage({ source: 'piIde.log', text: 'shell painted' });
 
@@ -25,7 +32,9 @@
     vscode.postMessage({ source: 'piIde.log', text: 'server probe passed, setting iframe.src' });
     loadedUrl = url;
     offlineShown = false; // 本次导航重新定性——旧兜底态若带到新文档 load，门永不收
-    gateText.innerHTML = 'Connecting to local server' + dots;
+    // 重试轮把计数带进 Connecting——8s 挂起期间这是用户唯一可见的进度。
+    gateText.innerHTML = 'Connecting to local server' +
+      (offlineRetry ? ' — retry ' + offlineRetry + ' of ' + MAX_OFFLINE_RETRY : '') + dots;
     gate.style.display = 'grid';
     frame.src = url;
   }
@@ -54,9 +63,7 @@
     if (gen !== myGen) return;
     gate.classList.add('error');
     vscode.postMessage({ source: 'piIde.log', text: '90s probe timeout, showing failure page' });
-    gateText.innerHTML =
-      'Cannot reach the Pi for IDE server.<br/>' +
-      'Check the output panel (View → Output → Pi for IDE), or run "Pi for IDE: Stop Server" and retry.';
+    gateText.innerHTML = failureHtml;
   }
 
   window.addEventListener('message', function (event) {
@@ -82,16 +89,19 @@
       offlineShown = true;
       frame.style.display = 'none';
       gate.style.display = 'grid';
-      vscode.postMessage({ source: 'piIde.log', text: 'iframe landed on offline fallback, re-probing' });
-      if (offlineRetry++ < 3 && loadedUrl && lastProbe) {
-        setStatus('Reconnecting to local server');
+      if (offlineRetry < MAX_OFFLINE_RETRY && loadedUrl && lastProbe) {
+        offlineRetry++;
+        vscode.postMessage({
+          source: 'piIde.log',
+          text: 'iframe landed on offline fallback, re-probing (retry ' + offlineRetry + ' of ' + MAX_OFFLINE_RETRY + ')',
+        });
+        setStatus('Reconnecting to local server — retry ' + offlineRetry + ' of ' + MAX_OFFLINE_RETRY);
         probeAndShow(loadedUrl, lastProbe, ++gen);
       } else {
         gen++;
         gate.classList.add('error');
-        gateText.innerHTML =
-          'Cannot reach the Pi for IDE server.<br/>' +
-          'Check the output panel (View → Output → Pi for IDE), or run "Pi for IDE: Stop Server" and retry.';
+        vscode.postMessage({ source: 'piIde.log', text: 'offline retry budget exhausted, showing failure page' });
+        gateText.innerHTML = failureHtml;
       }
     } else if (data.source === 'host' && p.kind === 'serverError') {
       gen++;

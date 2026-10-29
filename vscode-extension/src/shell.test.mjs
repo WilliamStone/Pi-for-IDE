@@ -99,6 +99,7 @@ test("probe timeout falls back to failure page after deadline", async () => {
   await delay(1800); // 一次 fetch 拒绝 + 1.5s 重试间隔
   assert.ok(gate.classList.contains("error"));
   assert.match(gateText.innerHTML, /Cannot reach/);
+  assert.match(gateText.innerHTML, /restart the IDE/, "browser-side wedges need a restart hint");
   assert.ok(posted.some((m) => m.text === "90s probe timeout, showing failure page"));
 });
 
@@ -114,7 +115,7 @@ test("offline fallback self-heals: re-probe then re-navigates", async () => {
   post({ source: "pi-web-offline" });
   assert.equal(frame.style.display, "none");
   assert.equal(gate.style.display, "grid");
-  assert.ok(posted.some((m) => m.text === "iframe landed on offline fallback, re-probing"));
+  assert.ok(posted.some((m) => /^iframe landed on offline fallback, re-probing/.test(m.text)));
   // 探测恢复 → 重新赋 src；同 URL 的 serverReady 判重不得吞掉这轮重探
   await delay(20);
   assert.equal(
@@ -141,6 +142,32 @@ test("offline fallback: same-URL serverReady is not deduped while offline shown"
   );
 });
 
+test("offline fallback surfaces the retry counter on the gate", async () => {
+  // 每轮兜底→重探→再导航要在门上可见进度——8s 挂起期间 Connecting
+  // 文案必须带计数，用户不该盲等 3 次重试。
+  const { gateText, frame, post, window } = bootShell();
+  post({
+    source: "host",
+    payload: { kind: "serverReady", url: "http://127.0.0.1:3031/", probe: "x" },
+  });
+  await delay(20);
+  post({ source: "pi-web-offline" });
+  await delay(20); // 探测过 → showFrame：Connecting 带第 1 轮计数
+  assert.match(gateText.innerHTML, /retry 1 of 3/);
+  post({ source: "pi-web-offline" });
+  await delay(20);
+  assert.match(gateText.innerHTML, /retry 2 of 3/);
+  // 成功落地后计数复位——下一次正常连接的 Connecting 不带 retry 尾标
+  frame.dispatchEvent(new window.Event("load"));
+  post({
+    source: "host",
+    payload: { kind: "serverReady", url: "http://127.0.0.1:3031/other", probe: "x" },
+  });
+  await delay(20);
+  assert.match(gateText.innerHTML, /Connecting to local server/);
+  assert.ok(!gateText.innerHTML.includes("retry"), "counter must reset after a clean load");
+});
+
 test("offline fallback exhausts retries into the failure gate", async () => {
   // 服务恒活（探测总过）但每次导航都落兜底页——重试上限后转错误门，
   // 防服务真死/SW 坏态下兜底→重探→兜底无限空转。
@@ -156,6 +183,7 @@ test("offline fallback exhausts retries into the failure gate", async () => {
   }
   assert.ok(gate.classList.contains("error"));
   assert.match(gateText.innerHTML, /Cannot reach/);
+  assert.match(gateText.innerHTML, /restart the IDE/, "browser-side wedges need a restart hint");
 });
 
 test("serverReady after an error recovers (new probe generation)", async () => {
