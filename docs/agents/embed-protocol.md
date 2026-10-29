@@ -193,6 +193,13 @@ Presence interplay: a suspended panel drops its "open client connection"
 signal — the extension's own `/api/embed/heartbeat` keeps the server
 alive regardless, so the watchdog contract is unaffected.
 
+Residual starvation path: pool pressure now requires ~6 *visible* panels
+(several editor groups, optionally with FileViewer/Terminal EventSources
+that the gate does not cover). When the visible-panel count reaches 5 the
+extension logs `[pool] N Pi panels visible at once — …` to the output
+channel, so a later "Cannot reach the server" failure page already has
+its likely cause recorded in the log it points the user at.
+
 ### Rejected: client registry
 
 An earlier design tracked windows in `globalStorage/runtime/clients.json` with
