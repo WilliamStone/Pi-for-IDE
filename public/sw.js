@@ -53,8 +53,19 @@ self.addEventListener("fetch", (event) => {
   if (url.pathname === "/manifest.webmanifest") return;
 
   if (request.mode === "navigate") {
+    // Re-issue a fresh no-store GET instead of fetch(request): the original
+    // navigation request travels through the browser's HTTP-cache and
+    // request bookkeeping, and a wedged transaction there (dead writer,
+    // disturbed profile state) stalls it until our own abort — offline.html
+    // loops above a perfectly healthy server. The local server is ms away,
+    // so skipping that machinery costs nothing. credentials keep auth
+    // cookies; the UA re-adds its own nav headers.
+    const navRequest = new Request(request.url, {
+      credentials: request.credentials,
+      cache: "no-store",
+    });
     event.respondWith(
-      fetchWithTimeout(request, NAVIGATION_TIMEOUT_MS).catch(async () => {
+      fetchWithTimeout(navRequest, NAVIGATION_TIMEOUT_MS).catch(async () => {
         const fallback = await caches.match(OFFLINE_URL);
         return fallback ?? Response.error();
       }),

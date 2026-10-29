@@ -235,6 +235,29 @@ function installHungNetwork() {
  */
 const flushMicrotasks = () => new Promise((resolve) => setImmediate(resolve));
 
+test("navigations re-issue a fresh no-store request, not the original Request", async () => {
+  installOfflineStub();
+  const seen = [];
+  globalThis.fetch = async (request) => {
+    seen.push(request);
+    return new Response("<!doctype html><title>Pi Web</title>");
+  };
+
+  const { pending } = dispatchFetch("https://pi.test/?session=s1", { mode: "navigate" });
+  await pending;
+
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].url, "https://pi.test/?session=s1");
+  // The original navigation Request goes through HTTP-cache bookkeeping,
+  // where a wedged transaction stalls the fetch until our own abort —
+  // offline.html loops over a healthy server. A fresh no-store request
+  // skips that machinery entirely (the local server is ms away anyway).
+  assert.equal(
+    seen[0].cache, "no-store",
+    "navigations must bypass HTTP-cache bookkeeping, not forward the original Request",
+  );
+});
+
 test("a stalled navigation falls back to offline.html", async () => {
   installOfflineStub();
   const wasAborted = installHungNetwork();
