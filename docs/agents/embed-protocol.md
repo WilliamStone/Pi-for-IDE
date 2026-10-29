@@ -162,6 +162,19 @@ host's per-origin HTTP/1.1 pool (~6); ~6 session tabs starved later
 panel navigations (the settings panel measured 8s timeouts → offline
 fallback loop on a healthy server).
 
+Pool model precision: the ~6 limit counts **in-flight** connections —
+an idle keep-alive socket is reusable for a new request and does not
+block. The blocking currency is permanently-busy streams (SSE): one
+per mounted session panel, by upstream design
+(`useAgentSession` keeps the selected session's stream "warm even
+while its agent is idle"). ESTABLISHED-socket counts in `netstat`
+overstate pool pressure because they include reusable idles. With the
+gate, the ceiling moved from ~6 *open* tabs to ~6 *visible* panels
+(one per editor group — practically unreachable); starvation only
+hits *new* connection demand, already-streaming tabs look normal
+throughout, which is why the failure mode is always "the NEXT panel
+stalls", never "existing tabs die".
+
 Contract (bridge layer — `HOST_CAPABILITIES` in `src/bridge.ts`, not the
 server-handshake registry above):
 
@@ -188,6 +201,42 @@ notifications after a real suspend resume only once. Lease renewal is
 deliberately NOT gated: renewal is a transient POST that holds no pool
 slot, and keeping the lease prevents another client from stealing the
 session while its panel is hidden.
+
+Resume is a **state reload, not a delta replay** — which is also why it
+survives hidden-period rewrites, not just appends. `loadSession` keeps
+the user's paged-in history only when `snapshotRevision` matches; the
+revision fingerprint covers `entryCount` + `latestEntryId` + `leafId` +
+read-source (`runtime:<innerId>` vs `disk`), so revert-turn, compaction,
+branch navigation (leaf switch), and live-RPC wrapper rebuilds all bust
+the cache → wholesale message replacement → the UI converges to truth
+exactly like a fresh open. The in-flight partial is covered separately:
+on (re)connect the event stream publishes `session.streamingMessage`
+as a `message_start` snapshot before live deltas continue
+(`lib/agent-event-stream.ts`). A hypothetical rewrite preserving
+count + latest-id + leaf would slip through, but no code path writes
+that way (appends, delete+rewire, and leaf moves all change a
+fingerprint input).
+
+Stream-side bookkeeping worth knowing: each agent-events SSE also
+holds `acquireSessionLivenessLease(sessionId)` server-side and counts
+as an embed-client connection — a suspended panel releases both
+(intended; the extension heartbeat keeps the watchdog fed). The gate
+only covers the per-session agent stream: `FileViewer`, `TerminalPanel`,
+and `ModelsConfig` own their own EventSources, so a hidden panel with
+an open file/terminal still holds those — conditional and rare enough
+to leave for later.
+
+Deferred design (do not build until observed): gating idle sessions'
+streams on `agentRunning || grace` would cut the blocking currency
+below 1/panel, but external starts (another client prompting the
+session) would go unnoticed until the next poll/reconcile — the
+mounted page has no continuous `/api/agent/running` poll, the
+agent-state is SSE-fed, and the change would edit upstream
+`AgentEventConnection` semantics rather than add a call site. Only
+revisit if multi-column layouts (several visible panels) actually
+starve again; the cheapest variant then is disconnecting on
+`!agentRunning` past the grace window, re-attaching on prompt-send
+and on the sidebar running-poll flagging the session.
 
 Presence interplay: a suspended panel drops its "open client connection"
 signal — the extension's own `/api/embed/heartbeat` keeps the server
