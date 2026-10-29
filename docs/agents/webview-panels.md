@@ -257,3 +257,14 @@ hammer of the real mount-path fetches (`force=1` detail + state + SSE +
 list, cold and warm) returned 200 + full context every time — the failure
 needs a transient we have not isolated yet; the diagnostics above are the
 capture mechanism.
+
+### Connection pool: SSE lives on the extension host, not the webview
+
+~6 simultaneously-visible session panels used to exhaust Chromium's ~6
+per-origin HTTP/1.1 pool (each session iframe holds a permanent SSE), so
+the *next* panel/navigation starved — observed as settings/sessions
+retrying while open tabs looked fine. Hidden webview tabs also report
+`document.visibilityState === "visible"`, so page-side suspension can't
+work. Resolved architecturally: the embed page's `window.EventSource` is a
+bridge-backed proxy and streams live on the extension host — details in
+[embed-protocol.md](embed-protocol.md#event-streams-sse--extension-host-proxy).

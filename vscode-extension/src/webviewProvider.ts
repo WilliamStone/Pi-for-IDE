@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import type { PiIdeServer } from "./piIdeServer";
 import { currentServerStatus, logLifecycle, onServerStatus } from "./server-status";
 import type { Bridge } from "./bridge";
+import { EventSourceProxy } from "./event-proxy";
 import { buildEmbedUrl } from "./embedUrl";
 import { piConfig } from "./config";
 
@@ -272,7 +273,18 @@ export class PiWebWebviewPanel extends vscode.Disposable {
         () => this.shellReadyPromise(),
       );
     }, 6000);
+    // EventSource 代理：页面经 bridge 请求的 SSE 流在本进程建立并泵回——
+    // webview 的 Chromium 连接池不占任何长连接。闭包捕获 `panel`（不读
+    // this.panel）保证面板换装后流仍回到正确的 webview。
+    const eventProxy = new EventSourceProxy({
+      post: (payload) => {
+        void panel.webview.postMessage({ source: "host", payload });
+      },
+      log: (line) => logLifecycle(`eventproxy[${this.label()}]: ${line}`),
+    });
+
     panel.onDidDispose(() => {
+      eventProxy.dispose();
       this.panel = undefined;
       this.currentCwd = undefined;
       // 缓存随面板销毁失效——新面板必须重新渲染 HTML，否则
@@ -299,6 +311,21 @@ export class PiWebWebviewPanel extends vscode.Disposable {
       if (message.request?.kind === "sessionSelected" && typeof message.request.sessionId === "string") {
         this.bindSession(message.request.sessionId);
         this.onSessionBound?.(message.request.sessionId, message.request.title);
+        return;
+      }
+      // EventSource 代理三 kind——fire-and-forget（页面不等响应），
+      // 先于 bridge.handle 拦截。
+      const proxyKind = message.request?.kind;
+      if (proxyKind === "eventSourceInit") {
+        eventProxy.init(typeof message.request.pageId === "string" ? message.request.pageId : "");
+        return;
+      }
+      if (proxyKind === "eventSourceOpen") {
+        eventProxy.open(message.request);
+        return;
+      }
+      if (proxyKind === "eventSourceClose") {
+        eventProxy.close(message.request);
         return;
       }
       try {
@@ -424,6 +451,7 @@ export class PiWebWebviewPanel extends vscode.Disposable {
     const urlStr = buildEmbedUrl(server.origin, {
       inst: server.embedBoot ?? "",
       extVer: this.extensionVersion,
+      eventProxy: true,
       sessionId: this.sessionId,
       cwd: this.currentCwd,
       view: this.panelView,

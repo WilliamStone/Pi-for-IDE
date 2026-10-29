@@ -318,8 +318,31 @@ interface MentionRequest {
   selectedText?: string;
 }
 
+// EventSource 代理请求——页面把 SSE 连接放到扩展宿主建立（不经
+// Chromium 连接池），生命周期见 event-proxy.ts。fire-and-forget，
+// 不走 request/response。
+interface EventSourceInitRequest {
+  kind: "eventSourceInit";
+  pageId: string;
+}
+interface EventSourceOpenRequest {
+  kind: "eventSourceOpen";
+  streamId: string;
+  url: string;
+  lastEventId?: string;
+  pageId: string;
+}
+interface EventSourceCloseRequest {
+  kind: "eventSourceClose";
+  streamId: string;
+  pageId: string;
+}
+
 type BridgeRequest =
   | OpenFileRequest
+  | EventSourceInitRequest
+  | EventSourceOpenRequest
+  | EventSourceCloseRequest
   | CompleteAtRequest
   | ReadFileRequest
   | NotifyRequest
@@ -360,6 +383,11 @@ const HOST_CAPABILITIES = [
   "revertEdit",
   "mention",
   "activeEditorChanged",
+  "eventSourceInit",
+  "eventSourceOpen",
+  "eventSourceClose",
+  "eventSourceData",
+  "eventSourceEnd",
 ] as const;
 
 interface GetCapabilitiesRequest {

@@ -152,6 +152,79 @@ owners. Nobody kills anyone — the server dies of silence.
   vscode dep — driven by `two-process-coordination.test.mjs`, which
   races real child processes over real files).
 
+## Event streams (SSE) — extension-host proxy
+
+**Why this exists.** Every session page holds one permanently-in-flight SSE
+connection (`/api/agent/<id>/events`); FileViewer watches, terminal event
+streams and the provider-login poll hold one each while open. Inside a
+webview all of those share Chromium's HTTP/1.1 pool — **~6 connections per
+(origin × network-isolation-key), counting in-flight requests**. Keep-alive
+sockets don't count (they're reusable), but an SSE stream never finishes —
+~6 simultaneously-visible session panels exhaust the pool and the *next*
+navigation or API call queues until the 8s probe gives up. That is the
+observed "settings panel retries / times out while sessions look fine"
+failure: existing tabs keep streaming (their connections are already
+established) while anything new starves. Chromium's limit can't be raised
+from an extension (the flag belongs to the Electron main process), and
+hidden webview tabs don't surface a usable `document.visibilityState`, so
+the pool can't be managed page-side either.
+
+**Architecture: take the streams out of Chromium entirely.** The embed page
+replaces `window.EventSource` with a bridge-backed implementation; the
+extension host (a Node process — `http.Agent` has no per-origin cap; undici
+fetch would cap at 10/origin and can't be imported anyway, so the proxy
+drives `http.get` directly) opens the real connection and pumps the raw SSE
+text back. Every `new EventSource(url)` call site — session events, file
+watchers, terminal, login, future ones — is transparently proxied with zero
+call-site changes, and the Chromium pool drops to short-lived fetches only.
+
+Protocol (all over the existing bridge envelope):
+
+| direction | payload | meaning |
+|---|---|---|
+| page→host | `{kind:"eventSourceInit", pageId}` | sent once per page load; host aborts all streams of the previous generation |
+| page→host | `{kind:"eventSourceOpen", streamId, url, pageId, lastEventId?}` | open a stream |
+| page→host | `{kind:"eventSourceClose", streamId, pageId}` | page closed it |
+| host→page | `{kind:"eventSourceOpen", streamId, status}` | response headers arrived |
+| host→page | `{kind:"eventSourceData", streamId, chunk}` | decoded SSE text (UTF-8-safe; the host side streams a `TextDecoder`) |
+| host→page | `{kind:"eventSourceEnd", streamId, error?}` | finished / failed / aborted |
+
+Semantics match the native object so consumers can't tell: named `event:`
+fields dispatch by type, multiline `data:` joins, `id:`/`retry:` apply,
+stream loss reconnects after the retry delay with `Last-Event-ID`, and a
+non-2xx status is terminal (CLOSED + `error`, no reconnect — same as the
+spec). Reconnects reuse the `streamId`; the host treats a repeated open as
+replace. `pageId` is per page-load — streams opened by a stale generation
+(a replaced iframe's dying page) are dropped.
+
+Capability handshake is the URL contract, not the async `getCapabilities`
+call (which resolves too late to decide before the first `new EventSource`):
+the extension sets `?evProxy=1` in `buildEmbedUrl`. A new page against an
+old extension sees no flag → keeps the native `EventSource`; a new extension
+serving an old page simply never receives the requests. Both degrade to the
+pre-proxy behavior.
+
+Side effects to know:
+
+- **Liveness accounting is unchanged.** Every proxied stream is still a real
+  SSE client on the server — `acquireSessionLivenessLease` and the
+  embed-client count see the extension host as the socket owner instead of
+  the webview; presence semantics are identical.
+- **Hidden panels stay live.** Nothing suspends hidden tabs' streams now —
+  they cost zero Chromium pool, and staying connected keeps the tab warm
+  (no resync flash on reveal). An earlier visibility-gate design (suspend
+  hidden panels' SSE) was reverted in favor of this.
+- **Non-embed pages are untouched.** The shim installs only under
+  `?embed=`+`?evProxy=1`; standalone Pi Web+ keeps the native object.
+- **Residual risk:** the proxy moves the bottleneck to the extension host's
+  file descriptors (thousands, vs 6) and postMessage throughput — SSE event
+  volume is small text deltas, well inside webview messaging budgets.
+
+Files: `lib/embed/event-source.ts` (page-side class + install, unit-tested
+in `event-source.test.mjs`), `vscode-extension/src/event-proxy.ts`
+(host-side pump, unit-tested in `event-proxy.test.mjs`), wiring in
+`webviewProvider.attachPanel` + `embedUrl.ts`.
+
 ### Rejected: client registry
 
 An earlier design tracked windows in `globalStorage/runtime/clients.json` with

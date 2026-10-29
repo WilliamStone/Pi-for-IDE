@@ -63,6 +63,22 @@ function prerequisites(t, seg) {
   return { ...vscodium, vsix };
 }
 
+/** 递归找 logs 树下的 "Pi for IDE" 通道日志并拼接全文。 */
+function readPiLogForFixture(fixture) {
+  const logsDir = path.join(fixture.userDataDir, "logs");
+  if (!existsSync(logsDir)) return "";
+  const hits = [];
+  const walk = (dir) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (e.name.includes("Pi for IDE") && e.name.endsWith(".log")) hits.push(p);
+    }
+  };
+  walk(logsDir);
+  return hits.map((f) => readFileSync(f, "utf8")).join("\n");
+}
+
 /** 装扩展 + 拉起 app + 穿透三层 OOPIF 到 pi-web 页面 frame。 */
 async function reachPiFrame({ exe, cli, vsix }, fixture, extraEnv = {}) {
   installVsix(cli, vsix, fixture);
@@ -928,6 +944,110 @@ function lastTurnError(agentDir) {
 
 // D 段（watchdog 自退）：关窗后心跳停，~autoStopAfterSec(90s 起)+余量内
 // 端口必须释放。慢路径默认不跑，PI_E2E_SLOW=1 显式开。
+// ── M 段：会话 SSE 经扩展宿主代理——EventSource 被桥接类替换（页面内
+//    可直接观察）、eventproxy 日志记录每条流的建立、settings 面板在
+//    会话面板开着时照常秒开（原「SSE 占满 Chromium 连接池饿死新导航」
+//    场景的架构级修复：流根本不再经过 webview 的连接池）。
+test("VSCodium M: session SSE flows through extension host, not the webview pool", { timeout: 300_000 }, async (t) => {
+  markCover("M eventproxy", "ran");
+  const ctx = prerequisites(t, "M eventproxy");
+  if (!ctx) return;
+  const fixture = makeFixture();
+  const seed = seedSession(fixture.root, fixture.workspace); // 会话 id e2e-seed-01
+  const guard = await guardAttachRange(fixture.port, fixture.port + 9);
+  if (guard.oursPort) {
+    releaseAttachGuard(guard);
+    coverSkip(t, "M eventproxy", `real pi-web instance on :${guard.oursPort}`);
+    return;
+  }
+  const { app, win } = await reachPiFrame(ctx, fixture, {
+    PI_CODING_AGENT_DIR: seed.agentDir,
+  });
+  try {
+    // 1) embed URL 带 evProxy=1——宿主声明代理能力（旧宿主不带，
+    //    页面会回退原生 EventSource）。
+    await waitForFrame(
+      win,
+      (u) => /^http:\/\/127\.0\.0\.1:\d+\//.test(u) && u.includes("evProxy=1"),
+      60000,
+    );
+
+    // 2) 打开会话 → 会话 SSE 挂在扩展宿主上——output 日志出现
+    //    eventproxy open <…/api/agent/e2e-seed-01/events>。
+    const actBar = win.locator('.activitybar [aria-label*="Pi Sessions"]').first();
+    if (await actBar.count()) {
+      await actBar.click();
+    } else {
+      await runCommand(win, "Pi Sessions");
+    }
+    const row = win.locator('.monaco-list-row:has-text("e2e seed turn")').first();
+    await row.waitFor({ state: "visible", timeout: 60000 });
+    await row.click();
+    const sessionFrame = await waitForFrame(
+      win,
+      (u) => /^http:\/\/127\.0\.0\.1:\d+\//.test(u) && u.includes("session=e2e-seed-01"),
+      60000,
+    );
+    // 内容落地后才 evaluate——导航中的 frame 执行上下文随时被销毁。
+    await sessionFrame.waitForSelector("text=File review", { timeout: 60000 });
+    // 3) 页面内 EventSource 已是桥接类——类名会被生产构建 minify，
+    //    断言安装时挂的稳定标记。
+    const proxied = await sessionFrame.evaluate(
+      () => window.EventSource?.__piProxied === true,
+    );
+    assert.ok(proxied, "embed iframe must use the proxied EventSource (__piProxied marker missing)");
+    const wantOpen = `/api/agent/e2e-seed-01/events`;
+    let saw = "";
+    for (let i = 0; i < 60 && !saw.includes(wantOpen); i++) {
+      await new Promise((r) => setTimeout(r, 1000));
+      saw = readPiLogForFixture(fixture)
+        .split("\n")
+        .filter((l) => l.includes("eventproxy") && l.includes("open"))
+        .join("\n");
+    }
+    assert.ok(
+      saw.includes(wantOpen),
+      `extension host must log the proxied SSE open for the session; saw:\n${saw}`,
+    );
+
+    // 4) 原饥饿场景不复现：会话面板开着，settings 导航照常落 iframe。
+    //    先把焦点拉回 workbench——pi-web iframe 持焦时 F1 被它吃掉（同 K/L 段）。
+    await win.locator('.part.statusbar').first()
+      .click({ position: { x: 500, y: 12 } })
+      .catch(() => {});
+    // 按行文本精确点选——">Pi Settings" 的模糊排序会把
+    //    "Edit Workspace .pi/settings.json" 顶到第一，Enter 会开错命令。
+    await win.keyboard.press("F1");
+    const box = win.locator(".quick-input-widget input");
+    await box.waitFor({ state: "visible", timeout: 15000 });
+    await box.fill(">Pi Settings");
+    const settingsRow = win
+      .locator('.quick-input-widget .monaco-list-row:has-text("Pi for IDE: Pi Settings")')
+      .first();
+    await settingsRow.waitFor({ state: "visible", timeout: 15000 });
+    await settingsRow.click();
+    await win.locator(".quick-input-widget").first()
+      .waitFor({ state: "hidden", timeout: 10000 })
+      .catch(() => {});
+    try {
+      await waitForFrame(
+        win,
+        (u) => /^http:\/\/127\.0\.0\.1:\d+\//.test(u) && u.includes("view=settings"),
+        90000,
+      );
+    } catch (e) {
+      const frames = win.frames().map((f) => f.url());
+      const tabs = await win.locator(".tabs-container .tab").allInnerTexts().catch(() => []);
+      console.log("settings waitForFrame timed out; frames:", frames, "tabs:", tabs);
+      throw e;
+    }
+    markCover("M eventproxy", "verified");
+  } finally {
+    await app.close().catch(() => {});
+    releaseAttachGuard(guard);
+  }
+});
+
 test("VSCodium D: spawned server self-stops after window closes", { timeout: 300_000 }, async (t) => {
   markCover("D watchdog", "ran");
   if (process.env.PI_E2E_SLOW !== "1") {

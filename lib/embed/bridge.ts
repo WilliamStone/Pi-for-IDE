@@ -181,8 +181,37 @@ export interface EmbedSessionSelectedRequest {
   title?: string;
 }
 
+/**
+ * SSE 代理：页面每次装载发送一次——宿主据此清掉上一代页面遗留的事件流。
+ */
+export interface EmbedEventSourceInitRequest {
+  kind: "eventSourceInit";
+  pageId: string;
+}
+
+/**
+ * SSE 代理：请宿主在本进程（不经 Chromium 连接池）建立一条事件流，
+ * 响应头/数据/结束经 eventSourceOpen/Data/End 通知回投页面。
+ */
+export interface EmbedEventSourceOpenRequest {
+  kind: "eventSourceOpen";
+  streamId: string;
+  url: string;
+  lastEventId?: string;
+  pageId: string;
+}
+
+export interface EmbedEventSourceCloseRequest {
+  kind: "eventSourceClose";
+  streamId: string;
+  pageId: string;
+}
+
 export type EmbedRequest =
   | EmbedSessionSelectedRequest
+  | EmbedEventSourceInitRequest
+  | EmbedEventSourceOpenRequest
+  | EmbedEventSourceCloseRequest
   | EmbedOpenFileRequest
   | EmbedCompleteAtRequest
   | EmbedReadFileRequest

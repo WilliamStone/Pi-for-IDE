@@ -12,6 +12,9 @@
 //   section=<id>      仅 view=settings：直达设置小节
 //   browserBtn=0|1    仅 view=chat：chat 顶栏"在浏览器中打开"可见性
 //   extVer=<ver>      扩展版本（页面侧能力协商/显示）
+//   evProxy=1         宿主声明支持 EventSource 代理——页面据此把
+//                     window.EventSource 换成桥接实现（旧宿主不发，
+//                     页面回退原生 EventSource）
 //   inst=<boot>       服务器实例标识——同端口重启的新实例 URL 仍不同，
 //                     shell 的 loadedUrl 判重不会吞掉，iframe 必然换页
 export interface EmbedUrlOptions {
@@ -29,6 +32,8 @@ export interface EmbedUrlOptions {
   section?: string;
   /** view=chat 的"在浏览器中打开"可见性（页面参数 0/1）。 */
   browserBtn?: boolean;
+  /** 宿主支持 EventSource 代理（页面据 evProxy=1 启用桥接 EventSource）。 */
+  eventProxy?: boolean;
 }
 
 export function buildEmbedUrl(origin: string, opts: EmbedUrlOptions): string {
@@ -47,6 +52,7 @@ export function buildEmbedUrl(origin: string, opts: EmbedUrlOptions): string {
     url.searchParams.set("browserBtn", opts.browserBtn ? "1" : "0");
   }
   url.searchParams.set("extVer", opts.extVer);
+  if (opts.eventProxy) url.searchParams.set("evProxy", "1");
   url.searchParams.set("inst", opts.inst);
   return url.toString();
 }

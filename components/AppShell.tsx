@@ -55,6 +55,9 @@ import {
   workspaceKeyOf,
 } from "@/lib/workspace-memory";
 import { isEmbedMode, embedView, embedBrowserButton, embedParam, notifyEmbedHost, installGlobalClipboardInterceptor } from "@/lib/embed/bridge";
+// 副作用 import：embed 模式下把 EventSource 换成宿主桥接代理，
+// 必须早于任何组件首次 new EventSource（模块装载顺序保证）。
+import "@/lib/embed/event-source";
 import { initEmbedKeyRouter } from "@/lib/embed/keyroute";
 import { appDisplayName } from "@/lib/brand";
 import { OpenInBrowserButton } from "./embed/OpenInBrowserButton";
