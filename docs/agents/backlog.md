@@ -81,6 +81,11 @@ WebviewView 化换来的：真·右缘 meta 列、随宽度自适应、内嵌过
 
 ## 会话区其他
 
+- fork 会话标记：fork 继承父会话 firstMessage → 同标题行无法区分
+  （真实事故：pi-context-trim 下 5 个同标题会话，用户把 2572 条的
+  c2a 误认成 69 条的 828，疑为统计串位——实为显示歧义）。数据里
+  relation.kind==="fork" 已有，选项：行标题前缀 ⑂/（fork）、tooltip
+  注明"fork of <父会话>"、或 description 加标。待用户定观感。
 - 被回退轮的 subagent 会话文件残留（语义已注明，未实现清理）。
 - 无 HEAD 仓库（零 commit）回退/展示全退到快照一路——快照覆盖
   面决定这类仓库的能力上限，shadow store 落地后天然解决。

@@ -41,6 +41,7 @@
   "cmd.session.openInTerminal": "Open Session Workspace in Integrated Terminal",
   "cmd.session.openInWorkspaceWindow": "Open in Workspace Window",
   "cmd.project.openInWindow": "Open Workspace Window",
+  "cmd.session.copyTitle": "Copy Session Title",
   "cmd.session.copyWorkspacePath": "Copy Workspace Path",
   "cmd.project.copyWorkspacePath": "Copy Workspace Path",
   "cmd.tab.copyWorkspacePath": "Copy Workspace Path",

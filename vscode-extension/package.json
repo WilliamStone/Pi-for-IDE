@@ -278,6 +278,12 @@
         "icon": "$(empty-window)"
       },
       {
+        "command": "piIde.session.copyTitle",
+        "title": "%cmd.session.copyTitle%",
+        "category": "Pi for IDE",
+        "icon": "$(copy)"
+      },
+      {
         "command": "piIde.session.copyWorkspacePath",
         "title": "%cmd.session.copyWorkspacePath%",
         "category": "Pi for IDE",
@@ -558,6 +564,10 @@
           "when": "false"
         },
         {
+          "command": "piIde.session.copyTitle",
+          "when": "false"
+        },
+        {
           "command": "piIde.session.copyWorkspacePath",
           "when": "false"
         },
@@ -754,9 +764,14 @@
           "group": "piweb@4"
         },
         {
+          "command": "piIde.session.copyTitle",
+          "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session/",
+          "group": "piweb@5"
+        },
+        {
           "command": "piIde.session.copyWorkspacePath",
           "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session.*\\.hasDir/",
-          "group": "piweb@5"
+          "group": "piweb@6"
         },
         {
           "command": "piIde.session.rename",

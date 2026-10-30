@@ -753,6 +753,10 @@ export function registerSessionCommands(
         name: typeof item.label === "string" ? item.label : "Pi",
       }).show();
     }),
+    vscode.commands.registerCommand("piIde.session.copyTitle", async (item: vscode.TreeItem) => {
+      const s = provider.sessionById(sessionIdOf(item));
+      if (s) await vscode.env.clipboard.writeText(sessionTitle(s));
+    }),
     vscode.commands.registerCommand("piIde.session.copyWorkspacePath", async (item: vscode.TreeItem) => {
       const dir = provider.sessionDir(sessionIdOf(item));
       if (dir) await vscode.env.clipboard.writeText(dir);
