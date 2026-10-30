@@ -27,6 +27,7 @@ import { CONFIGURED_TOOL_PRESET, getPresetFromToolNames, getToolNamesForPreset, 
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import { mergeSessionStats, type SessionFileStats } from "@/lib/session-stats";
 import { useActiveFile } from "@/components/embed/useActiveFile";
+import { logToEmbedHost } from "@/lib/embed/bridge";
 import { TurnSnapshotTracker } from "@/lib/embed/turn-snapshot";
 import { userMessageKey } from "@/lib/prompt-recovery";
 import { carryMessageKeys, messageRenderKeys } from "@/lib/message-keys";
@@ -668,6 +669,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         res = await fetch(url);
       }
       if (res.status === 404) {
+        logToEmbedHost(`loadSession[s:${sid.slice(0, 8)}] 404 → messages cleared`);
         if (showLoading) {
           setData(null);
           setActiveLeafId(null);
@@ -683,7 +685,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json() as SessionData;
-      if (sessionIdRef.current !== sid) return null;
+      if (sessionIdRef.current !== sid) {
+        logToEmbedHost(`loadSession[s:${sid.slice(0, 8)}] dropped result — sid now ${sessionIdRef.current?.slice(0, 8) ?? "null"}`);
+        return null;
+      }
       // Freshness check: when the disk snapshot is unchanged (same opaque
       // revision), keep any history the user already paged in instead of
       // collapsing back to the fresh 50-entry window. The state hooks then
@@ -695,6 +700,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         && cached.entryIds.length >= (d.context.entryIds ?? []).length,
       );
       const persistedMessages = revisionUnchanged ? messagesRef.current : d.context.messages;
+      logToEmbedHost(`loadSession[s:${sid.slice(0, 8)}] 200: ctxMsgs=${d.context.messages.length} revUnchanged=${revisionUnchanged} willSet=${persistedMessages.length} rebuilt=${d.wrapperRebuilt ? 1 : 0}`);
       setData(revisionUnchanged
         ? {
             ...d,
@@ -803,6 +809,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         return null;
       }
     } catch (e) {
+      logToEmbedHost(`loadSession[s:${sid.slice(0, 8)}] threw: ${e instanceof Error ? e.message : String(e)}`);
       setError(String(e));
       return "error";
     } finally {
@@ -849,6 +856,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setMessages((prev) => [...d.context.messages, ...prev]);
         setEntryIds((prev) => [...d.context.entryIds, ...prev]);
       } else {
+        if (d.context.messages.length === 0 && messagesRef.current.length > 0) {
+          logToEmbedHost(`loadContext[s:${sid.slice(0, 8)}] replaced ${messagesRef.current.length} msgs with EMPTY leafId=${leafId ?? "null"}`);
+        }
         setMessages(d.context.messages);
         setEntryIds(d.context.entryIds ?? []);
       }

@@ -278,6 +278,22 @@ line tells us which branch to fix. `pageLog` is registered in
 `HOST_CAPABILITIES`; unknown-kind envelopes degrade to `bridge.handle`'s
 default `{}` on older hosts.
 
+First reproduction with the watchdog armed (two wedged tabs, both
+`empty-suspect` — `rows=0 gate=none composer=1 hidden=0`): the wedge is
+**data-side**, and both victims were the last panels to mount and both
+carried the `es1→es2` (`wrapperRebuilt`) fingerprint. A second probe
+layer now logs the writers directly from `useAgentSession.loadSession`
+via the same `pageLog` channel: `loadSession[s:<id8>] 200:
+ctxMsgs=<server msgs> revUnchanged=<0|1> willSet=<msgs committed>
+rebuilt=<0|1>` plus `404 → messages cleared`, `dropped result — sid now
+…`, `threw: …`, and `loadContext[…] replaced N msgs with EMPTY
+leafId=…` when a context read overwrites non-empty state with nothing.
+Prime suspect the lines are aimed at: `revisionUnchanged` keeps
+`messagesRef.current`, a ref synced at render — a second `loadSession`
+resolving in the window between the first's `setMessages` and the render
+flush still reads `messagesRef.current === []` and commits an empty
+array over real data.
+
 E2E note: a 12-round reload loop against a seeded session never reproduced
 the empty state (content present every round), and a standalone-server
 hammer of the real mount-path fetches (`force=1` detail + state + SSE +
