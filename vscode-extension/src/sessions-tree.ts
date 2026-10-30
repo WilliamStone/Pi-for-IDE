@@ -525,7 +525,9 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
     if (piConfig().get<string>("sessions.metaLayout", "line") !== "line") return [item];
     const desc = typeof item.description === "string" ? item.description : "";
     if (!desc) return [item];
-    const meta = new vscode.TreeItem(" ");
+    // 零宽空格 label：name 容器非空但 0 宽——普通空格+description 边距会
+    // 把 meta 推过标题起点约一个树缩进位；归零后只剩 description 自身 ~3px 边距。
+    const meta = new vscode.TreeItem("\u200B");
     // 透明占位图标：无图标的行文本起点在槽位左缘，有图标则推到槽位右缘——
     // 与上排会话标题文字对齐（TreeItem 无缩进/偏移 API，这是唯一定点手段）。
     if (this.metaIconUri) meta.iconPath = this.metaIconUri;
