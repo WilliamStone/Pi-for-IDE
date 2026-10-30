@@ -307,6 +307,34 @@ an empty `messagesRef` while the snapshot holds rows) and falls through
 to the response's own context window instead of trusting the refs — no
 empty commit, no snapshot poisoning.
 
+Transferable lessons:
+
+- **Refs are not "current state" in async continuations.** `xRef.current`
+  only syncs at render, so an async handler that reads it to decide what
+  to keep races with unflushed commits from a previous response (and is
+  always `[]`/initial on a remount). Where a durable store exists
+  (view snapshot, server response, module cache), cross-check the ref
+  against it — `ref empty && store has data` proves staleness; never
+  commit a ref's value back into the store it could have poisoned.
+- **`key`-remounts invalidate every mount-local invariant** — in-flight
+  fetches, fresh refs, `[]` effects all restart, but their module-level
+  side effects (snapshot stores) persist and interleave. Any "last
+  writer wins" logic keyed on mount-local state must survive a second
+  mount observing the first's leftovers.
+- **es1→es2 fingerprint is ambiguous**: it means either
+  `wrapperRebuilt` reconnect or effect-cleanup/remount — check
+  `rebuilt=` in the loadSession log to tell them apart.
+- The workspace/tab restore path in `AppShell.tsx` (~line 800) bumps
+  `sessionKey` unconditionally when re-selecting a session — a
+  re-restore of the *same* session id still forces a remount + refetch.
+  That is the suspected trigger of this wedge (a second, slower restore
+  resolving mid-load on late-booting pages). Skipping the bump when the
+  id is unchanged is a candidate hardening, not yet applied — the
+  stale-ref fix covers all bump sites regardless.
+- Diagnostics retained on purpose: the watchdog probes (2 lines/tab per
+  mount) and the per-load `loadSession 200:` line are cheap, quiet, and
+  remain the capture mechanism if a sibling of this wedge surfaces.
+
 E2E note: a 12-round reload loop against a seeded session never reproduced
 the empty state (content present every round), and a standalone-server
 hammer of the real mount-path fetches (`force=1` detail + state + SSE +
