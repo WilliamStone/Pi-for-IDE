@@ -17,6 +17,8 @@ The relationship: `@william_stone/pi-web-for-ide` is "pi-web + a host-adaptation
 
 Active only when embedded in VSCode/VSCodium via `?embed=vscode`:
 
+- **Pi Sessions sidebar**: a native activity-bar session tree — by-project/recent modes, running/awaiting badges, workspace filter, single- or two-line meta rows, collapse/expand-all, cross-workspace jumps
+- **Sessions as editor tabs**: every session opens as a real editor tab (`perSession`), freely mixed with file tabs and restored in place across window reloads and extension updates; the file-editor title bar gets a `+` button that starts a session in the active file's workspace
 - **`@` file mention**: completion queries `vscode.workspace.findFiles` (workspace index, not server filesystem)
 - **Right-click mention**: Explorer/editor context menus "Mention in Pi for IDE" for files and selections
 - **Active-file context injection**: the file you're viewing is injected into the system prompt as a hidden marker (AI-visible, UI-hidden, never persisted)
@@ -35,7 +37,7 @@ Requires Node.js ≥ 22.19.0.
 **Step 1 — install @william_stone/pi-web-for-ide globally (pnpm recommended):**
 
 ```bash
-pnpm add -g @william_stone/pi-web-for-ide   # npm i -g works too; local: pnpm i -g ./pi-web-for-ide-0.12.2-2.tgz
+pnpm add -g @william_stone/pi-web-for-ide   # npm i -g works too; local: pnpm i -g ./pi-web-for-ide-0.12.2-3.tgz
 ```
 
 > Why pnpm: it surfaces the package's postinstall for interactive approval (`pnpm approve-builds`) — needed to link the standalone external packages. npm's script blocking has no equivalent escape hatch. Fallback anyway: `pi-web` self-heals the links on startup (≥0.12.2); see `docs/vscode-extension-deploy.md`.
@@ -43,10 +45,10 @@ pnpm add -g @william_stone/pi-web-for-ide   # npm i -g works too; local: pnpm i 
 **Step 2 — install the extension and open:**
 
 ```powershell
-code --install-extension vscode-extension/pi-for-ide-0.2.1-dev.vsix    # VSCodium: codium
+code --install-extension vscode-extension/pi-for-ide-0.3.0.vsix    # VSCodium: codium
 ```
 
-Then click the **Pi for IDE** status-bar item or run **Pi for IDE: Open**. On first use, configure a model/API key via the panel's Settings → Models (shares `~/.pi/agent/` with the pi CLI).
+Then open the **Pi Sessions** view in the activity bar or run **Pi for IDE: Open**. On first use, configure a model/API key via the panel's Settings → Models (shares `~/.pi/agent/` with the pi CLI).
 
 **Optional: standalone mode.** The installed package also runs in a plain browser like stock pi-web (brand shows Pi Web+):
 
@@ -78,7 +80,7 @@ Can't connect, blank panel, save errors: see [docs/vscode-extension-deploy.md](.
 - **[pi](https://github.com/earendil-works/pi)** (earendil-works): the underlying coding agent.
 - **[pi-web](https://github.com/agegr/pi-web)** (agegr): the Next.js web UI for pi — this repo's direct upstream; the entire web application is theirs, and we merge upstream releases rather than re-implementing.
 - **[pi-code](https://github.com/wangjinxin613/pi-code)** (wangjinxin613): the original IDE integration — the VSCode extension, embed bridge, file review/revert, and active-file injection all originate there; this repo forks from it.
-- **[pi-for-ide](https://github.com/WilliamStone/Pi-for-IDE) (This Repo)**: on top of pi-code — decoupled packaging (external npm package + thin extension), brand layering (Pi Web+ / Pi for IDE), pnpm/PATH-shim server resolution, the standalone MCP fix, server/webview lifecycle fixes, and continued upstream sync. See `docs/decoupling-plan.md`.
+- **[pi-for-ide](https://github.com/WilliamStone/Pi-for-IDE) (This Repo)**: on top of pi-code — decoupled packaging (external npm package + thin extension), brand layering (Pi Web+ / Pi for IDE), the native **Pi Sessions** tree and per-session/composer/settings editor tabs, multi-window concurrency groundwork (extension-side SSE proxy, shared instance coordination, auto start/stop), dual-source server version management, `.pi/settings.json` editing and per-project model lists, pnpm/PATH-shim server resolution, and continued pi-web upstream sync. See `docs/decoupling-plan.md`.
 
 ## For developers
 

@@ -17,6 +17,8 @@
 
 以下能力只在 VSCode/VSCodium 内以 `?embed=vscode` 嵌入时激活：
 
+- **Pi Sessions 侧栏**：活动栏上的原生会话树——项目分组/最近模式、运行中/待输入徽标、工作区过滤、单行/双行元信息布局、折叠/展开双态、跨工作区跳转
+- **会话开在编辑器标签页**：每个会话一个真实标签（`perSession`），与文件标签自由混排，窗口重载与扩展升级后原位恢复；文件编辑器标题栏提供 **+** 按钮，在活动文件所属工作区一键新建会话
 - **`@` 文件提及**：补全走 `vscode.workspace.findFiles`，按工作区索引而不是服务器文件系统
 - **右键提及**：资源管理器/编辑器右键「Pi for IDE 提及」文件与选中代码段
 - **活动文件上下文注入**：正在查看的文件以隐藏 marker 注入 system prompt（AI 可见、UI 不显示、不落盘）
@@ -33,7 +35,7 @@ pi-web 本体的能力（会话管理、流式对话、模型/OAuth/MCP/技能/�
 **第一步：全局安装 @william_stone/pi-web-for-ide（推荐 pnpm）：**
 
 ```bash
-pnpm add -g @william_stone/pi-web-for-ide   # 也可用 npm i -g；本地包：pnpm i -g ./pi-web-for-ide-0.12.2-2.tgz
+pnpm add -g @william_stone/pi-web-for-ide   # 也可用 npm i -g；本地包：pnpm i -g ./pi-web-for-ide-0.12.2-3.tgz
 ```
 
 > 推荐 pnpm 的原因：它装完会列出待批准的构建脚本并可交互勾选确认（`pnpm approve-builds`）——包的 postinstall 要把 standalone 外部包接成 junction；npm 的脚本拦截则没有对应入口。被拦了也有兜底：`pi-web` 启动时会自检补链（≥0.12.2），见 `docs/vscode-extension-deploy.md` 排障节。
@@ -41,10 +43,10 @@ pnpm add -g @william_stone/pi-web-for-ide   # 也可用 npm i -g；本地包：p
 **第二步：安装扩展并打开：**
 
 ```powershell
-code --install-extension vscode-extension/pi-for-ide-0.1.0.vsix    # VSCodium 用 codium
+code --install-extension vscode-extension/pi-for-ide-0.3.0.vsix    # VSCodium 用 codium
 ```
 
-然后点状态栏 **Pi for IDE** 按钮，或命令面板执行 **Pi for IDE: Open**。首次使用在面板内 Settings → Models 配模型/API Key（与 pi CLI 共享 `~/.pi/agent/` 配置）。
+然后打开活动栏的 **Pi Sessions** 视图，或命令面板执行 **Pi for IDE: Open**。首次使用在面板内 Settings → Models 配模型/API Key（与 pi CLI 共享 `~/.pi/agent/` 配置）。
 
 **可选：独立运行**。装好的包也能脱离 IDE 在浏览器里跑（此时即原版 pi-web 形态，品牌位显示 Pi Web+）：
 
@@ -70,7 +72,7 @@ pi-web status|stop|open|update|update-sdk
 - **[pi](https://github.com/earendil-works/pi)**（earendil-works）：底层智能体本体。
 - **[pi-web](https://github.com/agegr/pi-web)**（agegr）：pi 的 Next.js Web UI——本仓的直接上游；Web 应用本体全部出自上游，我们定期合并上游版本而非重写。  
 - **[pi-code](https://github.com/wangjinxin613/pi-code)**（wangjinxin613）：首个 IDE 集成——VSCode 扩展、embed 桥、文件审查/回退、活动文件注入均源于它；本仓库从它 fork。
-- **[pi-for-ide](https://github.com/WilliamStone/Pi-for-IDE)（本仓）**：在 pi-code 之上——发行形态解耦（外置 npm 包 + 轻量扩展壳）、品牌分层（Pi Web+/Pi for IDE）、pnpm/PATH shim 解析、standalone MCP 修复、服务器/webview 生命周期修复、持续上游同步。详见 `docs/decoupling-plan.md`。
+- **[pi-for-ide](https://github.com/WilliamStone/Pi-for-IDE)（本仓）**：在 pi-code 之上——发行形态解耦（外置 npm 包 + 轻量扩展壳）、品牌分层（Pi Web+/Pi for IDE）、原生 **Pi Sessions** 树与会话/composer/设置分体标签、多窗口并发基建（扩展侧 SSE 代理、共享实例协调、自动启停）、双源服务端版本管理、`.pi/settings.json` 编辑与按项目模型清单、pnpm/PATH shim 解析、持续 pi-web 上游同步。详见 `docs/decoupling-plan.md`。
 
 ## 面向开发者
 
