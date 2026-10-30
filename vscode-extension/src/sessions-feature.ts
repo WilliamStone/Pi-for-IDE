@@ -67,6 +67,10 @@ export function registerSessionsFeature(
     () => PiIdeServer.starting(),
     () => currentServerStatus(),
   );
+  // 双行 meta 副行的透明占位图标——让 meta 文本与会话标题文字同列。
+  sessionsProvider.metaIconUri = vscode.Uri.joinPath(
+    context.extensionUri, "resources", "icons", "blank.svg",
+  );
   const sessionsView = vscode.window.createTreeView("piIde.sessions", {
     treeDataProvider: sessionsProvider,
     // 内置 collapse-all 是单向按钮——双态折叠/展开改由自绘命令对

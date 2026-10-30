@@ -91,6 +91,10 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
   /** 启动链当前阶段文案（currentServerStatus）——starting 时拼进 hint。 */
   private readonly startingStage?: () => string | undefined;
 
+  /** 副行占位图标（透明 SVG）——占住图标槽，meta 文本与会话标题同列起始。
+   *  由 sessions-feature 注入（extensionUri 侧拼路径）；未注入则副行无图标。 */
+  metaIconUri?: vscode.Uri;
+
   // strip-types 不支持构造器参数属性——显式字段（可直测）。
   constructor(
     getBaseUrl: () => Promise<string | undefined>,
@@ -522,6 +526,9 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
     const desc = typeof item.description === "string" ? item.description : "";
     if (!desc) return [item];
     const meta = new vscode.TreeItem(" ");
+    // 透明占位图标：无图标的行文本起点在槽位左缘，有图标则推到槽位右缘——
+    // 与上排会话标题文字对齐（TreeItem 无缩进/偏移 API，这是唯一定点手段）。
+    if (this.metaIconUri) meta.iconPath = this.metaIconUri;
     meta.description = desc;
     item.description = undefined;
     meta.command = item.command;

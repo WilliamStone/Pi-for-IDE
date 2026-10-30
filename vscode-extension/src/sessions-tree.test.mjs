@@ -68,6 +68,7 @@ test("metaLayout=line：meta 挪到独立副行，副行不带 id 不抢索引",
   const { restore } = fakeServer([session("s1"), session("s2")]);
   t.after(restore);
   const p = new SessionsTreeProvider(async () => "http://x", memento(), () => []);
+  p.metaIconUri = { fsPath: "blank.svg" };
   await p.reload();
   // 默认 byProject：同 cwd 两会话归一组，组内 [session, meta] 成对。
   const group = p.getChildren()[0];
@@ -75,6 +76,7 @@ test("metaLayout=line：meta 挪到独立副行，副行不带 id 不抢索引",
   assert.equal(rows.length, 4);
   const meta = rows[1];
   assert.equal(meta.contextValue, "piIde.meta");
+  assert.equal(meta.iconPath?.fsPath, "blank.svg", "透明占位图标——meta 与标题同列");
   assert.equal(meta.id, undefined, "副行无 id——itemIndex/reveal 不索引");
   assert.match(String(meta.description), /ago · 7 msgs/);
   assert.doesNotMatch(String(meta.description), /^[\s└]/, "副行无前导缩进/分支符——顶格读 meta");
