@@ -835,7 +835,8 @@
     "test:e2e": "node --test --test-timeout=300000 \"e2e/*.test.mjs\"",
     "bump": "node scripts/bump-version.mjs",
     "package:pi-web": "node scripts/package-pi-web.js",
-    "package": "vsce package --no-yarn --no-dependencies --skip-license"
+    "package": "vsce package --no-yarn --no-dependencies --skip-license",
+    "package:dev": "node scripts/package-dev.mjs"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

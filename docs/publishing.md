@@ -23,10 +23,18 @@ npm publish              # prepack 自动跑构建+standalone 组装（约 2-3 �
 
 ```bash
 npm run bump 0.12.2-3        # 根目录：npm 包（<上游base>-<迭代号>）
-cd vscode-extension && npm run bump 0.2.1-dev   # 扩展目录：vsix 版本
+cd vscode-extension && npm run bump 0.2.1       # 扩展目录：vsix 版本（不用 -dev 后缀——prerelease 版本在 VSCodium/Open VSX 有已知问题，开发迭代用下方 +dev 构建戳）
 ```
 
 各自把权威版本写进对应 `package.json`（打包名、build 戳、`extVer` 运行时值全读这里），并把文档里硬编码的 `pi-web-for-ide-<ver>.tgz` / `pi-for-ide-<ver>.vsix` 字面量同步换新——升版只敲一条命令，文档不再滞留旧文件名。
+
+### 扩展开发构建（不发版）
+
+```bash
+cd vscode-extension && npm run package:dev   # → pi-for-ide-<base>+dev.<时间戳>.vsix
+```
+
+临时把版本写成 `<base>+dev.<yyyymmddhhmmss>` 再打包，package.json 事后还原。用 `+`（build metadata）而非 `-`（prerelease）：版本序仍等于 `<base>`，但 vsix 文件名与安装目录名每次不同，安装即新目录——杜绝"同号 vsix 装了旧内容"的歧义。release-check 会比对 vsix manifest 与净版本，带戳的包过不了发布校验，防止误发。
 
 ### 发包前指纹校验（任何渠道发布前都跑）
 
