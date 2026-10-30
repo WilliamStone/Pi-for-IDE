@@ -324,13 +324,15 @@ Transferable lessons:
 - **es1→es2 fingerprint is ambiguous**: it means either
   `wrapperRebuilt` reconnect or effect-cleanup/remount — check
   `rebuilt=` in the loadSession log to tell them apart.
-- The workspace/tab restore path in `AppShell.tsx` (~line 800) bumps
-  `sessionKey` unconditionally when re-selecting a session — a
-  re-restore of the *same* session id still forces a remount + refetch.
-  That is the suspected trigger of this wedge (a second, slower restore
-  resolving mid-load on late-booting pages). Skipping the bump when the
-  id is unchanged is a candidate hardening, not yet applied — the
-  stale-ref fix covers all bump sites regardless.
+- Both restore-time `sessionKey` bumps in `AppShell.tsx` are now guarded:
+  `restoreWorkspaceContext`'s `adopt` and `handleSelectSession`'s
+  `isRestore` path skip the remount when re-selecting the session id
+  already mounted (`selectedSessionRef.current?.id`), and log
+  `restore[s:<id8>] re-selected active session — remount skipped` via
+  `pageLog`. A repeat restore no longer restarts an in-flight mount
+  load. The user-click re-select already had a same-id early return; the
+  stale-ref fix in `loadSession` remains the belt-and-suspenders for any
+  other bump site (settings save, fork, cwd switch, trust grant).
 - Diagnostics retained on purpose: the watchdog probes (2 lines/tab per
   mount) and the per-load `loadSession 200:` line are cheap, quiet, and
   remain the capture mechanism if a sibling of this wedge surfaces.

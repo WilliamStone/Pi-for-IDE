@@ -54,7 +54,7 @@ import {
   setLastOpenSession,
   workspaceKeyOf,
 } from "@/lib/workspace-memory";
-import { isEmbedMode, embedView, embedBrowserButton, embedParam, notifyEmbedHost, installGlobalClipboardInterceptor } from "@/lib/embed/bridge";
+import { isEmbedMode, embedView, embedBrowserButton, embedParam, notifyEmbedHost, logToEmbedHost, installGlobalClipboardInterceptor } from "@/lib/embed/bridge";
 // 副作用 import：embed 模式下把 EventSource 换成宿主桥接代理，
 // 必须早于任何组件首次 new EventSource（模块装载顺序保证）。
 import "@/lib/embed/event-source";
@@ -795,9 +795,16 @@ export function AppShell() {
       // Selecting the session must remount the chat with the session
       // present: useAgentSession loads content in a mount-only effect, so
       // the null-session welcome mount from the switch would never load
-      // the restored session's messages.
+      // the restored session's messages. Re-selecting the session already
+      // mounted, though, only forces a redundant remount — and a remount
+      // while its first loadSession is still in flight was the empty-view
+      // wedge's trigger (docs/agents/webview-panels.md). Skip the bump.
       setSelectedSession(s);
-      setSessionKey((k) => k + 1);
+      if (selectedSessionRef.current?.id === s.id) {
+        logToEmbedHost(`restore[s:${s.id.slice(0, 8)}] re-selected active session — remount skipped`);
+      } else {
+        setSessionKey((k) => k + 1);
+      }
       if (new URLSearchParams(window.location.search).get("session") !== s.id) {
         router.replace(`?session=${encodeURIComponent(s.id)}`, { scroll: false });
       }
@@ -918,7 +925,14 @@ export function AppShell() {
     }
     setNewSessionCwd(null);
     setSelectedSession(session);
-    setSessionKey((k) => k + 1);
+    // A second restore landing on the already-mounted session only needs the
+    // state/object refresh — remounting restarts the in-flight mount load and
+    // was the empty-view wedge's trigger (docs/agents/webview-panels.md).
+    if (isRestore && selectedSessionRef.current?.id === session.id) {
+      logToEmbedHost(`restore[s:${session.id.slice(0, 8)}] re-selected active session — remount skipped`);
+    } else {
+      setSessionKey((k) => k + 1);
+    }
     setBranchTree([]);
     setBranchActiveLeafId(null);
     setBranchSwitchLocked(false);
