@@ -1,6 +1,6 @@
 # Pi for IDE / Pi Web+
 
-[中文文档](./docs/README.zh-CN.md) | [日本語](./docs/README.ja.md) | [Русский](./docs/README.ru.md)
+[中文文档](./docs/README.zh-CN.md)
 
 Embeds the [pi agent](https://github.com/earendil-works/pi)'s web UI into VSCode/VSCodium as a first-class panel, with an IDE-workflow integration layer on top.
 
@@ -114,7 +114,7 @@ Do not run `next build` or `npm run build` during normal development. It writes 
 
 `PI_WEB_STANDALONE=1` flips the build into Next standalone output; `scripts/` holds the upstream-sync and patch-export toolchain (`sync-upstream.sh`, `export-patches.sh`, `apply-to.sh`).
 
-Contributor guides: [Internationalization](./docs/i18n.md) and [Release process](./docs/release.md).
+Contributor guides: [Internationalization](./docs/i18n.md) and [Release process](./docs/publishing.md).
 
 ## Repository Layout
 

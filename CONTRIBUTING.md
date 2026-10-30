@@ -1,50 +1,32 @@
-# Contributing to Pi Web
+# Contributing to Pi for IDE / Pi Web+
 
 [中文](./docs/CONTRIBUTING.zh-CN.md)
 
-Pi Web is a light web front end for the [pi coding agent](https://github.com/earendil-works/pi). It reads and writes the same agent directory as the pi CLI and runs sessions through pi's SDK. Most declined pull requests are well built but fall outside that scope, so please read this page before starting on a feature.
+This repo produces two independently installable deliverables: the **`pi-for-ide` extension** (a thin VS Code/VSCodium host) and **`@william_stone/pi-web-for-ide`** ("Pi Web+", the pi-web web app plus a host-adaptation layer that also runs standalone in a browser). The product goal: make the pi agent feel like a native part of the editor — a real sessions tree, sessions and settings as editor tabs, native diffs and revert — while the web app stays useful on its own.
 
-## What Pi Web is for
+## What this project is for
 
-- **Doing in a browser what a terminal does less well.** Browse sessions by project. Read files, diffs and tool output. Configure models, skills, agents, plugins and MCP servers through forms instead of hand-edited JSON. Use pi from a phone or from another machine on your network.
-- **Behaving like pi.** A session behaves the same whether it runs in Pi Web or in the pi CLI. Extensions written for the CLI work in Pi Web unchanged, and pi's TUI (`@earendil-works/pi-tui`) shows what an extension's request means.
+- **The IDE integration layer.** Anything that makes pi belong in the editor: the Pi Sessions tree, per-session/composer/settings tabs, `@` mentions and active-file context, native diffs and turn revert, the embed lifecycle, multi-window behavior.
+- **The host-neutral embed protocol.** `?embed=<host>` capabilities, messages and lifecycle live in `lib/embed/` and the extension bridge. VS Code is the first adapter; the abstraction must stay host-agnostic so JetBrains-class hosts can follow.
+- **pi-web itself, kept upstream-compatible.** The web app is forked from `agegr/pi-web` and we keep merging upstream. Improvements to it are welcome when they don't deepen the fork delta.
 
 ## Out of scope
 
-These are declined however well they are implemented:
+- **Changes to what pi itself does** — system prompt, tool behavior, prompt templates, retries, compaction, session-file format. Those belong upstream in the pi project.
+- **pi-web-only extension API surface.** New `ctx.ui.*` options or `extension_ui_request` fields that pi-CLI extensions cannot express: extensions written for the pi CLI must behave identically here, and pi's TUI is the reference for what an extension request means.
+- **Host-specific leakage into the shared substrate.** VS Code assumptions must not reach `app/`/`lib/` outside `lib/embed/` — embed features live in the adaptation layer and degrade gracefully in standalone mode.
+- **Large rewrites of upstream-owned files.** Every in-place edit inside a pi-web file is a future merge conflict; keep upstream edits to minimal call-site additions (see the fork-delta rules in `AGENTS.md`).
 
-- **Changes to what pi itself does.** This covers the system prompt, tool behavior, prompt template expansion, retries, compaction, and what gets written to session files. Propose these upstream in pi.
-- **Features that could be a pi extension.** Examples are scheduled messages, custom commands and new providers. An extension works in pi and in Pi Web; see [#666](https://github.com/agegr/pi-web/issues/666) for scheduled sending done as an extension.
-- **Pi Web-only configuration or extension API.** This means new config files only Pi Web reads, new `ctx.ui.*` options or `extension_ui_request` fields, and new meanings for existing fields. The web client decides how to display what pi's protocol already expresses.
-- **IDE or Git client features.** This covers editing files, file management (create, rename, delete), commit history and a second diff view. The file viewer is read-only. Editing is left to the agent or to your own editor.
-- **New subsystems or operating modes.** Examples are schedulers, long-running background agents, a plugin or UI-slot system, a second "lite" mode, and multi-pane layouts.
-- **Visual customization beyond the built-in themes.** That rules out custom themes, skins, chat backgrounds and extra accent colors. Appearance is one of the built-in themes (Light, Mist, Rose, Sand, Lilac, Dark, Pine, Slate, Dusk, Ember, high contrast light or dark, Zenburn, or following the system), plus a few typography settings.
-- **More session management.** The sidebar's session management is kept small on purpose: list, pin, archive, rename, fork, delete, and project order. Discuss anything beyond that in an issue first.
-- **Patching pi's private methods or internal state.** These change without notice between pi releases. Ask upstream for an API instead.
+## Conventions
 
-## What gets merged easily
+- **Delta discipline**: embed/IDE features live in our own files first (`lib/embed/**`, `components/embed/**`, `vscode-extension/**`, `bin/pi-web-standalone.js`). When an upstream file must change, prefer adding a call site over changing signatures.
+- **User-facing strings**: extension-manifest strings go through `package.nls.json` (en default + zh-CN); runtime strings everywhere else are English-only. See `docs/i18n.md` for the web app's own i18n.
+- **Checks before PR**: `node_modules/.bin/tsc --noEmit`, `npm run lint`, `npm test`; for the extension `tsc --noEmit`, `npx eslint src`, `npm test` inside `vscode-extension/`. Never run `next build` during development (see `AGENTS.md`).
+- **Topic notes**: `AGENTS.md` maps each code area to a note in `docs/agents/` — read the notes for every file you change, and record design decisions back into them.
 
-- Bug fixes that include reproduction steps on `main` and fix the cause, not the symptom.
-- Small UX improvements that need no new setting, especially ones that match pi's TUI.
-- Better rendering of what pi already produces: tool output, Markdown, extension UI.
-- Fixes for mobile, PWA, Windows and older Safari.
-- Performance work with before-and-after measurements.
+## Pull requests
 
-## UI rules
-
-- Show each fact once, in the place where pi produces it.
-- One good default beats a setting. Add a switch only when both choices are common.
-- Keep the top bar and the composer quiet. Configuration belongs in Settings.
-- Use the existing theme tokens in `app/globals.css`. Do not add new colors.
-
-## Before you open a pull request
-
-- **For a feature, open an issue first** that describes the use case. A quick answer on whether it fits can save you from building it.
-- **Keep it to one change per pull request.** Split unrelated fixes into separate ones.
-- **For a bug fix, explain how to reproduce it** on `main` and why the change fixes the cause.
-- **Run the checks:** `npm test`, `node_modules/.bin/tsc --noEmit`, and `npm run lint`. Do not run `next build` during development (see [AGENTS.md](./AGENTS.md)).
-- **Translate new UI text.** Add every new string in `en`, `zh-CN` and `zh-TW` ([Internationalization](./docs/i18n.md)).
-- **Read the relevant topic notes.** [AGENTS.md](./AGENTS.md) maps each area of the code to a note in `docs/agents/`. Read the notes for every file you change.
-- **Avoid new runtime dependencies.** If one is needed, say why.
-
-A declined pull request does not always mean the idea is rejected. When part of it fits, the closing comment says which part, and that part often comes back later in a narrower form.
+- One change per PR; split unrelated fixes.
+- For a bug fix, explain how to reproduce it on `main` and why the change fixes the cause rather than the symptom.
+- For a feature, open an issue first with the use case — especially for anything touching the embed protocol or the sessions view.
+- Avoid new runtime dependencies; if one is needed, say why.

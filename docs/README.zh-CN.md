@@ -1,6 +1,6 @@
 # Pi for IDE / Pi Web+
 
-[English](../README.md) | [日本語](./README.ja.md) | [Русский](./README.ru.md)
+[English](../README.md)
 
 把 [pi 智能体](https://github.com/earendil-works/pi) 的 Web 界面作为一等面板嵌入 VSCode/VSCodium，并叠加一层面向 IDE 工作流的集成能力。
 
@@ -108,7 +108,7 @@ bash scripts/sync-upstream.sh vX.Y.Z   # 合并上游 pi-web 某个 tag
 
 开始做新功能之前，请先阅读[参与贡献](./CONTRIBUTING.zh-CN.md)，了解哪些改动在范围内以及提交 PR 前的检查项。
 
-贡献者文档：[国际化](./i18n.md)和[发布流程](./release.md)。
+贡献者文档：[国际化](./i18n.md)和[发布流程](./publishing.md)。
 
 ## 仓库结构
 

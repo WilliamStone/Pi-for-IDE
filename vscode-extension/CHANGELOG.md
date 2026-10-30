@@ -16,6 +16,14 @@
 - **Session tabs survive reloads and updates**: restored session/composer/main/settings tabs stay as lazy placeholders with their real titles instead of duplicating into parallel `Pi for IDE — <cwd>` tabs. The active tab is adopted in place on window reload; background tabs stay inert until clicked, then adopt the same DOM node; tree clicks swap the placeholder for a live panel in the same group — no orphaned duplicates.
 - **Session list without the 10 s wait**: sidebar population no longer waits for the delayed visibility event — polling is kicked by the server-ready broadcast and at view registration, so the first list lands as soon as the server answers.
 - **Empty-after-reload hardened**: a transient session-resolution miss during server startup now retries instead of silently showing an empty transcript, and a failed scroll-restore can no longer leave the message list permanently hidden. Degenerate responses are logged to the output channel for diagnosis.
+- **Status-bar button retired**: the legacy bottom-right panel button is gone — the Pi Sessions view, the editor-title button, and the commands cover its job; the awaiting-input count stays.
+- **Session meta that can't hide**: long titles truncate by visual width (CJK-aware, `Pi for IDE.sessions.titleMaxWidth`), and the default layout moves last-active time + message count onto a dimmed second row (`Pi for IDE.sessions.metaLayout`) so they never clip past the view edge. A title-bar button toggles between two-line and compact rows.
+- **Two-state collapse**: the tree's title button flips between Collapse All and Expand All.
+- **New session from the file you're reading**: the editor-title `+` button and `Pi for IDE: Open` open a new-session composer scoped to the active file's workspace folder (multi-root aware); the full app page lives behind Open Original Page.
+- **Many tabs, no starvation**: agent event streams route through an extension-side SSE proxy, sidestepping the Chromium webview connection-pool ceiling — a dozen open session tabs no longer starve a new one.
+- **Reload hardening**: duplicate same-URL server-ready notifications are dropped, a stale message-ref during a mid-flight remount can no longer blank a tab, same-session restores skip the remount entirely, and a `Reload Page` tab-menu command rescues wedged panels.
+- **Composer drafts persist**: unsent text survives server restarts and window reloads.
+- **Project settings**: edit a project's or the workspace's `.pi/settings.json` straight from the tree; menu entries name their resolved target.
 - Requires pi-web-for-ide ≥ 0.12.2-2 for the newest capabilities (running/awaiting snapshots, session UI state, shutdown consent); older compatible builds degrade gracefully.
 
 ## [0.2.0] - 2026-10-20

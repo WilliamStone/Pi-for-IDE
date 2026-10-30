@@ -68,7 +68,7 @@ pi-web-for-ide --version
 ```bash
 cd vscode-extension
 npx vsce login WilliamStone        # 粘贴 PAT（一次即可）
-npx vsce publish                   # 或 --packagePath pi-for-ide-0.1.0.vsix 直接发已打好的包
+npx vsce publish                   # 或 --packagePath pi-for-ide-0.3.0.vsix 直接发已打好的包
 ```
 
 `vsce publish` 会先跑 `vscode:prepublish`（compile）再上传；增量发版用 `npx vsce publish patch` 自动抬版本。
@@ -97,7 +97,7 @@ npx ovsx create-namespace WilliamStone -p <token>
 
 ```bash
 cd vscode-extension
-npx ovsx publish pi-for-ide-0.1.0.vsix -p <token>
+npx ovsx publish pi-for-ide-0.3.0.vsix -p <token>
 # 或从目录直接构建发布：
 npx ovsx publish -p <token>
 ```
