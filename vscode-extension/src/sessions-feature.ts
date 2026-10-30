@@ -396,15 +396,25 @@ export function registerSessionsFeature(
         ?? "";
       await newSessionAt(cwd);
     }),
-    // 编辑器标题按钮入口：工作区口径 = 活动文件所属 folder（多根不猜
-    // [0]）；配置的工作目录仍然优先，其次才是文件归属与兜底根。
+    // 编辑器标题按钮 / Pi for IDE: Open 入口：工作区口径 = 活动文件所属
+    // folder（多根不猜 [0]）；配置的工作目录仍然优先。无任何可解析目录
+    // 时（空窗）弹目录选择——沿用原 piIde.open 的兜底交互。
     vscode.commands.registerCommand("piIde.editor.newSession", async () => {
       const uri = vscode.window.activeTextEditor?.document.uri;
-      const cwd =
+      let cwd =
         resolveConfiguredCwd()
         ?? (uri ? vscode.workspace.getWorkspaceFolder(uri)?.uri.fsPath : undefined)
-        ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
-        ?? "";
+        ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!cwd) {
+        const picked = await vscode.window.showOpenDialog({
+          canSelectFiles: false,
+          canSelectFolders: true,
+          canSelectMany: false,
+          title: "Pi for IDE: Select project directory",
+        });
+        if (!picked?.length) return;
+        cwd = picked[0].fsPath;
+      }
       await newSessionAt(cwd);
     }),
     // tab 右键动作：归属按"被右键的 tab"解析——菜单入参是该 tab（label

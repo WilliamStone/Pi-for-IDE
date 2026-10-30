@@ -36,7 +36,6 @@ let server: Promise<PiIdeServer | undefined>;
 let provider: PiWebWebviewPanel | undefined;
 let bridge: Bridge;
 let bridgeChannel: vscode.OutputChannel;
-let statusBarItem: vscode.StatusBarItem;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   // 统一输出频道：桥接/生命周期/spawn 日志同流（按时间戳排序）。
@@ -51,17 +50,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const sweepTimer = setTimeout(() => void sweepLegacyOrphans(bridgeChannel), 10_000);
   context.subscriptions.push({ dispose: () => clearTimeout(sweepTimer) });
 
-  // 状态栏图标 — 常驻可见，一键唤起聊天面板。
-  statusBarItem = vscode.window.createStatusBarItem(
-    vscode.StatusBarAlignment.Right,
-    100,
-  );
-  statusBarItem.text = "$(comment-discussion) Pi for IDE";
-  statusBarItem.tooltip = "Pi for IDE — click to open the chat panel";
-  statusBarItem.command = "piIde.open";
-  statusBarItem.show();
-  context.subscriptions.push(statusBarItem);
-
   // 保持「服务器运行中」上下文键同步，以便显示「停止」按钮。
   const setRunningContext = (running: boolean) => {
     vscode.commands.executeCommand("setContext", "piIde.serverRunning", running);
@@ -73,11 +61,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const ensureServer = (): Promise<PiIdeServer | undefined> => {
     server = PiIdeServer.ensureStarted(context).then((s) => {
       setRunningContext(!!s);
-      if (s) {
-        statusBarItem.text = "$(comment-discussion) Pi for IDE";
-        statusBarItem.backgroundColor = undefined;
-        statusBarItem.tooltip = `Pi for IDE — running at ${s.origin}`;
-      }
       return s;
     }).catch((error) => {
       outputChannel().appendLine(`[pi-web] server start failed: ${error}`);
@@ -222,30 +205,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
   );
 
-  // 主入口 — 在状态栏和命令面板中可见。按需启动服务器，并在右侧
-  // （Beside）展示面板。
+  // 主入口 — 在状态栏和命令面板中可见。主页面已由 piIde.openOriginal
+  // 承载，Open 统一走 embed 壳新会话（piIde.editor.newSession 内部含
+  // cwd 解析与空窗目录选择兜底）。
   context.subscriptions.push(
-    vscode.commands.registerCommand("piIde.open", async () => {
-      const viewColumn = openViewColumn();
-
-      // 解析 cwd：显式设置 > 工作区文件夹 > 弹窗选择。
-      let cwd = resolveConfiguredCwd();
-      if (!cwd) {
-        const picked = await vscode.window.showOpenDialog({
-          canSelectFiles: false,
-          canSelectFolders: true,
-          canSelectMany: false,
-          title: "Pi for IDE: Select project directory",
-        });
-        if (!picked || picked.length === 0) return;
-        cwd = picked[0].fsPath;
-      }
-
-      // 先踢启动再 reveal——reveal 内部 refresh 会等共享的 server promise，
-      // 面板立刻出现「正在启动」页而不是等服务起好才现身（首击无反应的来源）。
-      void ensureServer();
-      await provider!.reveal(cwd, viewColumn);
-    }),
+    vscode.commands.registerCommand("piIde.open", () =>
+      vscode.commands.executeCommand("piIde.editor.newSession"),
+    ),
   );
 
   // `piIde.reveal` 仅聚焦已存在的面板（不触碰服务器）。
