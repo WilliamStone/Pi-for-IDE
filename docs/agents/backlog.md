@@ -25,6 +25,29 @@ pi-web 单页可见所有项目/会话并可并发执行；宿主窗口有明确
   对话流面板支持多开——更接近"Pi 活在 IDE 里"而非"iframe 里的网页"。
 - 前置依赖：会话列表/会话操作要有完整桥 API（现在只进不出）。
 
+### Pi Sessions 视图 WebviewView 化（0.3.x 原生树之后的演进，用户已确认后置）
+
+原生 TreeView 已交付（byProject/recent 双模式、metaLayout 单双行、
+折叠双态、标题截断），但它是天花板明确的容器：无多行节点、无列/
+右对齐渲染、宽度对扩展不可见、无内嵌过滤框。当前双行 meta 是
+"主行+续行"伪装（label 位 + 透明占位图标 + pi-ide-meta scheme 的
+FileDecoration 染暗——同列对齐且暗色，详见 sessions-tree.ts）。
+
+WebviewView 化换来的：真·右缘 meta 列、随宽度自适应、内嵌过滤输入
+框（直接服务"找会话"场景）、列头排序、更富状态标。
+
+迁移要点（已探明的代价面）：
+- 数据层全保留——provider 从产 TreeItem 改为 postMessage JSON；
+  view/title 工具按钮不受影响（view 级贡献照吃 webview 视图）。
+- `view/item/context` 的 21 个右键命令够不着 webview——需自建小型
+  HTML 菜单，菜单项 → executeCommand（命令本身零改动，when 规则
+  重接到 JS）。
+- "Reveal in Sessions"：TreeView.reveal 换 scrollIntoView+高亮消息。
+- 展开/折叠、键盘导航、ARIA 自建（v1 可简）；折叠双态的"代际 id"
+  技巧在 webview 里退化为普通 state。
+- 模式沿用 byProject/recent + metaLayout 语义（双行在 webview 里变
+  真双行 DOM，不再需要续行伪装）。
+
 ## 回退/快照演进（详见 turn-revert.md）
 
 - rewind-to-point（前缀截断）与 excise-record（中段手术）语义拆分。
