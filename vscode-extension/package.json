@@ -721,12 +721,14 @@
         },
         {
           "command": "piIde.sessions.collapseAll",
-          "when": "view == 'piIde.sessions' && piIde.sessions.viewMode != 'recent' && !piIde.sessions.allCollapsed",
+          "when": "view == 'piIde.sessions' && !piIde.sessions.allCollapsed",
+          "enablement": "piIde.sessions.viewMode != 'recent'",
           "group": "navigation@4"
         },
         {
           "command": "piIde.sessions.expandAll",
-          "when": "view == 'piIde.sessions' && piIde.sessions.viewMode != 'recent' && piIde.sessions.allCollapsed",
+          "when": "view == 'piIde.sessions' && piIde.sessions.allCollapsed",
+          "enablement": "piIde.sessions.viewMode != 'recent'",
           "group": "navigation@4"
         },
         {
