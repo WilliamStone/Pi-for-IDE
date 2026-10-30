@@ -69,6 +69,45 @@ test("serverReady probes then loads iframe; load event hides gate", async () => 
   assert.ok(posted.some((m) => m.text === "iframe page loaded"));
 });
 
+test("same-URL serverReady while a navigation is in-flight is deduped", async () => {
+  // reload 场景：deserialize 的 refresh 与实例标记 watcher 的
+  // refreshAllPanels 同拍各发一条 serverReady——第二条命中在飞导航时
+  // 不得重指 src（load 前二次赋值是批量恢复 wedge 的源头）。
+  const { posted, post } = bootShell();
+  const payload = {
+    kind: "serverReady",
+    url: "http://127.0.0.1:3031/",
+    probe: "http://127.0.0.1:3031/",
+  };
+  post({ source: "host", payload });
+  await delay(20); // 探测过 → src 已设，load 尚未触发（在飞）
+  post({ source: "host", payload });
+  await delay(20);
+  assert.equal(
+    posted.filter((m) => m.text === "server probe passed, setting iframe.src").length,
+    1,
+  );
+});
+
+test("serverReady with a different URL still re-navigates mid-flight", async () => {
+  const { posted, frame, post } = bootShell();
+  post({
+    source: "host",
+    payload: { kind: "serverReady", url: "http://127.0.0.1:3031/a", probe: "x" },
+  });
+  await delay(20);
+  post({
+    source: "host",
+    payload: { kind: "serverReady", url: "http://127.0.0.1:3031/b", probe: "x" },
+  });
+  await delay(20);
+  assert.equal(
+    posted.filter((m) => m.text === "server probe passed, setting iframe.src").length,
+    2,
+  );
+  assert.match(String(frame.src), /3031\/b/);
+});
+
 test("persistState message lands in vscode.setState (serializer revive source)", () => {
   const { persisted, post } = bootShell();
   const state = { sessionId: "s-1", cwd: "/repo", view: "chat" };
@@ -134,11 +173,12 @@ test("offline fallback: same-URL serverReady is not deduped while offline shown"
   post({ source: "host", payload });
   await delay(20);
   post({ source: "pi-web-offline" });
-  await delay(20); // 自愈链已消耗一轮重试
-  post({ source: "host", payload }); // 同 URL 再来一条——用户再点同一会话的场景
+  // offlineShown 为真期间，同 URL 重推必须照常重探——用户再点同一会话
+  // 时的恢复臂；同步到达保证命中兜底态而非自愈重探后的在飞态。
+  post({ source: "host", payload });
   await delay(20);
   assert.ok(
-    posted.filter((m) => m.text === "server probe passed, setting iframe.src").length >= 3,
+    posted.filter((m) => m.text === "server probe passed, setting iframe.src").length >= 2,
   );
 });
 

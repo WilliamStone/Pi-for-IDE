@@ -258,28 +258,47 @@ list, cold and warm) returned 200 + full context every time — the failure
 needs a transient we have not isolated yet; the diagnostics above are the
 capture mechanism.
 
-### Reload: paint wedge — complete DOM, nothing on screen
+### Reload: paint wedge — double `frame.src` mid-flight
 
-Distinct failure mode, reported with ~10 session tabs tiled across groups
-followed by `Developer: Reload Window`: several restored panels are
-visually blank (not even the app chrome) while the log shows the whole
-pipeline healthy per panel — `deserialize fired` → `serverReady` →
-`server probe passed` → `iframe page loaded` → `eventproxy open`. A
-dumped iframe document proves the page fully *rendered*: sidebar, message
-list, composer are all in the DOM, and JS runs (the proxied SSE opens on
-the host). Only the pixels never reach the screen.
+Reported with ~10 session tabs tiled across groups followed by
+`Developer: Reload Window`: 1–4 restored panels stayed visually blank
+(the set varies per run) while the log showed the whole pipeline healthy
+per panel — `deserialize fired` → `serverReady` → `server probe passed`
+→ `iframe page loaded` → `eventproxy open`. A dumped iframe document
+proved the page fully *rendered* (sidebar, messages, composer in the
+DOM; JS running — the proxied SSE opens on the host). Only the pixels
+never reach the screen; sash resizes did **not** wake it, and **Reload
+Page** cured it.
 
-Mental model: on iframe-based-webview builds (VSCodium logs
-`Using standard dev tools to debug iframe based webview`) the nesting is
-**two** OOPIF layers — workbench's webview iframe → shell document →
-inner pi-web iframe. A wedge at *either* layer renders the whole panel
-blank, so "resize repaints it" only discriminates the shallow kind:
-the reported case did **not** recover on sash drags, i.e. deeper than a
-simple compositor stall — outer-layer wedge or a harder renderer hang
-(JS alive, compositor output dead). The `Reload Page` outcome then
-discriminates further: it rebuilds everything at/below the webview
-document, so success = wedge at shell level or inner OOPIF; failure =
-outer workbench layer, where close-and-reopen is the only cure left.
+Mechanism (log-proven): mass-restore fires `serverReady` **twice** per
+panel within ~350 ms — once from `deserialize → adopt → refresh()` and
+once from the instance-marker watcher (`watchInstanceMarker` sees our own
+just-written `server-instance.json` → `refreshAllPanels()`, unconditional).
+Each `serverReady` ends in `showFrame` → `frame.src = url`. The second
+assignment lands while the first navigation is still in-flight — aborting
+it and re-navigating — which is what leaves the inner OOPIF blank with a
+complete DOM. Whether a tab wedges is a timing lottery: a first `load`
+that lands before the second `src=` escapes unscathed. First-time opens
+and banner auto-reloads don't produce the double-post, which is why only
+window-restore hit it.
+
+Fix: the shell `serverReady` dedup now covers the in-flight state —
+`loadedUrl === p.url && !offlineShown` ignores repeats both while a
+navigation is pending and after it has painted (previously only the
+latter). A real instance switch is unaffected: a new server changes the
+URL (`inst` param), which still re-navigates; the offline-fallback
+self-heal still bypasses dedup via `offlineShown`.
+
+Mental model for future blank reports: on iframe-based-webview builds
+(VSCodium logs `Using standard dev tools to debug iframe based webview`)
+the nesting is **two** OOPIF layers — workbench's webview iframe → shell
+document → inner pi-web iframe. A wedge at either layer blanks the whole
+panel. Discriminators: dump the iframe DOM (`Developer: Open Webview
+Developer Tools`) — complete DOM + zero paint = this wedge; chrome
+present + empty message list = the fetch-state failure above. Reload Page
+fixing it places the wedge at shell level or the inner OOPIF; if it ever
+fails, the wedge is in the outer workbench layer and only close-and-
+reopen cures it.
 
 Escape hatch: **Reload Page** on the tab context menu
 (`piIde.tab.reloadPage` → `PiWebWebviewPanel.reloadPage()`): re-assigning
@@ -291,7 +310,7 @@ is the practical path. `reloadPage` also clears `lastUrl/lastServer/
 lastShellError/lastPersistJson` so `refresh()` re-probes against the
 *current* server instead of replaying a stale URL into the new shell.
 
-Untried mitigation (pending wedge confirmation): staggering `serverReady`
+Untried mitigation (only if blanks still appear): staggering `serverReady`
 posts during mass-restore so iframe navigations (and their OOPIF
 creations) serialize instead of landing in one tick — ~300 ms per panel
 slot, zero delay for the common single-panel case.

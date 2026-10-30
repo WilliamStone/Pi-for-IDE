@@ -78,8 +78,11 @@
       if (p.state && typeof p.state === 'object') vscode.setState(p.state);
     } else if (data.source === 'host' && p.kind === 'serverReady') {
       gate.classList.remove('error');
-      // 已就绪才忽略——offline 兜底页 display:block 不算就绪，照常重探。
-      if (loadedUrl === p.url && frame.style.display === 'block' && !offlineShown) return;
+      // 同 URL 判重覆盖"在飞导航"与"已上屏"两态——前者放行会让 src 在
+      // 首个 load 前二次赋值：中断在飞导航重来一遍，批量恢复时产生
+      // DOM 完整但不上屏的 wedge（详见 webview-panels.md）。offline
+      // 兜底态除外：那条自愈链本就靠重探重导航救回。
+      if (loadedUrl === p.url && !offlineShown) return;
       lastProbe = p.probe;
       setStatus('Connecting to local server');
       probeAndShow(p.url, p.probe, ++gen);

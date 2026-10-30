@@ -483,7 +483,7 @@ export class PiWebWebviewPanel extends vscode.Disposable {
           : undefined,
     });
 
-    // 同实例同 URL 也重推——判重由 shell 做（loadedUrl+display+offline 态），
+    // 同实例同 URL 也重推——判重由 shell 做（loadedUrl+offline 态），
     // 宿主若提前返回，iframe 停在 SW offline 兜底页时再次点同一会话会永远
     // 收不到 serverReady，自愈链没有重新武装的机会。
     this.lastServer = server;

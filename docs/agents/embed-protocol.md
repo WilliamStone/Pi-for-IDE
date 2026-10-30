@@ -225,9 +225,8 @@ Side effects to know:
   asset/API fetches per page through the same ~6 slots. Boot fetches
   queue and mostly survive; a mount-path fetch that fails can still
   wedge a page into the silent-empty state (the transient amplifier
-  behind "chrome without content", see webview-panels.md), and the
-  concurrent guest/OOPIF creation itself is a separate N-panel stress
-  ("paint wedge", same doc). Single-panel usage is unaffected.
+  behind "chrome without content", see webview-panels.md). Single-panel
+  usage is unaffected.
 - **Test marker, not class name.** Production minification renames the
   shim class (`EventSource.name` became `"i"`), so page-side assertions
   must check the explicit `EventSource.__piProxied` marker the
