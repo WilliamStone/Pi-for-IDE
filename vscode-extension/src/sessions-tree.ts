@@ -99,6 +99,9 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
   /** 副行占位图标（透明 SVG）——占住图标槽，meta 文本与会话标题同列起始。
    *  由 sessions-feature 注入（extensionUri 侧拼路径）；未注入则副行无图标。 */
   metaIconUri?: vscode.Uri;
+  /** 自绘图标目录（resources/icons）——会话蓝/项目黄/角标徽章统一色板。
+   *  由 sessions-feature 注入；未注入时退回 codicon 逻辑（测试环境）。 */
+  iconDir?: vscode.Uri;
 
   // strip-types 不支持构造器参数属性——显式字段（可直测）。
   constructor(
@@ -164,7 +167,12 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
 
   async cycleViewMode(): Promise<void> {
     const order: SessionsViewMode[] = ["byProject", "recent", "fork"];
-    this.mode = order[(order.indexOf(this.mode) + 1) % order.length];
+    await this.setViewMode(order[(order.indexOf(this.mode) + 1) % order.length]);
+  }
+
+  async setViewMode(mode: SessionsViewMode): Promise<void> {
+    if (this.mode === mode) return;
+    this.mode = mode;
     await this.memento.update("piIde.sessions.viewMode", this.mode);
     this.changeEmitter.fire();
   }
@@ -448,14 +456,10 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
     item.tooltip = new vscode.MarkdownString(
       `**${group.root}**${group.isWorktree ? "\n\nworktree" : ""}${pinned ? "\n\npinned" : ""}`,
     );
-    // 异工作区项目：file-symlink-directory 字形（文件夹叠加右上弯箭头，
-    // "目录在别处"的快捷方式语义）+ 降色双保险——TreeItem 无字体样式
-    // API，且单靠颜色/微调字形在多数主题里不够显眼。给跳窗按钮的旗标。
+    // 异工作区项目：左下快捷箭头角标（"目录在别处"的快捷方式语义），
+    // 自绘 SVG 与 pin 角标可叠加。给跳窗按钮的旗标。
     const foreign = workspaceRelation(group.root, this.workspaceRoots()) === "out";
-    item.iconPath = new vscode.ThemeIcon(
-      pinned ? "pinned" : group.isWorktree ? "git-branch" : foreign ? "file-symlink-directory" : "folder",
-      foreign ? new vscode.ThemeColor("list.deemphasizedForeground") : undefined,
-    );
+    item.iconPath = this.projectIcon(pinned, !!group.isWorktree, foreign);
     item.contextValue = `piIde.project${pinned ? ".pinned" : ""}${foreign ? ".wsForeign" : ""}`;
     // 代际 id：折叠切换产生新 id → 折叠态按 collapsibleState 初始值重铺；
     // 数据刷新时代不变 → 用户展开态跨刷新保持。
@@ -466,19 +470,55 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
     return item;
   }
 
+  /** 会话图标：running/awaiting 保语义色（活状态轴，与类型色正交）；
+   *  其余走自绘 SVG——蓝气泡统一底色，pin=右上角图钉，异区=flat 视图
+   *  里的降色变体（byProject/fork 里降色由项目组节点承担）。 */
+  private sessionIcon(running: boolean, awaiting: boolean, pinned: boolean, dim: boolean): vscode.ThemeIcon | vscode.Uri {
+    if (running) return new vscode.ThemeIcon("pulse", new vscode.ThemeColor("testing.iconPassed"));
+    if (awaiting) return new vscode.ThemeIcon("bell-dot", new vscode.ThemeColor("testing.iconQueued"));
+    if (this.iconDir) {
+      const name = pinned ? "session-pin" : dim ? "session-foreign" : "session";
+      return vscode.Uri.joinPath(this.iconDir, `${name}.svg`);
+    }
+    return new vscode.ThemeIcon(
+      pinned ? "pinned" : "comment",
+      pinned
+        ? new vscode.ThemeColor("textLink.foreground")
+        : dim
+          ? new vscode.ThemeColor("list.deemphasizedForeground")
+          : undefined,
+    );
+  }
+
+  /** 项目图标：自绘 SVG（黄文件夹 + 角标）——pin=右上角图钉、
+   *  foreign=左下角快捷箭头。worktree 保 git-branch 字形但同色板。 */
+  private projectIcon(pinned: boolean, worktree: boolean, foreign: boolean): vscode.ThemeIcon | vscode.Uri {
+    if (this.iconDir) {
+      if (worktree) return new vscode.ThemeIcon("git-branch", new vscode.ThemeColor("charts.yellow"));
+      const name = foreign ? (pinned ? "project-foreign-pin" : "project-foreign") : pinned ? "project-pin" : "project";
+      return vscode.Uri.joinPath(this.iconDir, `${name}.svg`);
+    }
+    return new vscode.ThemeIcon(
+      pinned ? "pinned" : worktree ? "git-branch" : foreign ? "file-symlink-directory" : "folder",
+      foreign ? new vscode.ThemeColor("list.deemphasizedForeground") : undefined,
+    );
+  }
+
   /** fork 节点 → 行集：节点自身行（+meta 副行），子会话挂进
    *  forkChildren 由 getChildren 取用——TreeView 的层级靠
    *  getChildren(element) 递归，不是拍平进父列表。父行展开默认态，
    *  fork 链整条可见才是这个模式的卖点。 */
   private forkRows(node: ForkNode): vscode.TreeItem[] {
     const rows = this.sessionRows(node.session, false);
-    const head = rows[0];
+    // metaLayout=line 时锚到 meta 副行——子会话挂在"标题行+meta行"整体之下，
+    // 顺序才是 父题→父meta→子题→子meta；挂标题行则父 meta 掉到子块后面。
+    const anchor = rows[rows.length - 1];
     if (!node.children.length) return rows;
     const childRows = node.children.flatMap((c) => this.forkRows(c));
-    this.forkChildren.set(head, childRows);
-    head.collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
+    this.forkChildren.set(anchor, childRows);
+    anchor.collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
     for (const child of childRows) {
-      if (child.id) this.itemIndex.set(sessionIdOf(child), { item: child, parent: head });
+      if (child.id) this.itemIndex.set(sessionIdOf(child), { item: child, parent: anchor });
     }
     return rows;
   }
@@ -511,18 +551,8 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
     // 状态图标优先（running/awaiting 是活状态），否则 pinned 给图钉。
     // TreeItem 单 iconPath——pinned+running 时图钉让位，pin 仍靠排序置前。
     // flat（recent）视图没有组节点承接标记，异区会话的默认图标在此降色。
-    item.iconPath = new vscode.ThemeIcon(
-      running ? "pulse" : awaiting ? "bell-dot" : pinned ? "pinned" : "comment",
-      running
-        ? new vscode.ThemeColor("testing.iconPassed")
-        : awaiting
-          ? new vscode.ThemeColor("testing.iconQueued")
-          : pinned
-            ? new vscode.ThemeColor("textLink.foreground")
-            : flat && foreign
-              ? new vscode.ThemeColor("list.deemphasizedForeground")
-              : undefined,
-    );
+    item.iconPath = this.sessionIcon(running, awaiting, pinned, flat && foreign);
+
     // 目录类操作的显隐旗标：hasDir=有会话目录（三个操作的前提）；
     // wsSub=目录在工作区子树内（Explorer 定位）；wsOther=目录非工作区根
     // （新窗打开）。情形1（cwd=根）只留 hasDir → 只显示终端。
@@ -828,6 +858,20 @@ export function registerSessionCommands(
     vscode.commands.registerCommand("piIde.sessions.cycleViewMode", async () => {
       await provider.cycleViewMode();
       await vscode.commands.executeCommand("setContext", "piIde.sessions.viewMode", provider.viewMode);
+    }),
+    // 三态直切按钮：标题栏互斥三选一（when 键 viewMode），点击频率高，
+    // 不做进 overflow。图标题示"切去的下一个状态"，非当前态。
+    vscode.commands.registerCommand("piIde.sessions.viewByProject", async () => {
+      await provider.setViewMode("byProject");
+      await vscode.commands.executeCommand("setContext", "piIde.sessions.viewMode", "byProject");
+    }),
+    vscode.commands.registerCommand("piIde.sessions.viewRecent", async () => {
+      await provider.setViewMode("recent");
+      await vscode.commands.executeCommand("setContext", "piIde.sessions.viewMode", "recent");
+    }),
+    vscode.commands.registerCommand("piIde.sessions.viewFork", async () => {
+      await provider.setViewMode("fork");
+      await vscode.commands.executeCommand("setContext", "piIde.sessions.viewMode", "fork");
     }),
 
     // metaLayout 单双行切换：写全局配置即持久，配置监听器顺带重铺；

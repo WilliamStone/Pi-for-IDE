@@ -71,6 +71,7 @@ export function registerSessionsFeature(
   sessionsProvider.metaIconUri = vscode.Uri.joinPath(
     context.extensionUri, "resources", "icons", "blank.svg",
   );
+  sessionsProvider.iconDir = vscode.Uri.joinPath(context.extensionUri, "resources", "icons");
   // meta 副行 label 走私有 resourceUri——这里把它染成 description 暗色，
   // 副行视觉降一级又不破坏与标题文字的列对齐。
   context.subscriptions.push(

@@ -165,6 +165,24 @@
         "icon": "$(list-tree)"
       },
       {
+        "command": "piIde.sessions.viewByProject",
+        "title": "%cmd.sessions.viewByProject%",
+        "category": "Pi for IDE",
+        "icon": "$(root-folder)"
+      },
+      {
+        "command": "piIde.sessions.viewRecent",
+        "title": "%cmd.sessions.viewRecent%",
+        "category": "Pi for IDE",
+        "icon": "$(history)"
+      },
+      {
+        "command": "piIde.sessions.viewFork",
+        "title": "%cmd.sessions.viewFork%",
+        "category": "Pi for IDE",
+        "icon": "$(repo-forked)"
+      },
+      {
         "command": "piIde.sessions.metaInline",
         "title": "%cmd.sessions.metaInline%",
         "category": "Pi for IDE",
@@ -592,6 +610,18 @@
           "when": "false"
         },
         {
+          "command": "piIde.sessions.viewByProject",
+          "when": "false"
+        },
+        {
+          "command": "piIde.sessions.viewRecent",
+          "when": "false"
+        },
+        {
+          "command": "piIde.sessions.viewFork",
+          "when": "false"
+        },
+        {
           "command": "piIde.sessions.metaInline",
           "when": "false"
         },
@@ -655,59 +685,69 @@
           "group": "navigation@0"
         },
         {
+          "command": "piIde.sessions.viewRecent",
+          "when": "view == 'piIde.sessions' && piIde.sessions.viewMode == 'byProject'",
+          "group": "navigation@1"
+        },
+        {
+          "command": "piIde.sessions.viewFork",
+          "when": "view == 'piIde.sessions' && piIde.sessions.viewMode == 'recent'",
+          "group": "navigation@1"
+        },
+        {
+          "command": "piIde.sessions.viewByProject",
+          "when": "view == 'piIde.sessions' && piIde.sessions.viewMode == 'fork'",
+          "group": "navigation@1"
+        },
+        {
           "command": "piIde.sessions.filterWorkspace",
           "when": "view == 'piIde.sessions' && !piIde.sessions.workspaceOnly",
-          "group": "navigation@1"
+          "group": "navigation@2"
         },
         {
           "command": "piIde.sessions.showAll",
           "when": "view == 'piIde.sessions' && piIde.sessions.workspaceOnly",
-          "group": "navigation@1"
+          "group": "navigation@2"
         },
         {
           "command": "piIde.sessions.metaInline",
           "when": "view == 'piIde.sessions' && piIde.sessions.metaLayout == 'line'",
-          "group": "navigation@2"
+          "group": "navigation@3"
         },
         {
           "command": "piIde.sessions.metaLine",
           "when": "view == 'piIde.sessions' && piIde.sessions.metaLayout == 'inline'",
-          "group": "navigation@2"
+          "group": "navigation@3"
         },
         {
           "command": "piIde.sessions.collapseAll",
           "when": "view == 'piIde.sessions' && piIde.sessions.viewMode != 'recent' && !piIde.sessions.allCollapsed",
-          "group": "navigation@3"
+          "group": "navigation@4"
         },
         {
           "command": "piIde.sessions.expandAll",
           "when": "view == 'piIde.sessions' && piIde.sessions.viewMode != 'recent' && piIde.sessions.allCollapsed",
-          "group": "navigation@3"
-        },
-        {
-          "command": "piIde.sessions.cycleViewMode",
-          "when": "view == 'piIde.sessions'",
-          "group": "sessions@0"
+          "group": "navigation@4"
         },
         {
           "command": "piIde.sessions.refresh",
           "when": "view == 'piIde.sessions'",
-          "group": "sessions@1"
+          "group": "sessions@0"
         },
         {
           "command": "piIde.openOriginal",
           "when": "view == 'piIde.sessions'",
-          "group": "sessions@2"
+          "group": "sessions@1"
         },
         {
           "command": "piIde.settings",
           "when": "view == 'piIde.sessions'",
-          "group": "sessions@3"
+          "group": "sessions@2"
         },
         {
           "command": "piIde.sessions.editProjectSettings",
           "when": "view == 'piIde.sessions'",
-          "group": "sessions@4"
+          "group": "sessions@3"
         }
       ],
       "editor/title/context": [

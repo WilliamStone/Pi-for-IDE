@@ -27,6 +27,9 @@
 - **Fork view**: a third sessions-view mode (cycle via the toolbar toggle) renders sessions as fork trees inside each project — forked sessions nest under their parent instead of sitting as indistinguishable same-titled siblings. Orphaned forks (parent deleted or filtered out) still show as roots.
 - **Copy Session Title**: the session context menu gains *Copy Session Title* above *Copy Workspace Path* — it copies the full title, not the width-truncated row label.
 - **Case-variant project merge**: sessions whose cwd differs only by drive-letter case (a legacy pi artifact, `s:\…` vs `S:\…`) now group under one project — the tree keys on the server's normalized `projectKey`, case-folding only on Windows so POSIX paths keep their case-sensitivity semantics.
+- **Three-state view switch**: the grouped/recent/fork view toggle moved out of the overflow menu onto the title bar as a mutually-exclusive trio — the visible button shows the mode you'll switch to next.
+- **Typed icons in the sessions tree**: custom SVGs replace codicons — sessions are uniformly blue, projects are Explorer-folder yellow, pins render as an upper-right pin badge on the base icon (not a standalone pin), foreign projects get a lower-left shortcut arrow, and foreign+pinned projects carry both badges.
+- **Fork children order under two-line rows**: in `line` meta layout a fork parent's children now hang under its meta row, so the reading order is parent title → parent meta → child title → child meta (previously the parent's meta fell after the whole child block).
 - Requires pi-web-for-ide ≥ 0.12.2-2 for the newest capabilities (running/awaiting snapshots, session UI state, shutdown consent); older compatible builds degrade gracefully.
 
 ## [0.2.0] - 2026-10-20
