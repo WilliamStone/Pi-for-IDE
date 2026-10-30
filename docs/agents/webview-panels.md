@@ -281,18 +281,31 @@ default `{}` on older hosts.
 First reproduction with the watchdog armed (two wedged tabs, both
 `empty-suspect` — `rows=0 gate=none composer=1 hidden=0`): the wedge is
 **data-side**, and both victims were the last panels to mount and both
-carried the `es1→es2` (`wrapperRebuilt`) fingerprint. A second probe
-layer now logs the writers directly from `useAgentSession.loadSession`
-via the same `pageLog` channel: `loadSession[s:<id8>] 200:
-ctxMsgs=<server msgs> revUnchanged=<0|1> willSet=<msgs committed>
+carried the `es1→es2` reconnect fingerprint. A second probe layer logs
+the writers directly from `useAgentSession.loadSession` via the same
+`pageLog` channel: `loadSession[s:<id8>] 200: ctxMsgs=<server msgs>
+revUnchanged=<bool> staleRef=<bool> willSet=<msgs committed>
 rebuilt=<0|1>` plus `404 → messages cleared`, `dropped result — sid now
 …`, `threw: …`, and `loadContext[…] replaced N msgs with EMPTY
 leafId=…` when a context read overwrites non-empty state with nothing.
-Prime suspect the lines are aimed at: `revisionUnchanged` keeps
-`messagesRef.current`, a ref synced at render — a second `loadSession`
-resolving in the window between the first's `setMessages` and the render
-flush still reads `messagesRef.current === []` and commits an empty
-array over real data.
+
+Root cause (log-proven): the wedged panels logged `ctxMsgs=69
+revUnchanged=false willSet=69` then `ctxMsgs=69 revUnchanged=true
+willSet=0` four milliseconds apart — a **remount mid-flight**. The first
+mount's `loadSession` was still in flight when a `sessionKey` bump
+remounted ChatWindow; the old response then stored the real view
+snapshot, and the new mount's own `loadSession` saw
+`revisionUnchanged=true` but read `messagesRef.current`, which on the
+fresh mount was still `[]` (refs sync at render, not at `setMessages`).
+The `revisionUnchanged` branch committed that empty array into `setData`
+and re-stored it into the view snapshot — chrome with zero rows, and a
+poisoned cache. Earlier tabs survive the same bump because their
+snapshot is already populated, so the remount restores instantly.
+
+Fix: `loadSession` detects the stale-ref case (`revisionUnchanged` with
+an empty `messagesRef` while the snapshot holds rows) and falls through
+to the response's own context window instead of trusting the refs — no
+empty commit, no snapshot poisoning.
 
 E2E note: a 12-round reload loop against a seeded session never reproduced
 the empty state (content present every round), and a standalone-server

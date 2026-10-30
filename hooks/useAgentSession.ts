@@ -699,9 +699,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         && cached?.revision === d.snapshotRevision
         && cached.entryIds.length >= (d.context.entryIds ?? []).length,
       );
-      const persistedMessages = revisionUnchanged ? messagesRef.current : d.context.messages;
-      logToEmbedHost(`loadSession[s:${sid.slice(0, 8)}] 200: ctxMsgs=${d.context.messages.length} revUnchanged=${revisionUnchanged} willSet=${persistedMessages.length} rebuilt=${d.wrapperRebuilt ? 1 : 0}`);
-      setData(revisionUnchanged
+      // messagesRef only syncs at render. A remount mid-flight (or any second
+      // read resolving before the first commit's flush) still sees the fresh
+      // empty array — taking it here would commit [] over real data AND poison
+      // the view snapshot below. A snapshot holding rows the ref lacks proves
+      // the refs are stale: fall through to the response's own window.
+      const liveRefsStale = revisionUnchanged
+        && messagesRef.current.length === 0
+        && (cached?.messages.length ?? 0) > 0;
+      const keepLiveWindow = revisionUnchanged && !liveRefsStale;
+      const persistedMessages = keepLiveWindow ? messagesRef.current : d.context.messages;
+      logToEmbedHost(`loadSession[s:${sid.slice(0, 8)}] 200: ctxMsgs=${d.context.messages.length} revUnchanged=${revisionUnchanged} staleRef=${liveRefsStale} willSet=${persistedMessages.length} rebuilt=${d.wrapperRebuilt ? 1 : 0}`);
+      setData(keepLiveWindow
         ? {
             ...d,
             context: {
@@ -715,7 +724,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           }
         : d);
       setActiveLeafId(d.leafId);
-      if (revisionUnchanged) {
+      if (keepLiveWindow) {
         // Refresh the cached snapshot with the newest leaf/tree/stats while
         // preserving the wider loaded window.
         setSessionViewSnapshot({
