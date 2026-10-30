@@ -10,11 +10,13 @@ import {
   relTime,
   sessionTitle,
   topLevelSessions,
+  truncateToCols,
   workspaceRelation,
   type ApiSession,
   type ProjectGroup,
   type SessionsViewMode,
 } from "./sessions-model";
+import { CONFIG_SECTION, piConfig } from "./config";
 
 /**
  * 原生会话侧栏（Activity Bar → Sessions）：TreeDataProvider 直连本地
@@ -27,6 +29,12 @@ import {
  */
 
 const POLL_MS = 2_500;
+
+// TreeView 无宽度 API，行尾 meta（时间·条数）会被长标题顶出右缘。标题
+// 按可配视觉列宽自截：默认 32 列 ≈ 常规侧栏宽度下给 meta 留 15+ 列；
+// 8 列保底防预算设太小标题消失；0 关闭。tooltip 始终是全名。
+const DEFAULT_TITLE_MAX_COLS = 32;
+const MIN_TITLE_COLS = 8;
 
 interface RunningSnapshot {
   sessionListVersion: number;
@@ -148,6 +156,11 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
   async cycleViewMode(): Promise<void> {
     this.mode = this.mode === "byProject" ? "recent" : "byProject";
     await this.memento.update("piIde.sessions.viewMode", this.mode);
+    this.changeEmitter.fire();
+  }
+
+  /** 配置驱动的重渲染（标题截断宽度等纯视图项）——数据不动仅重铺。 */
+  refreshView(): void {
     this.changeEmitter.fire();
   }
 
@@ -393,11 +406,18 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
     const awaiting = this.awaitingIds.has(s.id);
     const pinned = this.pinnedIds.has(s.id);
     const archived = this.archivedIds.has(s.id);
-    const item = new vscode.TreeItem(sessionTitle(s));
+    const maxCols = piConfig().get<number>("sessions.titleMaxWidth", DEFAULT_TITLE_MAX_COLS);
+    const title = sessionTitle(s);
+    const item = new vscode.TreeItem(
+      maxCols > 0 ? truncateToCols(title, Math.max(MIN_TITLE_COLS, maxCols)) : title,
+    );
     item.id = `piIde.session.${s.id}`;
     this.itemIndex.set(s.id, { item });
     const desc: string[] = [];
-    if (flat && (s.projectRoot ?? s.cwd)) desc.push(s.projectRoot ? s.projectRoot.split(/[\\/]/).pop()! : s.cwd!);
+    if (flat && (s.projectRoot ?? s.cwd)) {
+      const base = s.projectRoot ? s.projectRoot.split(/[\\/]/).pop()! : s.cwd!;
+      desc.push(truncateToCols(base, 16));
+    }
     desc.push(relTime(s.modified));
     if (s.messageCount) desc.push(`${s.messageCount} msgs`);
     item.description = desc.join(" · ");
@@ -668,6 +688,11 @@ export function registerSessionCommands(
     }),
 
     vscode.commands.registerCommand("piIde.sessions.refresh", () => provider.reload()),
+
+    // 纯视图项配置即改即生效：改标题截断宽度只重铺，不拉清单。
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration(`${CONFIG_SECTION}.sessions.titleMaxWidth`)) provider.refreshView();
+    }),
     // 两个命令图标化同一个开关：过滤态显示 $(list-filter)，全部态显示 $(globe)。
     vscode.commands.registerCommand("piIde.sessions.filterWorkspace", async () => {
       await provider.setWorkspaceOnly(true);

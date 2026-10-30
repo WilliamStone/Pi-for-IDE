@@ -115,3 +115,30 @@ export function relTime(iso: string, now = Date.now()): string {
   const mo = Math.floor(d / 30);
   return mo < 12 ? `${mo}mo ago` : `${Math.floor(mo / 12)}y ago`;
 }
+
+/** 视觉列宽：CJK/全角/emoji 记 2，组合附加符记 0，其余 1。TreeView 没有
+ *  宽度 API，自截断要按列宽算才贴近视效——字符数会把中文名算短一半。 */
+export function displayCols(text: string): number {
+  let cols = 0;
+  for (const ch of text) {
+    const cp = ch.codePointAt(0)!;
+    cols += cp >= 0x300 && cp <= 0x36f ? 0 : cp >= 0x2e80 ? 2 : 1;
+  }
+  return cols;
+}
+
+/** 截到 maxCols 列内，超出补 "…"（占 1 列）。maxCols<=0 原样返回。 */
+export function truncateToCols(text: string, maxCols: number): string {
+  if (maxCols <= 0 || displayCols(text) <= maxCols) return text;
+  const keep = Math.max(0, maxCols - 1);
+  let cols = 0;
+  let end = 0;
+  for (const ch of text) {
+    const cp = ch.codePointAt(0)!;
+    const w = cp >= 0x300 && cp <= 0x36f ? 0 : cp >= 0x2e80 ? 2 : 1;
+    if (cols + w > keep) break;
+    cols += w;
+    end += ch.length;
+  }
+  return `${text.slice(0, end)}…`;
+}

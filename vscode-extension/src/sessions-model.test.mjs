@@ -23,6 +23,8 @@ const {
   recentSessions,
   relTime,
   workspaceRelation,
+  displayCols,
+  truncateToCols,
 } = await import("./sessions-model.ts");
 
 const s = (id, over = {}) => ({
@@ -106,4 +108,24 @@ test("relTime: 阶梯文案", () => {
   assert.equal(relTime("2026-10-17T12:00:00Z", now), "3d ago");
   assert.equal(relTime("2026-10-06T12:00:00Z", now), "2w ago");
   assert.equal(relTime("2026-08-20T12:00:00Z", now), "2mo ago");
+});
+
+test("displayCols: CJK 2 列 / 拉丁 1 列 / 组合符 0 列", () => {
+  assert.equal(displayCols("hello"), 5);
+  assert.equal(displayCols("总结一下本项目的功能"), 20);
+  assert.equal(displayCols("Pi — 总结"), 9);
+  assert.equal(displayCols("cafe\u0301"), 4);
+  assert.equal(displayCols("a🙂b"), 4);
+});
+
+test("truncateToCols: 超宽按列截断补省略号", () => {
+  assert.equal(truncateToCols("hello", 10), "hello");
+  assert.equal(truncateToCols("hello world", 6), "hello…");
+  // 预算 5：保留 4 列（"中文" 4 列恰好，再 +1 列 "A" 会超 keep=4）
+  assert.equal(truncateToCols("中文ABC", 5), "中文…");
+  // 半个 CJK 不残字：keep=3 时 "中"(2)+"A"(1)=3 收 A，不收第二个 CJK
+  assert.equal(truncateToCols("中A中", 4), "中A…");
+  // 代理对不拆
+  assert.equal(truncateToCols("a🙂b", 3), "a…");
+  assert.equal(truncateToCols("anything", 0), "anything");
 });

@@ -325,6 +325,12 @@
           "default": "perSession",
           "description": "%config.sessionTabs%"
         },
+        "Pi for IDE.sessions.titleMaxWidth": {
+          "type": "number",
+          "default": 32,
+          "minimum": 0,
+          "description": "%config.sessions.titleMaxWidth%"
+        },
         "Pi for IDE.openBeside": {
           "type": "boolean",
           "default": true,

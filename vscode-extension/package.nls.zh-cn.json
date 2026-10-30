@@ -12,6 +12,7 @@
   "config.package": "在线 registry 包名——托管/全局安装查询用的 pi-web-for-ide 发行包（须含 IDE 集成补丁，而非原版 pi-web）。npm 镜像源继承自你的 npm 配置（`npm config get registry`）。",
   "config.workspaceRoot": "传给 pi-web 会话的项目目录（cwd）。留空则使用当前工作区文件夹。",
   "config.sessionTabs": "会话侧栏点开会话的方式：perSession = 每个会话一个 tab（重复点击聚焦已有 tab）；single = 复用同一个面板在其中切换会话。",
+  "config.sessions.titleMaxWidth": "会话视图中标题的最大视觉列宽（中文/全角字符按 2 列计）。超长标题以省略号截断，保证行尾的时间和消息数始终可见。设为 0 关闭截断。悬停提示中仍显示完整标题。",
   "config.notifyAwaiting": "会话完成一轮并等待输入时显示通知。",
   "config.showOpenInBrowser": "在会话 tab 的精简顶栏中显示“在浏览器中打开”按钮。",
   "config.openBeside": "将 Pi for IDE 面板打开在右侧（相邻分栏），而不是当前活动分栏。",
