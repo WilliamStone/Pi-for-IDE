@@ -388,6 +388,7 @@ const HOST_CAPABILITIES = [
   "eventSourceClose",
   "eventSourceData",
   "eventSourceEnd",
+  "pageLog",
 ] as const;
 
 interface GetCapabilitiesRequest {

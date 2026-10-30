@@ -251,6 +251,33 @@ Hardening landed in three places:
   `pendingScrollRestore` set forever and the message list rendered
   `visibility:hidden` (same chrome-only symptom, different layer).
 
+First real capture (mass-restore, one tab of ten): the affected panel
+showed the composer but no message rows — i.e. **past both the loading
+and the error gates, so `loadSession` resolved** — yet the server logged
+no `empty-context:`/`404:`/`500:` line, i.e. the detail fetch returned
+real content. The loss is therefore **page-internal**: either a later
+write emptied `messages`, or the render pipeline produced zero rows from
+a healthy array (`visibleCount` windowing, `entryIds` keying, a
+`visibility:hidden` left set). Its only distinguishing fingerprint: the
+panel's stream opened, was closed ~10 ms later, and reopened
+(`es1→es2`) — matching `wrapperRebuilt` from a `?force=1` read racing a
+wrapper whose `evictIfDiskAhead` answered true.
+
+To split "data empty" from "render produced 0 rows" without touching
+React internals, `lib/embed/watchdog.ts` (`initEmbedDiagnostics`, armed
+once from `initEmbedKeyRouter`) probes the DOM at +3.5 s and +9 s after
+mount and reports through a new fire-and-forget bridge kind, `pageLog`
+(`logToEmbedHost` → `webviewProvider` → the output channel, prefixed
+`page[s:<id8>]`, no toast): `rows=` counts `[data-entry-id]` elements —
+`rows=0` past the gates is the data-side wedge, `rows>0` with a hidden
+scroller is the render-side wedge; `gate=` exposes a stuck
+loading/error state and `composer=0` a page that never reached the chat
+view. A healthy mount logs `→ content`; the failing panel logs
+`→ empty-suspect` (or `hidden-rows`) `<-- suspected wedge` — the verdict
+line tells us which branch to fix. `pageLog` is registered in
+`HOST_CAPABILITIES`; unknown-kind envelopes degrade to `bridge.handle`'s
+default `{}` on older hosts.
+
 E2E note: a 12-round reload loop against a seeded session never reproduced
 the empty state (content present every round), and a standalone-server
 hammer of the real mount-path fetches (`force=1` detail + state + SSE +

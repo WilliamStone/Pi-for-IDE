@@ -189,6 +189,12 @@ Protocol (all over the existing bridge envelope):
 | host→page | `{kind:"eventSourceData", streamId, chunk}` | decoded SSE text (UTF-8-safe; the host side streams a `TextDecoder`) |
 | host→page | `{kind:"eventSourceEnd", streamId, error?}` | finished / failed / aborted |
 
+Sibling fire-and-forget kinds on the same envelope: `sessionSelected`
+(binds a composer panel to a real session id) and `pageLog`
+(diagnostic line → the host output channel, panel-prefixed, no toast —
+`lib/embed/bridge.ts` `logToEmbedHost`, consumed by the page-side view
+watchdog in `lib/embed/watchdog.ts`).
+
 Semantics match the native object so consumers can't tell: named `event:`
 fields dispatch by type, multiline `data:` joins, `id:`/`retry:` apply,
 stream loss reconnects after the retry delay with `Last-Event-ID`, and a

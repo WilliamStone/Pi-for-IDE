@@ -328,6 +328,12 @@ export class PiWebWebviewPanel extends vscode.Disposable {
         eventProxy.close(message.request);
         return;
       }
+      // 页面诊断日志（notifyEmbedHost 单向投递，无 id）——直通 output
+      // channel，带面板前缀，不弹 toast（kind:"notify" 才是用户提示）。
+      if (proxyKind === "pageLog") {
+        logLifecycle(`page[${this.label()}]: ${String(message.request.message ?? "")}`);
+        return;
+      }
       try {
         const payload = await this.bridge.handle(message.request);
         this.panel?.webview.postMessage({

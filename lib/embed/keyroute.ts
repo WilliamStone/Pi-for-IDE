@@ -4,6 +4,7 @@
 // 跨源 iframe 让按键天然出不去，只能靠页面主动投递。
 
 import { isEmbedMode, notifyEmbedHost } from "./bridge.ts";
+import { initEmbedDiagnostics } from "./watchdog.ts";
 
 /** 值得转发的按键：带任一修饰键，或 F1–F12。裸字母/数字/方向键留页面。 */
 export function shouldForward(e: {
@@ -45,4 +46,7 @@ export function initEmbedKeyRouter(): void {
       repeat: e.repeat,
     });
   });
+  // 空视图看门狗等页面诊断——同一次 init 顺带挂上，embed 外与
+  // 非会话页各自短路（见 watchdog.ts）。
+  initEmbedDiagnostics();
 }

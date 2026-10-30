@@ -207,11 +207,18 @@ export interface EmbedEventSourceCloseRequest {
   pageId: string;
 }
 
+/** 页面诊断日志：fire-and-forget，宿主直通 output channel（非 toast）。 */
+export interface EmbedPageLogRequest {
+  kind: "pageLog";
+  message: string;
+}
+
 export type EmbedRequest =
   | EmbedSessionSelectedRequest
   | EmbedEventSourceInitRequest
   | EmbedEventSourceOpenRequest
   | EmbedEventSourceCloseRequest
+  | EmbedPageLogRequest
   | EmbedOpenFileRequest
   | EmbedCompleteAtRequest
   | EmbedReadFileRequest
@@ -452,6 +459,14 @@ export function notifyEmbedHost(request: EmbedRequest): void {
   } catch {
     // Ignore — standalone mode / cross-origin restrictions.
   }
+}
+
+/**
+ * 页面侧诊断一行直达宿主 output channel——fire-and-forget，
+ * 宿主不弹 toast（与 kind:"notify" 的用户提示区分开）。embed 外空操作。
+ */
+export function logToEmbedHost(message: string): void {
+  notifyEmbedHost({ kind: "pageLog", message });
 }
 
 /**
