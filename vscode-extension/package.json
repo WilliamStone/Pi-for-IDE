@@ -189,6 +189,12 @@
         "icon": "$(expand-all)"
       },
       {
+        "command": "piIde.editor.newSession",
+        "title": "%cmd.sessions.newSession%",
+        "category": "Pi for IDE",
+        "icon": "$(add)"
+      },
+      {
         "command": "piIde.project.pin",
         "title": "%cmd.project.pin%",
         "category": "Pi for IDE",
@@ -590,11 +596,15 @@
         {
           "command": "piIde.sessions.expandAll",
           "when": "false"
+        },
+        {
+          "command": "piIde.editor.newSession",
+          "when": "false"
         }
       ],
       "editor/title": [
         {
-          "command": "piIde.open",
+          "command": "piIde.editor.newSession",
           "group": "navigation@0",
           "when": "activeEditor == 'workbench.editors.files.textFileEditor'"
         },

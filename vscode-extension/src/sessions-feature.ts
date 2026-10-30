@@ -396,6 +396,17 @@ export function registerSessionsFeature(
         ?? "";
       await newSessionAt(cwd);
     }),
+    // 编辑器标题按钮入口：工作区口径 = 活动文件所属 folder（多根不猜
+    // [0]）；配置的工作目录仍然优先，其次才是文件归属与兜底根。
+    vscode.commands.registerCommand("piIde.editor.newSession", async () => {
+      const uri = vscode.window.activeTextEditor?.document.uri;
+      const cwd =
+        resolveConfiguredCwd()
+        ?? (uri ? vscode.workspace.getWorkspaceFolder(uri)?.uri.fsPath : undefined)
+        ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
+        ?? "";
+      await newSessionAt(cwd);
+    }),
     // tab 右键动作：归属按"被右键的 tab"解析——菜单入参是该 tab（label
     // = panel.title 匹配）；拿不到入参才回退激活面板。会话 tab 与 composer
     // tab 同样适用；cwd/session 取面板记录的 reveal 入参。
