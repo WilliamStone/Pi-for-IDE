@@ -676,12 +676,12 @@
         },
         {
           "command": "piIde.sessions.collapseAll",
-          "when": "view == 'piIde.sessions' && piIde.sessions.viewMode == 'byProject' && !piIde.sessions.allCollapsed",
+          "when": "view == 'piIde.sessions' && piIde.sessions.viewMode != 'recent' && !piIde.sessions.allCollapsed",
           "group": "navigation@3"
         },
         {
           "command": "piIde.sessions.expandAll",
-          "when": "view == 'piIde.sessions' && piIde.sessions.viewMode == 'byProject' && piIde.sessions.allCollapsed",
+          "when": "view == 'piIde.sessions' && piIde.sessions.viewMode != 'recent' && piIde.sessions.allCollapsed",
           "group": "navigation@3"
         },
         {

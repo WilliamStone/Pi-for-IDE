@@ -53,7 +53,7 @@
   "cmd.sessions.refresh": "Refresh Sessions",
   "cmd.sessions.filterWorkspace": "Show Workspace Sessions Only",
   "cmd.sessions.showAll": "Show All Sessions",
-  "cmd.sessions.cycleViewMode": "Toggle Grouped/Recent View",
+  "cmd.sessions.cycleViewMode": "Cycle Grouped/Recent/Fork View",
   "cmd.sessions.metaInline": "Switch to Compact Session Rows",
   "cmd.sessions.metaLine": "Switch to Two-Line Session Rows",
   "cmd.sessions.collapseAll": "Collapse All",

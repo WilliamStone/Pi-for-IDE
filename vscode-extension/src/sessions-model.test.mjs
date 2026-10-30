@@ -20,6 +20,7 @@ const {
   sessionTitle,
   topLevelSessions,
   groupByProject,
+  forkForest,
   recentSessions,
   relTime,
   workspaceRelation,
@@ -71,6 +72,40 @@ test("topLevelSessions: subagent 会话被过滤", () => {
     s("c", { relation: { kind: "fork" } }),
   ];
   assert.deepEqual(topLevelSessions(list).map((x) => x.id), ["a", "c"]);
+});
+
+test("groupByProject: projectKey 统一大小写变体（Windows 盘符遗留）", () => {
+  const list = groupByProject([
+    s("a", { projectRoot: "S:\\DevSpace\\AI\\proj", projectKey: "s:\\devspace\\ai\\proj" }),
+    s("b", { projectRoot: "s:\\DevSpace\\AI\\proj", projectKey: "s:\\devspace\\ai\\proj" }),
+    s("c", { projectRoot: "S:\\DevSpace\\AI\\other", projectKey: "s:\\devspace\\ai\\other" }),
+  ]);
+  assert.equal(list.length, 2);
+  assert.deepEqual(list.find((g) => g.key === "s:\\devspace\\ai\\proj").sessions.map((x) => x.id).sort(), ["a", "b"]);
+});
+
+test("forkForest: parentSessionId 挂链、孤儿作根、环截断", () => {
+  const forest = forkForest([
+    s("grand"),
+    s("parent", { parentSessionId: "grand" }),
+    s("child", { parentSessionId: "parent" }),
+    s("sibling", { parentSessionId: "parent" }),
+    s("orphan", { parentSessionId: "deleted-parent" }),
+    s("plain"),
+  ]);
+  assert.equal(forest.length, 3); // grand + orphan + plain
+  const grand = forest.find((n) => n.session.id === "grand");
+  const parent = grand.children.find((n) => n.session.id === "parent");
+  assert.equal(grand.children.length, 1);
+  assert.deepEqual(parent.children.map((n) => n.session.id).sort(), ["child", "sibling"]);
+  assert.equal(forest.find((n) => n.session.id === "orphan").children.length, 0);
+
+  // 人工改出的环 A→B→A：两边都作根出现，不丢行也不死循环
+  const cyclic = forkForest([
+    s("a", { parentSessionId: "b" }),
+    s("b", { parentSessionId: "a" }),
+  ]);
+  assert.equal(cyclic.length, 2);
 });
 
 test("groupByProject: 按 projectRoot 分组、组内按 modified 降序、组序取最新", () => {

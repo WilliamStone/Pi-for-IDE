@@ -24,6 +24,9 @@
 - **Reload hardening**: duplicate same-URL server-ready notifications are dropped, a stale message-ref during a mid-flight remount can no longer blank a tab, same-session restores skip the remount entirely, and a `Reload Page` tab-menu command rescues wedged panels.
 - **Composer drafts persist**: unsent text survives server restarts and window reloads.
 - **Project settings**: edit a project's or the workspace's `.pi/settings.json` straight from the tree; menu entries name their resolved target.
+- **Fork view**: a third sessions-view mode (cycle via the toolbar toggle) renders sessions as fork trees inside each project — forked sessions nest under their parent instead of sitting as indistinguishable same-titled siblings. Orphaned forks (parent deleted or filtered out) still show as roots.
+- **Copy Session Title**: the session context menu gains *Copy Session Title* above *Copy Workspace Path* — it copies the full title, not the width-truncated row label.
+- **Case-variant project merge**: sessions whose cwd differs only by drive-letter case (a legacy pi artifact, `s:\…` vs `S:\…`) now group under one project — the tree keys on the server's normalized `projectKey`, case-folding only on Windows so POSIX paths keep their case-sensitivity semantics.
 - Requires pi-web-for-ide ≥ 0.12.2-2 for the newest capabilities (running/awaiting snapshots, session UI state, shutdown consent); older compatible builds degrade gracefully.
 
 ## [0.2.0] - 2026-10-20

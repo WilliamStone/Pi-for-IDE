@@ -4,6 +4,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { logLifecycle, outputChannel } from "./server-status";
 import {
+  forkForest,
   groupByProject,
   isInWorkspace,
   recentSessions,
@@ -13,6 +14,7 @@ import {
   truncateToCols,
   workspaceRelation,
   type ApiSession,
+  type ForkNode,
   type ProjectGroup,
   type SessionsViewMode,
 } from "./sessions-model";
@@ -161,7 +163,8 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
   }
 
   async cycleViewMode(): Promise<void> {
-    this.mode = this.mode === "byProject" ? "recent" : "byProject";
+    const order: SessionsViewMode[] = ["byProject", "recent", "fork"];
+    this.mode = order[(order.indexOf(this.mode) + 1) % order.length];
     await this.memento.update("piIde.sessions.viewMode", this.mode);
     this.changeEmitter.fire();
   }
@@ -350,8 +353,8 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
     return element;
   }
 
-  /** session→树条目索引（分组父链）——reveal 需要 getParent 解析。 */
-  private readonly itemIndex = new Map<string, { item: vscode.TreeItem; parent?: ProjectItem }>();
+  /** session→树条目索引（父链：项目节点或 fork 父会话）——reveal 需要 getParent 解析。 */
+  private readonly itemIndex = new Map<string, { item: vscode.TreeItem; parent?: vscode.TreeItem }>();
 
   /** tab 右键"在会话列表显示"的条目——索引优先，未渲染到时按模式重建。 */
   revealItemFor(id: string): vscode.TreeItem | undefined {
@@ -374,9 +377,12 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
     return g ? this.projectItem(g) : undefined;
   }
 
+  /** fork 模式下挂到会话行下的 fork 子会话（item → 子行集）。 */
+  private readonly forkChildren = new WeakMap<vscode.TreeItem, vscode.TreeItem[]>();
+
   getChildren(element?: vscode.TreeItem): vscode.TreeItem[] {
     if (element instanceof ProjectItem) return element.sessionItems;
-    if (element) return [];
+    if (element) return this.forkChildren.get(element) ?? [];
     if (this.listVersion === -1 && this.sessions.length === 0) {
       if (this.isStarting?.()) {
         const stage = this.startingStage?.();
@@ -426,11 +432,13 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
     const pinned = this.pinnedProjects.has(group.key);
     const displayName = this.projectNames.get(group.key);
     const label = `${displayName ?? group.label}${group.branch ? ` (${group.branch})` : ""}`;
+    const sorted = group.sessions
+      .sort((a, b) => Number(this.pinnedIds.has(b.id)) - Number(this.pinnedIds.has(a.id)));
     const item = new ProjectItem(
       label,
-      group.sessions
-        .sort((a, b) => Number(this.pinnedIds.has(b.id)) - Number(this.pinnedIds.has(a.id)))
-        .flatMap((s) => this.sessionRows(s, false)),
+      this.mode === "fork"
+        ? forkForest(sorted).flatMap((n) => this.forkRows(n))
+        : sorted.flatMap((s) => this.sessionRows(s, false)),
       group,
     );
     for (const c of item.sessionItems) {
@@ -456,6 +464,23 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
       ? vscode.TreeItemCollapsibleState.Collapsed
       : vscode.TreeItemCollapsibleState.Expanded;
     return item;
+  }
+
+  /** fork 节点 → 行集：节点自身行（+meta 副行），子会话挂进
+   *  forkChildren 由 getChildren 取用——TreeView 的层级靠
+   *  getChildren(element) 递归，不是拍平进父列表。父行展开默认态，
+   *  fork 链整条可见才是这个模式的卖点。 */
+  private forkRows(node: ForkNode): vscode.TreeItem[] {
+    const rows = this.sessionRows(node.session, false);
+    const head = rows[0];
+    if (!node.children.length) return rows;
+    const childRows = node.children.flatMap((c) => this.forkRows(c));
+    this.forkChildren.set(head, childRows);
+    head.collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
+    for (const child of childRows) {
+      if (child.id) this.itemIndex.set(sessionIdOf(child), { item: child, parent: head });
+    }
+    return rows;
   }
 
   private sessionItem(s: ApiSession, flat: boolean): vscode.TreeItem {
