@@ -21,7 +21,7 @@ import { PiIdeServer } from "./piIdeServer";
 import { openProjectSettings } from "./project-settings";
 import { SessionPanels } from "./session-panels";
 import { sessionTitle } from "./sessions-model";
-import { registerSessionCommands, SessionsTreeProvider } from "./sessions-tree";
+import { META_ROW_SCHEME, registerSessionCommands, SessionsTreeProvider } from "./sessions-tree";
 import { PiWebWebviewPanel } from "./webviewProvider";
 
 export interface SessionsFeatureDeps {
@@ -70,6 +70,16 @@ export function registerSessionsFeature(
   // 双行 meta 副行的透明占位图标——让 meta 文本与会话标题文字同列。
   sessionsProvider.metaIconUri = vscode.Uri.joinPath(
     context.extensionUri, "resources", "icons", "blank.svg",
+  );
+  // meta 副行 label 走私有 resourceUri——这里把它染成 description 暗色，
+  // 副行视觉降一级又不破坏与标题文字的列对齐。
+  context.subscriptions.push(
+    vscode.window.registerFileDecorationProvider({
+      provideFileDecoration: (uri) =>
+        uri.scheme === META_ROW_SCHEME
+          ? { color: new vscode.ThemeColor("descriptionForeground"), propagate: false }
+          : undefined,
+    }),
   );
   const sessionsView = vscode.window.createTreeView("piIde.sessions", {
     treeDataProvider: sessionsProvider,

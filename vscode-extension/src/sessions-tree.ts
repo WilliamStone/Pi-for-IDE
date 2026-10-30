@@ -55,6 +55,9 @@ async function apiJson<T>(base: string, path: string, init?: RequestInit): Promi
   return (await res.json()) as T;
 }
 
+/** meta 副行的 resourceUri scheme——FileDecorationProvider 按它染暗 label。 */
+export const META_ROW_SCHEME = "pi-ide-meta";
+
 export class SessionsTreeProvider extends vscode.Disposable implements vscode.TreeDataProvider<vscode.TreeItem> {
   private readonly changeEmitter = new vscode.EventEmitter<void>();
   readonly onDidChangeTreeData = this.changeEmitter.event;
@@ -525,13 +528,13 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
     if (piConfig().get<string>("sessions.metaLayout", "line") !== "line") return [item];
     const desc = typeof item.description === "string" ? item.description : "";
     if (!desc) return [item];
-    // 零宽空格 label：name 容器非空但 0 宽——普通空格+description 边距会
-    // 把 meta 推过标题起点约一个树缩进位；归零后只剩 description 自身 ~3px 边距。
-    const meta = new vscode.TreeItem("\u200B");
-    // 透明占位图标：无图标的行文本起点在槽位左缘，有图标则推到槽位右缘——
-    // 与上排会话标题文字对齐（TreeItem 无缩进/偏移 API，这是唯一定点手段）。
+    // meta 放 label 位 + 透明占位图标：与会话标题同走 icon→label 管线，
+    // 文字列像素级对齐（description 容器自带 ~4px 左边距，用它会偏出）。
+    const meta = new vscode.TreeItem(desc);
+    // resourceUri 走私有 scheme：FileDecorationProvider 把它染成 description
+    // 暗色（见 sessions-feature 注册处）；显式 iconPath 优先于 resource 图标。
+    meta.resourceUri = vscode.Uri.parse(`${META_ROW_SCHEME}://${s.id}`);
     if (this.metaIconUri) meta.iconPath = this.metaIconUri;
-    meta.description = desc;
     item.description = undefined;
     meta.command = item.command;
     meta.contextValue = "piIde.meta";

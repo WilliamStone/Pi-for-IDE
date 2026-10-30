@@ -183,6 +183,7 @@ export const window = {
   createOutputChannel: () => ({ appendLine: () => {}, show: () => {}, dispose: () => {} }),
   createStatusBarItem: () => ({ show() {}, hide() {}, dispose() {} }),
   createTreeView: () => ({ dispose() {}, onDidChangeVisibility: () => ({ dispose() {} }), visible: false }),
+  registerFileDecorationProvider: () => ({ dispose() {} }),
   onDidChangeActiveTextEditor: () => ({ dispose() {} }),
   showErrorMessage: notify("error"),
   showWarningMessage: notify("warning"),

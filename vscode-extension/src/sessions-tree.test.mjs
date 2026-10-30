@@ -78,8 +78,9 @@ test("metaLayout=line：meta 挪到独立副行，副行不带 id 不抢索引",
   assert.equal(meta.contextValue, "piIde.meta");
   assert.equal(meta.iconPath?.fsPath, "blank.svg", "透明占位图标——meta 与标题同列");
   assert.equal(meta.id, undefined, "副行无 id——itemIndex/reveal 不索引");
-  assert.match(String(meta.description), /ago · 7 msgs/);
-  assert.doesNotMatch(String(meta.description), /^[\s└]/, "副行无前导缩进/分支符——顶格读 meta");
+  assert.match(String(meta.label), /ago · 7 msgs/, "meta 在 label 位——与标题同 icon→label 管线，列对齐");
+  assert.equal(meta.description, undefined, "description 不用——其容器左边距会推偏");
+  assert.equal(meta.resourceUri?.scheme, "pi-ide-meta", "私有 scheme 供 FileDecorationProvider 染暗");
   assert.equal(rows[0].description, undefined, "meta 已挪走，主行不再内联");
   assert.equal(meta.command?.command, "piIde.session.open", "副行沿用打开命令");
 });
