@@ -53,6 +53,10 @@
   "cmd.sessions.filterWorkspace": "只看本工作区会话",
   "cmd.sessions.showAll": "显示全部会话",
   "cmd.sessions.cycleViewMode": "切换 分组/最近 视图",
+  "cmd.sessions.metaInline": "切换为紧凑单行",
+  "cmd.sessions.metaLine": "切换为双行显示",
+  "cmd.sessions.collapseAll": "全部折叠",
+  "cmd.sessions.expandAll": "全部展开",
   "cmd.sessions.editWorkspaceSettings": "编辑工作区 .pi/settings.json",
   "cmd.sessions.editProjectSettings": "编辑项目 .pi/settings.json",
 

@@ -164,6 +164,51 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
     this.changeEmitter.fire();
   }
 
+  // 折叠双态：TreeView 无 collapse API（内置 collapseAll 单向）。让组
+  // id 携带"折叠代际"，每次切换发新 id → VS Code 当新节点 → 按
+  // collapsibleState 初始态铺，确定性地全收/全展，不碰焦点不下发
+  // workbench 命令。
+  private collapseGen = 0;
+  private allCollapsed = false;
+  // 展开态账目：手动折叠/展开与命令按钮共享，决定 allCollapsed context。
+  // 首次折叠事件前所有组都处于默认展开——用 seeded 惰性播种全量键。
+  private expandedGroups = new Set<string>();
+  private expandSeeded = false;
+
+  setAllCollapsed(collapsed: boolean): void {
+    this.allCollapsed = collapsed;
+    this.collapseGen++;
+    this.expandSeeded = true;
+    this.expandedGroups = collapsed ? new Set() : new Set(this.topGroupKeys());
+    this.changeEmitter.fire();
+  }
+
+  isAllCollapsed(): boolean {
+    return this.expandSeeded && this.expandedGroups.size === 0;
+  }
+
+  noteExpanded(key: string): void {
+    this.expandedGroups.add(key);
+  }
+
+  noteCollapsed(key: string): void {
+    if (!this.expandSeeded) {
+      this.expandSeeded = true;
+      for (const k of this.topGroupKeys()) this.expandedGroups.add(k);
+    }
+    this.expandedGroups.delete(key);
+  }
+
+  private topGroupKeys(): string[] {
+    return this.getChildren()
+      .filter((x): x is ProjectItem => x instanceof ProjectItem)
+      .map((x) => x.group.key);
+  }
+
+  get viewMode(): SessionsViewMode {
+    return this.mode;
+  }
+
   /** 手动刷新（view/title 按钮）——绕过版本判等直接拉一遍。 */
   async reload(): Promise<void> {
     this.listVersion = -1;
@@ -397,7 +442,12 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
       foreign ? new vscode.ThemeColor("list.deemphasizedForeground") : undefined,
     );
     item.contextValue = `piIde.project${pinned ? ".pinned" : ""}${foreign ? ".wsForeign" : ""}`;
-    item.collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
+    // 代际 id：折叠切换产生新 id → 折叠态按 collapsibleState 初始值重铺；
+    // 数据刷新时代不变 → 用户展开态跨刷新保持。
+    item.id = `piIde.project.${this.collapseGen}.${group.key}`;
+    item.collapsibleState = this.allCollapsed
+      ? vscode.TreeItemCollapsibleState.Collapsed
+      : vscode.TreeItemCollapsibleState.Expanded;
     return item;
   }
 
@@ -472,7 +522,7 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
     const desc = typeof item.description === "string" ? item.description : "";
     if (!desc) return [item];
     const meta = new vscode.TreeItem(" ");
-    meta.description = `   └ ${desc}`;
+    meta.description = desc;
     item.description = undefined;
     meta.command = item.command;
     meta.contextValue = "piIde.meta";
@@ -558,6 +608,16 @@ export function registerSessionCommands(
       headers: body === undefined ? undefined : { "Content-Type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
+  };
+
+  const setMetaLayout = async (v: "line" | "inline") => {
+    await piConfig().update("sessions.metaLayout", v, vscode.ConfigurationTarget.Global);
+    await vscode.commands.executeCommand("setContext", "piIde.sessions.metaLayout", v);
+    provider.refreshView();
+  };
+  const setAllCollapsed = async (collapsed: boolean) => {
+    provider.setAllCollapsed(collapsed);
+    await vscode.commands.executeCommand("setContext", "piIde.sessions.allCollapsed", provider.isAllCollapsed());
   };
 
   context.subscriptions.push(
@@ -724,7 +784,19 @@ export function registerSessionCommands(
       await provider.setWorkspaceOnly(false);
       await vscode.commands.executeCommand("setContext", "piIde.sessions.workspaceOnly", false);
     }),
-    vscode.commands.registerCommand("piIde.sessions.cycleViewMode", () => provider.cycleViewMode()),
+    vscode.commands.registerCommand("piIde.sessions.cycleViewMode", async () => {
+      await provider.cycleViewMode();
+      await vscode.commands.executeCommand("setContext", "piIde.sessions.viewMode", provider.viewMode);
+    }),
+
+    // metaLayout 单双行切换：写全局配置即持久，配置监听器顺带重铺；
+    // context 键驱动按钮的显隐对。
+    vscode.commands.registerCommand("piIde.sessions.metaInline", () => setMetaLayout("inline")),
+    vscode.commands.registerCommand("piIde.sessions.metaLine", () => setMetaLayout("line")),
+
+    // 折叠双态：代际 id 法（见 provider.setAllCollapsed）。
+    vscode.commands.registerCommand("piIde.sessions.collapseAll", () => setAllCollapsed(true)),
+    vscode.commands.registerCommand("piIde.sessions.expandAll", () => setAllCollapsed(false)),
   );
 }
 

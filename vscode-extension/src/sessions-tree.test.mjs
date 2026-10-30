@@ -77,6 +77,48 @@ test("metaLayout=line：meta 挪到独立副行，副行不带 id 不抢索引",
   assert.equal(meta.contextValue, "piIde.meta");
   assert.equal(meta.id, undefined, "副行无 id——itemIndex/reveal 不索引");
   assert.match(String(meta.description), /ago · 7 msgs/);
+  assert.doesNotMatch(String(meta.description), /^[\s└]/, "副行无前导缩进/分支符——顶格读 meta");
   assert.equal(rows[0].description, undefined, "meta 已挪走，主行不再内联");
   assert.equal(meta.command?.command, "piIde.session.open", "副行沿用打开命令");
+});
+
+test("折叠双态：setAllCollapsed 翻转组态与 allCollapsed 账目", async (t) => {
+  const { restore } = fakeServer([session("s1", "/a"), session("s2", "/b")]);
+  t.after(restore);
+  const p = new SessionsTreeProvider(async () => "http://x", memento(), () => []);
+  await p.reload();
+  const groups = () => p.getChildren().filter((x) => x.group);
+
+  assert.equal(groups().length, 2, "两 cwd → 两项目组");
+  assert.equal(p.isAllCollapsed(), false, "未播种前默认展开态");
+  assert.ok(groups().every((g) => g.collapsibleState === 2), "默认 Expanded");
+
+  p.setAllCollapsed(true);
+  assert.equal(p.isAllCollapsed(), true);
+  assert.ok(groups().every((g) => g.collapsibleState === 1), "全部 Collapsed");
+
+  const genIds = groups().map((g) => g.id);
+  p.setAllCollapsed(false);
+  assert.equal(p.isAllCollapsed(), false);
+  assert.ok(groups().every((g) => g.collapsibleState === 2), "全部 Expanded");
+  assert.notDeepEqual(
+    groups().map((g) => g.id), genIds,
+    "代际 id 每次切换都换新——VS Code 按 collapsibleState 重铺",
+  );
+});
+
+test("折叠双态：手动折叠逐组记账，末组折完才算 allCollapsed", async (t) => {
+  const { restore } = fakeServer([session("s1", "/a"), session("s2", "/b")]);
+  t.after(restore);
+  const p = new SessionsTreeProvider(async () => "http://x", memento(), () => []);
+  await p.reload();
+  const keys = p.getChildren().filter((x) => x.group).map((x) => x.group.key);
+  assert.equal(keys.length, 2);
+
+  p.noteCollapsed(keys[0]);
+  assert.equal(p.isAllCollapsed(), false, "还剩一组展开");
+  p.noteCollapsed(keys[1]);
+  assert.equal(p.isAllCollapsed(), true, "末组折完 → 全折叠");
+  p.noteExpanded(keys[0]);
+  assert.equal(p.isAllCollapsed(), false);
 });

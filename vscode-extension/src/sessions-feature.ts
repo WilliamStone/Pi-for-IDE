@@ -69,7 +69,9 @@ export function registerSessionsFeature(
   );
   const sessionsView = vscode.window.createTreeView("piIde.sessions", {
     treeDataProvider: sessionsProvider,
-    showCollapseAll: true,
+    // 内置 collapse-all 是单向按钮——双态折叠/展开改由自绘命令对
+    // （piIde.sessions.collapseAll/expandAll + allCollapsed context）承载。
+    showCollapseAll: false,
   });
   // 打开侧栏=使用意图——立即可见的 "Server is starting…" 胜过等用户
   // 再点某个命令才开始解析/spawn。ensureStarted 是幂等单例，重复踢零成本。
@@ -91,9 +93,37 @@ export function registerSessionsFeature(
       if (e.visible) void ensureServer();
     }),
     vscode.workspace.onDidChangeWorkspaceFolders(() => sessionsProvider.reload()),
+    // 手动展开/折叠同样改按钮态：把组键记账交给 provider，事件只上报。
+    sessionsView.onDidExpandElement((e) => {
+      const g = (e.element as { group?: { key: string } }).group;
+      if (!g) return;
+      sessionsProvider.noteExpanded(g.key);
+      void vscode.commands.executeCommand(
+        "setContext", "piIde.sessions.allCollapsed", sessionsProvider.isAllCollapsed(),
+      );
+    }),
+    sessionsView.onDidCollapseElement((e) => {
+      const g = (e.element as { group?: { key: string } }).group;
+      if (!g) return;
+      sessionsProvider.noteCollapsed(g.key);
+      void vscode.commands.executeCommand(
+        "setContext", "piIde.sessions.allCollapsed", sessionsProvider.isAllCollapsed(),
+      );
+    }),
   );
   void vscode.commands.executeCommand(
     "setContext", "piIde.sessions.workspaceOnly", sessionsProvider.isWorkspaceOnly(),
+  );
+  // 双态按钮对的显隐键：metaLayout 读配置作初值；viewMode/allCollapsed 取 provider 态。
+  void vscode.commands.executeCommand(
+    "setContext", "piIde.sessions.metaLayout",
+    piConfig().get<string>("sessions.metaLayout", "line"),
+  );
+  void vscode.commands.executeCommand(
+    "setContext", "piIde.sessions.viewMode", sessionsProvider.viewMode,
+  );
+  void vscode.commands.executeCommand(
+    "setContext", "piIde.sessions.allCollapsed", sessionsProvider.isAllCollapsed(),
   );
 
   // 状态栏：待输入会话指示器——树藏起来时"有会话在等"不可见是真盲区；

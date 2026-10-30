@@ -56,6 +56,7 @@ export class TreeItem {
   }
 }
 export const TreeItemCollapsibleState = { None: 0, Collapsed: 1, Expanded: 2 };
+export const ConfigurationTarget = { Global: 1, Workspace: 2, WorkspaceFolder: 3 };
 export class MarkdownString {
   constructor(value) {
     this.value = value ?? "";
@@ -115,7 +116,7 @@ export const workspace = {
     return true;
   },
   // 配置读取（piConfig 的底层）——测试中一律回 default。
-  getConfiguration: () => ({ get: (_key, dflt) => dflt }),
+  getConfiguration: () => ({ get: (_key, dflt) => dflt, update: async () => {} }),
   onDidChangeConfiguration: () => ({ dispose() {} }),
 };
 
