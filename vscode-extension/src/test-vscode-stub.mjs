@@ -56,6 +56,24 @@ export class TreeItem {
   }
 }
 export const TreeItemCollapsibleState = { None: 0, Collapsed: 1, Expanded: 2 };
+export class MarkdownString {
+  constructor(value) {
+    this.value = value ?? "";
+  }
+  appendMarkdown(s) {
+    this.value += s;
+    return this;
+  }
+  appendText(s) {
+    this.value += s;
+    return this;
+  }
+}
+export class ThemeColor {
+  constructor(id) {
+    this.id = id;
+  }
+}
 export class ThemeIcon {
   constructor(id, color) { this.id = id; this.color = color; }
 }
@@ -96,6 +114,9 @@ export const workspace = {
     calls.appliedEdits.push(we);
     return true;
   },
+  // 配置读取（piConfig 的底层）——测试中一律回 default。
+  getConfiguration: () => ({ get: (_key, dflt) => dflt }),
+  onDidChangeConfiguration: () => ({ dispose() {} }),
 };
 
 export class RelativePattern {

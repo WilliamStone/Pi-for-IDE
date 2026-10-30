@@ -352,7 +352,7 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
       return items;
     }
     if (this.mode === "recent") {
-      return recentSessions(list).map((s) => this.sessionItem(s, true));
+      return recentSessions(list).flatMap((s) => this.sessionRows(s, true));
     }
     // 排序三档：pinned 置前 → 本工作区项目 → 异区项目（异区是次频入口，
     // 沉底降干扰）；各档内保持 groupByProject 的最新活动序（拖拽
@@ -378,7 +378,7 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
       label,
       group.sessions
         .sort((a, b) => Number(this.pinnedIds.has(b.id)) - Number(this.pinnedIds.has(a.id)))
-        .map((s) => this.sessionItem(s, false)),
+        .flatMap((s) => this.sessionRows(s, false)),
       group,
     );
     for (const c of item.sessionItems) {
@@ -459,6 +459,25 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
       arguments: [s.id, sessionTitle(s)],
     };
     return item;
+  }
+
+  // metaLayout=line：meta 挪到独立副行——空 label+description 渲成暗色
+  // 续行，任何宽度必见（TreeItem 无多行节点，这是双行伪装单行）。
+  // 附属行不给 id（itemIndex/reveal 不索引）、独立 contextValue
+  // "piIde.meta"（避开 viewItem 正则 /piIde\.session/ 的右键菜单误配），
+  // 点击沿用同一会话打开命令。
+  private sessionRows(s: ApiSession, flat: boolean): vscode.TreeItem[] {
+    const item = this.sessionItem(s, flat);
+    if (piConfig().get<string>("sessions.metaLayout", "line") !== "line") return [item];
+    const desc = typeof item.description === "string" ? item.description : "";
+    if (!desc) return [item];
+    const meta = new vscode.TreeItem(" ");
+    meta.description = `   └ ${desc}`;
+    item.description = undefined;
+    meta.command = item.command;
+    meta.contextValue = "piIde.meta";
+    meta.tooltip = item.tooltip;
+    return [item, meta];
   }
 }
 
@@ -689,9 +708,12 @@ export function registerSessionCommands(
 
     vscode.commands.registerCommand("piIde.sessions.refresh", () => provider.reload()),
 
-    // 纯视图项配置即改即生效：改标题截断宽度只重铺，不拉清单。
+    // 纯视图项配置即改即生效：改标题截断宽度/meta 布局只重铺，不拉清单。
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration(`${CONFIG_SECTION}.sessions.titleMaxWidth`)) provider.refreshView();
+      if (
+        e.affectsConfiguration(`${CONFIG_SECTION}.sessions.titleMaxWidth`)
+        || e.affectsConfiguration(`${CONFIG_SECTION}.sessions.metaLayout`)
+      ) provider.refreshView();
     }),
     // 两个命令图标化同一个开关：过滤态显示 $(list-filter)，全部态显示 $(globe)。
     vscode.commands.registerCommand("piIde.sessions.filterWorkspace", async () => {

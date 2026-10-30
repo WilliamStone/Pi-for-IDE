@@ -13,6 +13,7 @@
   "config.workspaceRoot": "传给 pi-web 会话的项目目录（cwd）。留空则使用当前工作区文件夹。",
   "config.sessionTabs": "会话侧栏点开会话的方式：perSession = 每个会话一个 tab（重复点击聚焦已有 tab）；single = 复用同一个面板在其中切换会话。",
   "config.sessions.titleMaxWidth": "会话视图中标题的最大视觉列宽（中文/全角字符按 2 列计）。超长标题以省略号截断，保证行尾的时间和消息数始终可见。设为 0 关闭截断。悬停提示中仍显示完整标题。",
+  "config.sessions.metaLayout": "会话元信息（最后活跃时间、消息条数）在会话视图中的展示方式：line = 标题下方独立的暗色续行（任何宽度都完整可见，行数翻倍）；inline = 标题后方同行追加（紧凑，窄视图可能被裁）。",
   "config.notifyAwaiting": "会话完成一轮并等待输入时显示通知。",
   "config.showOpenInBrowser": "在会话 tab 的精简顶栏中显示“在浏览器中打开”按钮。",
   "config.openBeside": "将 Pi for IDE 面板打开在右侧（相邻分栏），而不是当前活动分栏。",

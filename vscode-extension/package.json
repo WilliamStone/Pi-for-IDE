@@ -331,6 +331,15 @@
           "minimum": 0,
           "description": "%config.sessions.titleMaxWidth%"
         },
+        "Pi for IDE.sessions.metaLayout": {
+          "type": "string",
+          "enum": [
+            "line",
+            "inline"
+          ],
+          "default": "line",
+          "description": "%config.sessions.metaLayout%"
+        },
         "Pi for IDE.openBeside": {
           "type": "boolean",
           "default": true,

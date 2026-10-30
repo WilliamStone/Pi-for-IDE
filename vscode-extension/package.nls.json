@@ -13,6 +13,7 @@
   "config.workspaceRoot": "Project directory (cwd) passed to pi-web sessions. Leave empty to use the current workspace folder.",
   "config.sessionTabs": "How clicking a session in the Sessions sidebar opens chat: perSession = each session gets its own tab (clicking again focuses it); single = reuse one panel, switching sessions inside it.",
   "config.sessions.titleMaxWidth": "Max session title width in the Sessions view, in visual columns (CJK/fullwidth chars count as 2). Longer titles truncate with an ellipsis so the trailing time and message count stay visible. 0 disables truncation. Full title remains in the hover tooltip.",
+  "config.sessions.metaLayout": "How session meta (last-active time, message count) is displayed in the Sessions view: line = on a dimmed continuation row under the title (always fully visible, doubles row count); inline = appended after the title on the same row (compact, may clip on narrow views).",
   "config.notifyAwaiting": "Show a notification when a session finishes a turn and waits for input.",
   "config.showOpenInBrowser": "Show the Open in Browser button in the slim top bar of session tabs.",
   "config.openBeside": "Open the Pi for IDE panel in the adjacent column instead of the active one.",
