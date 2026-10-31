@@ -9,3 +9,4 @@ sample-workspace/**
 *.map
 resources/pi-web/**
 e2e/**
+icon-preview/**

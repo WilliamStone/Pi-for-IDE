@@ -1,0 +1,2 @@
+<!-- glyphs: microsoft/fluentui-emoji + fluentui-system-icons + vscode-codicons (MIT) -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16"><rect width="16" height="16" rx="3" fill="#ecc36f"/><g transform="translate(8,8)"><clipPath id="gc"><circle r="6.5"/></clipPath><circle r="6.5" fill="#1f6fd6" fill-opacity="0.35" stroke="#1f6fd6" stroke-width="0.3"/><g clip-path="url(#gc)" fill="none" stroke="#1f6fd6" stroke-width="0.3"><ellipse rx="2.27" ry="6.5"/><path d="M-6.5 -2.34H6.5"/><path d="M-6.5 2.34H6.5"/></g></g></svg>

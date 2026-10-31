@@ -477,7 +477,7 @@ export class SessionsTreeProvider extends vscode.Disposable implements vscode.Tr
     if (running) return new vscode.ThemeIcon("pulse", new vscode.ThemeColor("testing.iconPassed"));
     if (awaiting) return new vscode.ThemeIcon("bell-dot", new vscode.ThemeColor("testing.iconQueued"));
     if (this.iconDir) {
-      const name = pinned ? "session-pin" : dim ? "session-foreign" : "session";
+      const name = pinned && dim ? "session-foreign-pin" : pinned ? "session-pin" : dim ? "session-foreign" : "session";
       return vscode.Uri.joinPath(this.iconDir, `${name}.svg`);
     }
     return new vscode.ThemeIcon(
