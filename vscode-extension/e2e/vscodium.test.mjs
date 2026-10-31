@@ -6,7 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   cleanElectronEnv, extensionHostStartCount, findVscodium, guardAttachRange,
-  installVsix, latestVsix, makeFixture, openPiPanelViaEditorTitle,
+  installVsix, killFixtureServers, latestVsix, makeFixture, openPiPanelViaEditorTitle,
   releaseAttachGuard, reloadWindow, runCommand, waitForFrame,
   waitForNewExtensionHost,
 } from "./helpers.mjs";
@@ -119,7 +119,7 @@ test("VSCodium: panel opens and iframe reaches pi-web", { timeout: 300_000 }, as
   // attach-first 隔离：占住 303x 空口；真身实例在跑则 skip（不打扰/不污染）
   const guard = await guardAttachRange(fixture.port, fixture.port + 9);
   if (guard.oursPort) {
-    releaseAttachGuard(guard);
+    releaseAttachGuard(guard); killFixtureServers(fixture);
     coverSkip(t, "A panel-open", `real pi-web instance on :${guard.oursPort}`);
     return;
   }
@@ -130,7 +130,7 @@ test("VSCodium: panel opens and iframe reaches pi-web", { timeout: 300_000 }, as
     markCover("A panel-open", "verified");
   } finally {
     await app.close().catch(() => {});
-    releaseAttachGuard(guard);
+    releaseAttachGuard(guard); killFixtureServers(fixture);
     // 拉起的 pi-web 由 watchdog 在窗口关闭后 ~90s 内自退，无需手动清。
   }
 });
@@ -144,7 +144,7 @@ test("VSCodium B: file-review actions drive host diff/open/patch-fallback", { ti
   const seed = seedSession(fixture.root, fixture.workspace);
   const guard = await guardAttachRange(fixture.port, fixture.port + 9);
   if (guard.oursPort) {
-    releaseAttachGuard(guard);
+    releaseAttachGuard(guard); killFixtureServers(fixture);
     coverSkip(t, "B file-review", `real pi-web instance on :${guard.oursPort}`);
     return;
   }
@@ -156,37 +156,31 @@ test("VSCodium B: file-review actions drive host diff/open/patch-fallback", { ti
   try {
     await piFrame.waitForSelector("textarea", { timeout: 60000 });
 
-    // 会话树点击受遮挡/可点击性影响大——直接跳 ?session=<id>，更稳。
-    // 先等列表渲完再跳（SPA 过早赋 search 可能整页 reload 后仍落列表）；
-    // 必须追加而不是替换：embed=vscode 参数丢了页面会退出 embed 态。
-    // cwd 参数优先于 session（getInitialNavigation）——URL 直跳带 cwd 时
-    // session 被忽略。必须走 SPA 内部导航：点会话树条目。
-    const entry = piFrame.locator('a.session-tree-main:has-text("e2e seed turn")').first();
-    try {
-      await entry.waitFor({ timeout: 60000 });
-    } catch (e) {
-      const dump = await piFrame.evaluate(() => ({
-        url: location.href.slice(0, 200),
-        text: document.body?.innerText?.slice(0, 1200),
-      })).catch((err) => String(err));
-      console.log("pi-frame on entry-timeout:", JSON.stringify(dump, null, 2));
-      throw e;
+    // 打开种子会话走原生 Pi Sessions 树——0a8e222 起 piIde.open 只开
+    // composer，页内会话树不再是入口；native 树点击与 E/G/H 同型，稳定。
+    const actBar = win.locator('.activitybar [aria-label*="Pi Sessions"]').first();
+    if (await actBar.count()) {
+      await actBar.click();
+    } else {
+      await runCommand(win, "Pi Sessions");
     }
-    await entry.scrollIntoViewIfNeeded().catch(() => {});
-    try {
-      await entry.click({ timeout: 8000 });
-    } catch {
-      await entry.dispatchEvent("click"); // 遮挡时直发事件
-    }
-    await piFrame.waitForSelector("text=File review", { timeout: 60000 });
+    const srow = win.locator('.monaco-list-row:has-text("e2e seed turn")').first();
+    await srow.waitFor({ state: "visible", timeout: 60000 });
+    await srow.click();
+    const sessFrame = await waitForFrame(
+      win,
+      (u) => /^http:\/\/127\.0\.0\.1:\d+\//.test(u) && u.includes("session=e2e-seed-01"),
+      60000,
+    );
+    await sessFrame.waitForSelector("text=File review", { timeout: 60000 });
 
     // FileReviewCard 行：<button title="{path}">，行内动作 span role=button。
     // 同名文件还有 TurnWrittenFiles 芯片（无动作 span）——用 :has 锁定卡片行。
-    const row = (name) => piFrame.locator(`button[title*="${name}"]:has(span[title])`).first();
+    const row = (name) => sessFrame.locator(`button[title*="${name}"]:has(span[title])`).first();
     try {
       await row("edited.txt").waitFor({ timeout: 30000 });
     } catch (e) {
-      const dump = await piFrame.evaluate(() => ({
+      const dump = await sessFrame.evaluate(() => ({
         url: location.href.slice(0, 200),
         text: document.body?.innerText?.slice(-1500),
       })).catch((err) => String(err));
@@ -216,7 +210,7 @@ test("VSCodium B: file-review actions drive host diff/open/patch-fallback", { ti
     markCover("B file-review", "verified");
   } finally {
     await app.close().catch(() => {});
-    releaseAttachGuard(guard);
+    releaseAttachGuard(guard); killFixtureServers(fixture);
     // 本测试 spawn 的实例 run-record 落在 fixture agentDir（run-record 快照
     // 默认读真目录，本来就记不到它）——靠 watchdog ~90s 自退，无残留风险。
   }
@@ -242,7 +236,7 @@ test("VSCodium C: live prompt turn → revert restores files", { timeout: 480_00
   console.log(`    live model: ${agentSeed.model}`);
   const guard = await guardAttachRange(fixture.port, fixture.port + 9);
   if (guard.oursPort) {
-    releaseAttachGuard(guard);
+    releaseAttachGuard(guard); killFixtureServers(fixture);
     coverSkip(t, "C live-revert", `real pi-web instance on :${guard.oursPort}`);
     return;
   }
@@ -304,7 +298,7 @@ test("VSCodium C: live prompt turn → revert restores files", { timeout: 480_00
     markCover("C live-revert", "verified");
   } finally {
     await app.close().catch(() => {});
-    releaseAttachGuard(guard);
+    releaseAttachGuard(guard); killFixtureServers(fixture);
   }
 });
 
@@ -320,7 +314,7 @@ test("VSCodium E: session-tree click opens deep-linked session tab", { timeout: 
   const seed = seedSession(fixture.root, fixture.workspace); // 会话 id e2e-seed-01
   const guard = await guardAttachRange(fixture.port, fixture.port + 9);
   if (guard.oursPort) {
-    releaseAttachGuard(guard);
+    releaseAttachGuard(guard); killFixtureServers(fixture);
     coverSkip(t, "E session-tree", `real pi-web instance on :${guard.oursPort}`);
     return;
   }
@@ -360,7 +354,7 @@ test("VSCodium E: session-tree click opens deep-linked session tab", { timeout: 
     markCover("E session-tree", "verified");
   } finally {
     await app.close().catch(() => {});
-    releaseAttachGuard(guard);
+    releaseAttachGuard(guard); killFixtureServers(fixture);
   }
 });
 
@@ -374,7 +368,7 @@ test("VSCodium F: hotkey passthrough reaches workbench", { timeout: 300_000 }, a
   const fixture = makeFixture();
   const guard = await guardAttachRange(fixture.port, fixture.port + 9);
   if (guard.oursPort) {
-    releaseAttachGuard(guard);
+    releaseAttachGuard(guard); killFixtureServers(fixture);
     coverSkip(t, "F hotkey", `real pi-web instance on :${guard.oursPort}`);
     return;
   }
@@ -389,7 +383,7 @@ test("VSCodium F: hotkey passthrough reaches workbench", { timeout: 300_000 }, a
     markCover("F hotkey", "verified");
   } finally {
     await app.close().catch(() => {});
-    releaseAttachGuard(guard);
+    releaseAttachGuard(guard); killFixtureServers(fixture);
   }
 });
 
@@ -407,7 +401,7 @@ test("VSCodium G: ext host restart → orphan stays placeholder; tree-click swap
   const seed = seedSession(fixture.root, fixture.workspace);
   const guard = await guardAttachRange(fixture.port, fixture.port + 9);
   if (guard.oursPort) {
-    releaseAttachGuard(guard);
+    releaseAttachGuard(guard); killFixtureServers(fixture);
     coverSkip(t, "G orphan-adopt", `real pi-web instance on :${guard.oursPort}`);
     return;
   }
@@ -471,7 +465,7 @@ test("VSCodium G: ext host restart → orphan stays placeholder; tree-click swap
     markCover("G orphan-adopt", "verified");
   } finally {
     await app.close().catch(() => {});
-    releaseAttachGuard(guard);
+    releaseAttachGuard(guard); killFixtureServers(fixture);
   }
 });
 
@@ -487,7 +481,7 @@ test("VSCodium H: window reload → orphan session tab adopted, no duplicate", {
   const seed = seedSession(fixture.root, fixture.workspace);
   const guard = await guardAttachRange(fixture.port, fixture.port + 9);
   if (guard.oursPort) {
-    releaseAttachGuard(guard);
+    releaseAttachGuard(guard); killFixtureServers(fixture);
     coverSkip(t, "H reload-adopt", `real pi-web instance on :${guard.oursPort}`);
     return;
   }
@@ -537,7 +531,7 @@ test("VSCodium H: window reload → orphan session tab adopted, no duplicate", {
     markCover("H reload-adopt", "verified");
   } finally {
     await app.close().catch(() => {});
-    releaseAttachGuard(guard);
+    releaseAttachGuard(guard); killFixtureServers(fixture);
   }
 });
 
@@ -557,7 +551,7 @@ test("VSCodium I: reload leaves background orphans as lazy placeholders; click a
   const seed = { agentDir: path.join(fixture.root, "agent") };
   const guard = await guardAttachRange(fixture.port, fixture.port + 9);
   if (guard.oursPort) {
-    releaseAttachGuard(guard);
+    releaseAttachGuard(guard); killFixtureServers(fixture);
     coverSkip(t, "I lazy-orphan", `real pi-web instance on :${guard.oursPort}`);
     return;
   }
@@ -633,7 +627,7 @@ test("VSCodium I: reload leaves background orphans as lazy placeholders; click a
     markCover("I lazy-orphan", "verified");
   } finally {
     await app.close().catch(() => {});
-    releaseAttachGuard(guard);
+    releaseAttachGuard(guard); killFixtureServers(fixture);
   }
 });
 
@@ -653,7 +647,7 @@ test("VSCodium J: deleted session's orphan placeholder self-cleans on click (win
   });
   const guard = await guardAttachRange(fixture.port, fixture.port + 9);
   if (guard.oursPort) {
-    releaseAttachGuard(guard);
+    releaseAttachGuard(guard); killFixtureServers(fixture);
     coverSkip(t, "J orphan-selfclean", `real pi-web instance on :${guard.oursPort}`);
     return;
   }
@@ -711,7 +705,7 @@ test("VSCodium J: deleted session's orphan placeholder self-cleans on click (win
     markCover("J orphan-selfclean", "verified");
   } finally {
     await app.close().catch(() => {});
-    releaseAttachGuard(guard);
+    releaseAttachGuard(guard); killFixtureServers(fixture);
   }
 });
 
@@ -726,7 +720,7 @@ test("VSCodium K: Edit Workspace .pi/settings.json — untitled until save, then
   const fixture = makeFixture();
   const guard = await guardAttachRange(fixture.port, fixture.port + 9);
   if (guard.oursPort) {
-    releaseAttachGuard(guard);
+    releaseAttachGuard(guard); killFixtureServers(fixture);
     coverSkip(t, "K project-settings", `real pi-web instance on :${guard.oursPort}`);
     return;
   }
@@ -780,7 +774,7 @@ test("VSCodium K: Edit Workspace .pi/settings.json — untitled until save, then
     markCover("K project-settings", "verified");
   } finally {
     await app.close().catch(() => {});
-    releaseAttachGuard(guard);
+    releaseAttachGuard(guard); killFixtureServers(fixture);
   }
 });
 
@@ -801,7 +795,7 @@ test("VSCodium L: view-menu Edit Workspace .pi/settings.json targets the workspa
   const seed = { agentDir: path.join(fixture.root, "agent") };
   const guard = await guardAttachRange(fixture.port, fixture.port + 9);
   if (guard.oursPort) {
-    releaseAttachGuard(guard);
+    releaseAttachGuard(guard); killFixtureServers(fixture);
     coverSkip(t, "L viewmenu-settings", `real pi-web instance on :${guard.oursPort}`);
     return;
   }
@@ -913,7 +907,7 @@ test("VSCodium L: view-menu Edit Workspace .pi/settings.json targets the workspa
     markCover("L viewmenu-settings", "verified");
   } finally {
     await app.close().catch(() => {});
-    releaseAttachGuard(guard);
+    releaseAttachGuard(guard); killFixtureServers(fixture);
   }
 });
 
@@ -956,7 +950,7 @@ test("VSCodium M: session SSE flows through extension host, not the webview pool
   const seed = seedSession(fixture.root, fixture.workspace); // 会话 id e2e-seed-01
   const guard = await guardAttachRange(fixture.port, fixture.port + 9);
   if (guard.oursPort) {
-    releaseAttachGuard(guard);
+    releaseAttachGuard(guard); killFixtureServers(fixture);
     coverSkip(t, "M eventproxy", `real pi-web instance on :${guard.oursPort}`);
     return;
   }
@@ -1044,7 +1038,7 @@ test("VSCodium M: session SSE flows through extension host, not the webview pool
     markCover("M eventproxy", "verified");
   } finally {
     await app.close().catch(() => {});
-    releaseAttachGuard(guard);
+    releaseAttachGuard(guard); killFixtureServers(fixture);
   }
 });
 
@@ -1061,7 +1055,7 @@ test("VSCodium D: spawned server self-stops after window closes", { timeout: 300
   // 断言对象错成别人的 server，先隔离。
   const guard = await guardAttachRange(fixture.port, fixture.port + 9);
   if (guard.oursPort) {
-    releaseAttachGuard(guard);
+    releaseAttachGuard(guard); killFixtureServers(fixture);
     coverSkip(t, "D watchdog", `real pi-web instance on :${guard.oursPort}`);
     return;
   }
@@ -1082,7 +1076,7 @@ test("VSCodium D: spawned server self-stops after window closes", { timeout: 300
       break;
     }
   }
-  releaseAttachGuard(guard);
+  releaseAttachGuard(guard); killFixtureServers(fixture);
   if (alive) throw new Error(`server on :${port} still answering after window closed + 180s`);
   markCover("D watchdog", "verified");
 });

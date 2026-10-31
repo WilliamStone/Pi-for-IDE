@@ -41,7 +41,9 @@ export function latestVsix(extDir) {
   const files = readdirSync(extDir)
     // -dev/-rc 等后缀也要收——0.2.1-dev 被过滤会静默默认到旧 vsix
     // （曾因此 attach 到 303x 真身实例：老包不认 PI_IDE_ATTACH_RANGE）。
-    .filter((f) => /^pi-for-ide-\d+\.\d+\.\d+(?:-[\w.-]+)?\.vsix$/.test(f))
+    // +dev.<ts>（semver build 元数据，package-dev.mjs 的命名）同样要收，
+    // 否则 dev 包全体被过滤、e2e 静默装到上一次正式版。
+    .filter((f) => /^pi-for-ide-\d+\.\d+\.\d+(?:[-+][\w.-]+)?\.vsix$/.test(f))
     .map((f) => ({ f, m: statSync(path.join(extDir, f)).mtimeMs }))
     .sort((a, b) => b.m - a.m);
   return files[0] ? path.join(extDir, files[0].f) : null;
@@ -136,6 +138,33 @@ export async function guardAttachRange(from = 3030, to = 3039) {
 
 export function releaseAttachGuard(guard) {
   for (const s of guard?.holders ?? []) s.close();
+}
+
+/**
+ * WMI-spawned servers are parented outside the extension host by design —
+ * a fixture's server now outlives its window (~autoStopAfterSec) and can
+ * collide with the next test's attach guard. Kill processes whose
+ * CommandLine references this fixture's userDataDir AND looks like our
+ * spawn (cmd wrapper carrying spawn-*.cmd / node carrying pi-web.js) —
+ * the app itself (--user-data-dir flag) is not matched. Windows-only:
+ * POSIX spawns are still cleaned via killNewRunPids ancestry.
+ */
+export function killFixtureServers(fixture) {
+  if (process.platform !== "win32" || !fixture?.userDataDir) return;
+  const marker = fixture.userDataDir.replace(/[\\/]/g, "[\\\\/]").replace(/'/g, "''");
+  try {
+    const out = execFileSync("powershell", [
+      "-NoProfile", "-Command",
+      `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match '${marker}' -and $_.CommandLine -match 'pi-web|spawn-[0-9]' } | Select-Object -ExpandProperty ProcessId`,
+    ], { encoding: "utf8", timeout: 15000 });
+    for (const line of out.trim().split(/\r?\n/)) {
+      const pid = Number(line.trim());
+      if (!pid) continue;
+      try {
+        execFileSync("taskkill", ["/PID", String(pid), "/T", "/F"], { timeout: 8000 });
+      } catch { /* 已退 */ }
+    }
+  } catch { /* 查询失败不挡测试收尾 */ }
 }
 
 /**
@@ -332,9 +361,12 @@ export async function openPiPanelViaEditorTitle(page, fileName = "hello.txt") {
   const row = page.locator(`.explorer-viewlet .monaco-list-row:has-text("${fileName}")`).first();
   await row.waitFor({ state: "visible", timeout: 30000 });
   await row.click();
-  // 编辑器标题栏导航按钮：piIde.open（icon $(comment-discussion)，
-  // aria-label 只有 title 部分 "Open"，不含 category）
-  const btn = page.locator('.editor-actions .codicon-comment-discussion, .editor-actions [aria-label="Open"]').first();
+  // 编辑器标题栏导航按钮：0a8e222 后换成 piIde.editor.newSession
+  // （icon $(add)，aria-label "New Session"）；更早的包是 piIde.open
+  // （comment-discussion/"Open"）。两种都认，兼容任意被测版本。
+  const btn = page.locator(
+    '.editor-actions .codicon-comment-discussion, .editor-actions .codicon-add, .editor-actions [aria-label="Open"], .editor-actions [aria-label="New Session"]',
+  ).first();
   await btn.waitFor({ state: "visible", timeout: 30000 });
   await btn.click();
 }
