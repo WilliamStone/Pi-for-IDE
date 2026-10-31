@@ -1,5 +1,5 @@
 import * as cp from "child_process";
-import { existsSync } from "fs";
+import { closeSync, existsSync, mkdirSync, openSync, readSync, statSync, writeFileSync } from "fs";
 import * as net from "net";
 import * as path from "path";
 import * as vscode from "vscode";
@@ -57,6 +57,12 @@ const HOST_ID = crypto.randomUUID();
 export class PiIdeServer {
   context: vscode.ExtensionContext;
   child?: cp.ChildProcess;
+  /** 本实例拉起的服务器进程 pid——POSIX 是 child.pid，Windows 是 WMI
+   *  间接创建的 cmd 包装（node 为其子孙，taskkill /T 语义相同）。
+   *  attach 来的保持 undefined——stop() 据此区分"能杀"与"只能求它停"。 */
+  private ownedPid?: number;
+  /** Windows-WMI 路径的 log 尾读 + 存活巡检定时器（child.on('exit') 的替身）。 */
+  private spawnWatchTimer?: ReturnType<typeof setInterval>;
   ready: Promise<string | undefined>;
   resolvedOrigin?: string;
   /** 服务已绑口、origin 已知但 embed 握手可能在途——sessions 清单等只读
@@ -133,7 +139,7 @@ export class PiIdeServer {
     await this.ready;
     // 本宿主拉起的新实例就绪后落「当前实例」标记（attach 来的不写——
     // 标记语义是"最新 spawn"，见 instance-coordination.ts）。
-    if (this.resolvedOrigin && this.child) {
+    if (this.resolvedOrigin && this.ownedPid !== undefined) {
       writeInstanceMarker(
         managedRuntimeRoot(this.context),
         { boot: this.embedBoot, origin: this.resolvedOrigin },
@@ -148,8 +154,16 @@ export class PiIdeServer {
     this.disposed = true;
     this.clearGlobalIfSelf();
     this.stopHeartbeat();
+    this.clearSpawnWatch();
+    // 归属判据统一走 ownedPid（POSIX child.pid / Windows WMI cmd pid）；
+    // POSIX 侧 child 已知退出时 ownedPid 形同虚设——跟"接入来的"一样走
+    // 关停请求而非杀进程（进程已死，杀了也只会报"找不到"）。Windows-WMI
+    // 侧的死亡由 spawnWatch 巡检置 disposed，到不了这里。
     const child = this.child;
-    if (!child || child.exitCode !== null || child.pid === undefined) {
+    const ownedLive =
+      this.ownedPid !== undefined &&
+      (process.platform === "win32" || child === undefined || child.exitCode === null);
+    if (!ownedLive) {
       // 接入来的服务器不持有进程句柄；声明 lifecycle.shutdown 时让服务端
       // 自行优雅退出（共享服务器的正确关法），老服务器则无法停。
       // 服务端收权：有别的心跳客户端（含旧版匿名宿主）→ 409，要 force 重试。
@@ -188,17 +202,19 @@ export class PiIdeServer {
     }
     // 杀整棵进程树，不是只杀顶层：npx/shell 包装链会留下孙进程
     // （server.js 孤儿继续监听端口并攥住缓存目录，曾致 npx EBUSY）。
+    // Windows 下 ownedPid 是 WMI 拉起的 cmd 壳，/T 连子孙 node 一起清。
+    const pid = this.ownedPid;
     if (process.platform === "win32") {
       await new Promise<void>((r) =>
-        cp.exec(`taskkill /PID ${child.pid} /T /F`, { timeout: 10_000, windowsHide: true }, () => r()),
+        cp.exec(`taskkill /PID ${pid} /T /F`, { timeout: 10_000, windowsHide: true }, () => r()),
       );
     } else {
       try {
         // detached 子进程自成进程组：负 pid 杀整组。
-        process.kill(-child.pid, "SIGTERM");
+        process.kill(-(pid as number), "SIGTERM");
       } catch {
         try {
-          child.kill("SIGTERM");
+          process.kill(pid as number, "SIGTERM");
         } catch {
           // 尽力Close。
         }
@@ -214,8 +230,16 @@ export class PiIdeServer {
    */
   release(): void {
     this.stopHeartbeat();
+    this.clearSpawnWatch();
     this.disposed = true;
     this.clearGlobalIfSelf();
+  }
+
+  private clearSpawnWatch(): void {
+    if (this.spawnWatchTimer) {
+      clearInterval(this.spawnWatchTimer);
+      this.spawnWatchTimer = undefined;
+    }
   }
 
   /** 服务器声明 lifecycle.heartbeat 时每 15s 报存在；失败静默重试，
@@ -545,18 +569,28 @@ export class PiIdeServer {
 
     const readyTimeoutMs = 30_000;
 
+    // Windows：cp.spawn 的子进程挂进扩展宿主所在 Job Object（Chromium 给
+    // utility 进程套的 KILL_ON_CLOSE job，成员身份随创建继承——宿主死亡/
+    // 窗口重载时整锅陪葬，detached 旗标逃不出 job）。要让服务器在宿主死
+    // 后存活，必须由 job 外进程创建——经 WMI Win32_Process.Create（创建者
+    // WmiPrvSE 不在 job 内），stdout 落盘由本侧尾读。POSIX 无此问题：
+    // detached 自成进程组，宿主信号都追不上。
+    if (process.platform === "win32") {
+      return this.spawnViaWmi(command, args, env, port, readyTimeoutMs);
+    }
+
     return new Promise((resolve) => {
       const child = cp.spawn(command, args, {
         env,
         stdio: ["ignore", "pipe", "pipe"],
         shell: false,
-        // POSIX 下独立进程组：stop() 时 kill(-pid) 杀整棵子进程树；
-        // Windows 另用 taskkill /T /F（见 stop）。
-        detached: process.platform !== "win32",
+        // POSIX 下独立进程组：stop() 时 kill(-pid) 杀整棵子进程树。
+        detached: true,
         // GUI 宿主下不弹黑色控制台窗口（npm/pi-web 子进程同理）。
         windowsHide: true,
       });
       this.child = child;
+      this.ownedPid = child.pid;
       // 启动窗口记录：spawn→bind 之间端口扫描全盲，兄弟窗口凭记录
       // attach-等而不是重复 spawn（协议见 instance-coordination.ts）。
       const dropBootRecord = recordSpawnBoot(child.pid, port);
@@ -612,6 +646,157 @@ export class PiIdeServer {
           resolve(undefined);
         }
       }, readyTimeoutMs);
+    });
+  }
+
+  /**
+   * Windows spawn 路径：经 WMI Win32_Process.Create 让 WmiPrvSE 拉起
+   * cmd 包装——创建者在扩展宿主的 Job Object 之外，宿主被杀/窗口重载
+   * 不再连带杀服务器（孤儿由 watchdog/lifecycle 自行收割，新宿主 attach
+   * 接管）。stdout/stderr 重定向进 globalStorage/logs 由 spawnWatch 尾读：
+   * 就绪正则、输出通道转发、超时与启动记录语义和 POSIX 路径对齐。
+   *
+   * cmd/ps1 两个脚本落盘而非 -Command 内联：嵌套引号不可控，文件可读可
+   * 复跑，便于排查。ownedPid 记 cmd 壳 pid——taskkill /T 连带子孙 node。
+   */
+  private async spawnViaWmi(
+    command: string,
+    args: string[],
+    env: NodeJS.ProcessEnv,
+    port: number,
+    readyTimeoutMs: number,
+  ): Promise<string | undefined> {
+    const logsDir = path.join(this.context.globalStorageUri.fsPath, "logs");
+    mkdirSync(logsDir, { recursive: true });
+    const stamp = `${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
+    const logFile = path.join(logsDir, `server-${stamp}.log`);
+    const cmdFile = path.join(logsDir, `spawn-${stamp}.cmd`);
+    const ps1File = path.join(logsDir, `spawn-${stamp}.ps1`);
+
+    // env：WMI 创建的进程继承 WmiPrvSE 环境（≠扩展宿主的）——启动必需
+    // 变量全量重设；代理/CA/NODE_OPTIONS 与用户环境路径按名透传。
+    const passthrough = [
+      "PATH", "PORT", "HOSTNAME", "NODE_ENV", "PI_WEB_NO_OPEN",
+      "PI_IDE_COMPILE_CACHE", "PI_WEB_EMBED_WATCHDOG",
+      "PI_WEB_EMBED_WATCHDOG_TIMEOUT_SEC",
+      "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
+      "NODE_OPTIONS", "NODE_EXTRA_CA_CERTS",
+      "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA",
+      "SystemDrive", "SystemRoot", "TEMP", "TMP",
+    ];
+    const setLines = passthrough
+      // set "V=..." 引用式赋值容忍 &|< >%；值里的 %VAR% 会按 cmd 变量重
+      // 展开（同名变量无差），唯独引号/换行会破语法——只排这两个。
+      .filter((k) => env[k] !== undefined && !/["\r\n]/.test(env[k] as string))
+      .map((k) => `set "${k}=${env[k] as string}"`);
+    const quotedArgs = args.map((a) => `"${a.replace(/"/g, "")}"`).join(" ");
+    writeFileSync(
+      cmdFile,
+      ["@echo off", ...setLines, `"${command}" ${quotedArgs} > "${logFile}" 2>&1`, ""].join("\r\n"),
+    );
+    // WMI 间接创建：cmd /s /c ""file"" 剥外层引号执行批处理。cwd 传宿主
+    // 的——cp.spawn 默认继承 cwd，这里显式对齐同一语义。
+    const psq = (s: string) => `'${s.replace(/'/g, "''")}'`;
+    writeFileSync(
+      ps1File,
+      [
+        "$si = ([wmiclass]'Win32_ProcessStartup').CreateInstance()",
+        "$si.ShowWindow = 0",
+        `$r = ([wmiclass]'Win32_Process').Create(${psq(`cmd.exe /d /s /c ""${cmdFile}""`)}, ${psq(process.cwd())}, $si)`,
+        'Write-Output "ret=$($r.ReturnValue);pid=$($r.ProcessId)"',
+        "",
+      ].join("\n"),
+    );
+
+    const pid = await new Promise<number | undefined>((resolve) => {
+      cp.exec(
+        `powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${ps1File}"`,
+        { timeout: 15_000, windowsHide: true },
+        (e, out) => {
+          const m = /ret=(\d+);pid=(\d+)/.exec(out);
+          if (e || !m || m[1] !== "0") {
+            this.channel.appendLine(
+              `WMI spawn failed (ret=${m?.[1] ?? "?"}): ${e ? e.message : out.trim() || "no output"}`,
+            );
+            resolve(undefined);
+            return;
+          }
+          resolve(Number(m[2]));
+        },
+      );
+    });
+    if (pid === undefined) return undefined;
+    this.ownedPid = pid;
+    // 启动窗口记录同 POSIX：兄弟窗口凭记录在端口未绑前 attach-等。
+    const dropBootRecord = recordSpawnBoot(pid, port);
+    logLifecycle(`spawn(wmi): pid=${pid}, port=${port}, log=${logFile}`);
+
+    return new Promise<string | undefined>((resolve) => {
+      let readyLogged = false;
+      let settled = false;
+      const settle = (v: string | undefined) => {
+        if (!settled) {
+          settled = true;
+          resolve(v);
+        }
+      };
+      const onLine = (line: string) => {
+        this.channel.appendLine(line);
+        const match = line.match(/https?:\/\/(127\.0\.0\.1|localhost):\d+/);
+        if (match && !readyLogged) {
+          readyLogged = true;
+          dropBootRecord();
+          const origin = match[0].replace("localhost", "127.0.0.1");
+          logLifecycle(`spawn ready: origin=${origin}`);
+          void fetch(origin).catch(() => undefined);
+          settle(origin);
+        }
+      };
+      // 进程死了（含意外崩溃）：标记并清全局，下次启动拉新进程——
+      // 与 POSIX child.on('exit') 同语义，由 PID 存活巡检触发。
+      const onExit = () => {
+        dropBootRecord();
+        this.clearSpawnWatch();
+        this.channel.appendLine("Pi for IDE process exited (wmi-spawned tree is gone).");
+        this.disposed = true;
+        this.clearGlobalIfSelf();
+        if (this.resolvedOrigin === undefined) settle(undefined);
+      };
+      let offset = 0;
+      let buf = "";
+      this.spawnWatchTimer = setInterval(() => {
+        try {
+          const size = statSync(logFile).size;
+          if (size > offset) {
+            const fd = openSync(logFile, "r");
+            const chunk = Buffer.alloc(size - offset);
+            readSync(fd, chunk, 0, chunk.length, offset);
+            closeSync(fd);
+            offset = size;
+            buf += chunk.toString("utf8");
+            let idx: number;
+            while ((idx = buf.indexOf("\n")) >= 0) {
+              onLine(buf.slice(0, idx).replace(/\r$/, ""));
+              buf = buf.slice(idx + 1);
+            }
+          }
+        } catch {
+          // cmd 还没把文件写出来——下一轮再看。
+        }
+        try {
+          process.kill(pid, 0);
+        } catch {
+          onExit();
+        }
+      }, 300);
+      this.spawnWatchTimer.unref?.();
+      setTimeout(() => {
+        if (!readyLogged) {
+          dropBootRecord();
+          this.channel.appendLine(`Pi for IDE start timed out (${readyTimeoutMs / 1000}s).`);
+          settle(undefined);
+        }
+      }, readyTimeoutMs).unref?.();
     });
   }
 

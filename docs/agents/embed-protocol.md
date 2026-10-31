@@ -83,6 +83,18 @@ owners. Nobody kills anyone — the server dies of silence.
   cheaper than risking a kill of a server another window is using.
   `Pi for IDE: Stop Server` still force-kills the spawned child, and asks an
   attached (not-owned) server to exit via `lifecycle.shutdown`.
+- **Windows spawn escapes the host's Job Object.** VS Code's extension host
+  runs inside a Chromium Job Object with kill-on-close, and spawned children
+  inherit membership — a window reload took the server down with the host
+  (neither watchdog nor EPIPE guard could help; the kill is external). On
+  Windows `spawn()` therefore goes through WMI `Win32_Process.Create`: the
+  process is created by WmiPrvSE, outside the job, and survives host death so
+  the next window can attach. Its cmd wrapper redirects stdout/stderr to a
+  file under `globalStorage/logs/`; the host tails it for ready-detection and
+  the output channel, and a 300 ms watcher (`process.kill(pid, 0)`) replaces
+  `child.on('exit')`. `ownedPid` (the cmd pid) keeps `Stop Server` /
+  taskkill `/T` semantics identical. POSIX keeps `detached` spawn — a new
+  process group already outlives the host.
 - **Server-side shutdown consent:** `POST /api/embed/shutdown` is not an
   unconditional kill. Heartbeats carry a per-extension-host `client` id
   (old clients without the field land in the anonymous `""` bucket). The
