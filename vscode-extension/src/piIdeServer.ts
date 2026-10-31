@@ -673,22 +673,23 @@ export class PiIdeServer {
     const cmdFile = path.join(logsDir, `spawn-${stamp}.cmd`);
     const ps1File = path.join(logsDir, `spawn-${stamp}.ps1`);
 
-    // env：WMI 创建的进程继承 WmiPrvSE 环境（≠扩展宿主的）——启动必需
-    // 变量全量重设；代理/CA/NODE_OPTIONS 与用户环境路径按名透传。
-    const passthrough = [
-      "PATH", "PORT", "HOSTNAME", "NODE_ENV", "PI_WEB_NO_OPEN",
-      "PI_IDE_COMPILE_CACHE", "PI_WEB_EMBED_WATCHDOG",
-      "PI_WEB_EMBED_WATCHDOG_TIMEOUT_SEC",
-      "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
-      "NODE_OPTIONS", "NODE_EXTRA_CA_CERTS",
-      "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA",
-      "SystemDrive", "SystemRoot", "TEMP", "TMP",
-    ];
-    const setLines = passthrough
-      // set "V=..." 引用式赋值容忍 &|< >%；值里的 %VAR% 会按 cmd 变量重
-      // 展开（同名变量无差），唯独引号/换行会破语法——只排这两个。
-      .filter((k) => env[k] !== undefined && !/["\r\n]/.test(env[k] as string))
-      .map((k) => `set "${k}=${env[k] as string}"`);
+    // env：WMI 创建的进程继承 WmiPrvSE 环境（≠扩展宿主的）——不能走
+    // 白名单：ELECTRON_RUN_AS_NODE（Electron 以 node 模式跑的开关，缺了
+    // 会以真 Electron 起并退出）、PI_CODING_AGENT_DIR（e2e/多配置隔离）、
+    // 代理/CA/NODE_OPTIONS、乃至未来的 PI_* 变量全是漏网鱼。对齐
+    // cp.spawn 的 {...process.env} 语义：全量透传，只过滤破坏 .cmd 语法
+    // 的项（引号/换行）与非法变量名。
+    const seen = new Set<string>();
+    const setLines = Object.entries(env)
+      .filter(
+        ([k, v]) =>
+          v !== undefined &&
+          /^[A-Za-z_][A-Za-z0-9_.]*$/.test(k) &&
+          !/["\r\n]/.test(v) &&
+          !seen.has(k.toUpperCase()) &&
+          (seen.add(k.toUpperCase()), true),
+      )
+      .map(([k, v]) => `set "${k}=${v as string}"`);
     const quotedArgs = args.map((a) => `"${a.replace(/"/g, "")}"`).join(" ");
     writeFileSync(
       cmdFile,

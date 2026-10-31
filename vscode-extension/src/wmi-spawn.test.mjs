@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { execSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, readdirSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { registerHooks } from "node:module";
@@ -57,17 +57,39 @@ test("spawnViaWmi: ready via log tail, exit via pid watch", { skip: !isWin, time
     `require("http").createServer((q,s)=>s.end("ok")).listen(${TEST_PORT},"127.0.0.1",` +
       `()=>console.log("- Local: http://127.0.0.1:${TEST_PORT}"));setInterval(()=>{},60000);`,
   );
+  // 生产里 command 是 VSCodium.exe（process.execPath of EH）——必须以
+  // ELECTRON_RUN_AS_NODE=1 跑，缺了它以 Electron 起并立刻退出。本机有
+  // VSCodium 就用真身测透传；没有退回 node.exe 只测管线。
+  const vscodium =
+    process.env.LOCALAPPDATA &&
+    path.join(process.env.LOCALAPPDATA, "Programs", "VSCodium", "VSCodium.exe");
+  const command = vscodium && existsSync(vscodium) ? vscodium : process.execPath;
+  const env = {
+    PATH: process.env.PATH,
+    PORT: String(TEST_PORT),
+    ELECTRON_RUN_AS_NODE: "1",
+    // 全量透传的哨兵：自定义变量必须进 .cmd（白名单时代漏过 EH 注入的
+    // PI_CODING_AGENT_DIR 之类——回归不再靠变量名清单兜底）。
+    PI_CODING_AGENT_DIR: base,
+  };
   const server = makeServer(base, logs);
   try {
     const origin = await server.spawnViaWmi(
-      process.execPath,
+      command,
       [fixture],
-      { PATH: process.env.PATH, PORT: String(TEST_PORT) },
+      env,
       TEST_PORT,
       20_000,
     );
     assert.equal(origin, `http://127.0.0.1:${TEST_PORT}`, "ready line should resolve origin");
     assert.equal(typeof server.ownedPid, "number", "WMI cmd pid recorded as ownedPid");
+
+    // .cmd 里应含全部 env 的 set 行（含 ELECTRON_RUN_AS_NODE 与自定义变量）。
+    const cmdFile = readdirSync(path.join(base, "logs")).find((f) => f.endsWith(".cmd"));
+    const cmdBody = readFileSync(path.join(base, "logs", cmdFile), "utf8");
+    assert.match(cmdBody, /set "ELECTRON_RUN_AS_NODE=1"/);
+    assert.match(cmdBody, /set "PI_CODING_AGENT_DIR=/);
+    assert.match(cmdBody, /set "PORT=3997"/);
 
     // log 文件真落盘且含就绪行；channel 也收到同一行。
     const logDir = path.join(base, "logs");
