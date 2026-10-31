@@ -56,7 +56,7 @@
 <stop stop-color="#F9928A"/>
 <stop offset="1" stop-color="#FFAD5F" stop-opacity="0"/>
 </linearGradient>
-</defs></svg><g transform="translate(8,10.1)"><clipPath id="gc"><circle r="4.1"/></clipPath><circle r="4.1" fill="#1f6fd6" fill-opacity="0.5" stroke="#1f6fd6" stroke-width="0.4"/><g clip-path="url(#gc)" fill="none" stroke="#1f6fd6" stroke-width="0.4"><ellipse rx="1.43" ry="4.1"/><path d="M-4.1 -1.48H4.1"/><path d="M-4.1 1.48H4.1"/></g></g><svg x="8.2" y="-0.6" width="7.8" height="7.8" viewBox="0 0 32 32"><path d="M11.5342 12.6263L18.8858 19.9779L25.4092 13.4545L18.0576 6.10291L11.5342 12.6263Z" fill="#D93965"/>
+</defs></svg><g transform="translate(8,10.1)"><clipPath id="gc"><circle r="3.6"/></clipPath><circle r="3.6" fill="#a6bad4" fill-opacity="1" stroke="#1f6fd6" stroke-width="0.4"/><g clip-path="url(#gc)" fill="none" stroke="#1f6fd6" stroke-width="0.4"><ellipse rx="1.43" ry="3.6"/><path d="M-3.6 -1.48H3.6"/><path d="M-3.6 1.48H3.6"/></g></g><svg x="8.2" y="-0.6" width="7.8" height="7.8" viewBox="0 0 32 32"><path d="M11.5342 12.6263L18.8858 19.9779L25.4092 13.4545L18.0576 6.10291L11.5342 12.6263Z" fill="#D93965"/>
 <path d="M11.5342 12.6263L18.8858 19.9779L25.4092 13.4545L18.0576 6.10291L11.5342 12.6263Z" fill="url(#paint0_linear_18_23113)"/>
 <path d="M11.5342 12.6263L18.8858 19.9779L25.4092 13.4545L18.0576 6.10291L11.5342 12.6263Z" fill="url(#paint1_linear_18_23113)"/>
 <path d="M11.5342 12.6263L18.8858 19.9779L25.4092 13.4545L18.0576 6.10291L11.5342 12.6263Z" fill="url(#paint2_linear_18_23113)"/>
