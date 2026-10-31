@@ -2351,7 +2351,7 @@ export function AppShell() {
               )}
               {!isNarrowMobile && renderChatToolbarActions(true)}
               {renderSessionStatsButton(true)}
-              {renderMainFileToggle(true)}
+              {!chatOnlyView && renderMainFileToggle(true)}
               {isNarrowMobile && mobileToolbarMoreOpen && (
                 <div
                   id="mobile-toolbar-actions"
@@ -2375,7 +2375,7 @@ export function AppShell() {
                   {renderChatToolbarActions(true)}
                 </div>
               )}
-              <OpenInBrowserButton />
+              {(!chatOnlyView || chatBrowserBtn) && <OpenInBrowserButton />}
               <IdeHintBadge />
             </div>
           )}
