@@ -122,6 +122,19 @@ owners. Nobody kills anyone — the server dies of silence.
   warning text and cleanup decisions. The handshake also reports
   `builtAt`/`gitSha`/`installRoot` — same-version different-build copies
   are indistinguishable by `version` alone.
+- **Attached-instance death detection is probe-based, not handle-based.**
+  `lifecycle.shutdown` acknowledges with 204 but keeps answering for a
+  ~500 ms flush window before `process.exit` — so `stop()` waits for the
+  port to actually refuse connections before returning. Without that,
+  a follow-up `ensureServer()` (the upgrade restart leg) re-attaches to
+  the dying server and lands on a corpse. Symmetrically, an *attached*
+  instance has no child/pid watch: when its heartbeat fetch fails, a
+  single confirm probe on `/api/embed` distinguishes "one missed beat"
+  from "server is gone" — gone means `release()` the reference so
+  `peek()` reports not-running and the next real `ensureStarted`
+  re-resolves (respawn or re-attach). Owned instances skip the probe:
+  their pid watch already separates "process dead" from "alive but HTTP
+  hung", which an HTTP probe cannot.
 - **One operator (`src/server-lock.ts`):** "check version / resolve /
   spawn / install" is a cross-window critical section guarded by an
   `mkdir` file lock at `<agentDir>/pi-web-run/ide-server.lock` (same

@@ -16,6 +16,7 @@ import type { SpawnTarget } from "./server-resolve";
 import { emitServerStatus, logLifecycle, outputChannel } from "./server-status";
 import {
   listSpawnBootRecords,
+  readInstanceMarker,
   recordSpawnBoot,
   writeInstanceMarker,
 } from "./instance-coordination";
@@ -77,6 +78,8 @@ export class PiIdeServer {
   /** 握手拿到的服务端进程实例标识（boot）——重启后必变，跨窗口换页判定用。 */
   embedBoot?: string;
   heartbeatTimer?: ReturnType<typeof setInterval>;
+  /** 心跳失败后的确认探测在途——同一时刻只允许一个，防 15s tick 叠加。 */
+  private goneProbing?: boolean;
 
   static ensureStarted(context: vscode.ExtensionContext): Promise<PiIdeServer | undefined> {
     const existing = (globalThis as Record<string, unknown>).__piIdeServer as PiIdeServer | undefined;
@@ -167,10 +170,11 @@ export class PiIdeServer {
       // 接入来的服务器不持有进程句柄；声明 lifecycle.shutdown 时让服务端
       // 自行优雅退出（共享服务器的正确关法），老服务器则无法停。
       // 服务端收权：有别的心跳客户端（含旧版匿名宿主）→ 409，要 force 重试。
-      if (this.resolvedOrigin && this.embedCapabilities["lifecycle.shutdown"]) {
+      const origin = this.resolvedOrigin;
+      if (origin && this.embedCapabilities["lifecycle.shutdown"]) {
         try {
           const post = (force: boolean) =>
-            fetch(`${this.resolvedOrigin}/api/embed/shutdown`, {
+            fetch(`${origin}/api/embed/shutdown`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ client: HOST_ID, force }),
@@ -193,6 +197,15 @@ export class PiIdeServer {
           }
           if (res.ok) {
             this.channel.appendLine("asked the shared server to shut down (lifecycle.shutdown).");
+            // 服务端确认后还要 ~500ms 冲洗窗口才退：等它真释放端口再
+            // 返回——否则紧随的 ensureServer()（升级流程的 restart 腿）
+            // 会把将死实例 attach 回来，接回来它才死，留下永远 running
+            // 的死引用。超时兜底：不阻塞调用方语义。
+            if (!(await this.waitForServerGone(origin, 10_000))) {
+              this.channel.appendLine(
+                "shutdown acknowledged but the port is still bound after 10s — continuing anyway.",
+              );
+            }
           }
         } catch {
           // 已经不在了。
@@ -263,6 +276,7 @@ export class PiIdeServer {
           if (++failures === 1) {
             this.channel.appendLine("embed heartbeat failed — will keep retrying silently.");
           }
+          void this.noteHeartbeatMiss(origin);
         });
     }, 15_000);
     (this.heartbeatTimer as NodeJS.Timeout).unref?.();
@@ -274,6 +288,59 @@ export class PiIdeServer {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = undefined;
     }
+  }
+
+  /**
+   * attach 来的实例（ownedPid 为空）没有进程句柄可巡检：心跳失败即对
+   * /api/embed 做一次确认探测——探不通才判死释放引用，此后 peek() 返空
+   * （树回到 not-running）、下一个真实 ensureStarted 重走 attach→spawn
+   * 换新实例。owned 实例不在这里判：pid 巡检能区分"进程死了"与"活着但
+   * HTTP 挂"，HTTP 探测分不出后者，归 spawnWatch/exit 管。
+   */
+  private async noteHeartbeatMiss(origin: string): Promise<void> {
+    if (this.ownedPid !== undefined || this.disposed || this.goneProbing) return;
+    this.goneProbing = true;
+    try {
+      await fetch(`${origin}/api/embed`, { signal: AbortSignal.timeout(4_000) });
+    } catch {
+      this.markAttachedServerGone(origin);
+    } finally {
+      this.goneProbing = false;
+    }
+  }
+
+  /** attach 来的服务器确认已死：释放引用，本实例从此不再被复用
+   *  （与 release() 同语义——不杀进程，只丢本地引用）。 */
+  private markAttachedServerGone(origin: string): void {
+    if (this.disposed) return;
+    this.channel.appendLine(
+      `server at ${origin} is gone — released the attached instance; next use re-resolves.`,
+    );
+    this.release();
+  }
+
+  /** 等 origin 的端口停止接受 TCP 连接——"服务器真退了"才返回 true；
+   *  超时 false，调用方记日志后继续（不阻塞关停语义）。 */
+  private async waitForServerGone(origin: string, timeoutMs: number): Promise<boolean> {
+    const port = Number(new URL(origin).port || 0);
+    if (!port) return true;
+    const deadline = Date.now() + timeoutMs;
+    do {
+      const bound = await new Promise<boolean>((resolve) => {
+        const sock = net.connect(port, "127.0.0.1");
+        sock.setTimeout(500);
+        const done = (ok: boolean) => {
+          sock.destroy();
+          resolve(ok);
+        };
+        sock.once("connect", () => done(true));
+        sock.once("timeout", () => done(false));
+        sock.once("error", () => done(false));
+      });
+      if (!bound) return true;
+      await new Promise((r) => setTimeout(r, 250));
+    } while (Date.now() < deadline);
+    return false;
   }
 
   // ------------------------------------------------------------------
@@ -407,6 +474,20 @@ export class PiIdeServer {
         .filter((b) => !bound.has(b.port))
         .map((b) => ({ port: b.port, pid: b.pid, cmdline: "ide-spawn record", kind: "ours" as const }));
       const all = [...cands, ...booting];
+      // 实例标记记着"本宿主上次拉起/接入的实例"——EH 重启/重载后要接回的
+      // 就是它；端口落在扫描范围外（配了别的起始端口/范围没盖到）时这是
+      // 唯一的接回线索。端口没绑也只多一次毫秒级失败握手。
+      let markerPort = 0;
+      try {
+        markerPort = Number(
+          new URL(readInstanceMarker(managedRuntimeRoot(this.context))?.origin ?? "").port || 0,
+        );
+      } catch {
+        // 标记文件半截/非 URL——按无候选处理。
+      }
+      if (markerPort && !bound.has(markerPort) && !booting.some((b) => b.port === markerPort)) {
+        all.push({ port: markerPort, pid: 0, cmdline: "instance marker", kind: "ours" });
+      }
       if (!all.length && !waitLogged && !bootWaitLogged) return undefined;
       // 冷启 JIT 下 spawn→就绪可达几十秒：只看到启动记录（端口还没影）
       // 时把等待窗拉长——这正是重复 spawn 最容易钻进去的空档。
@@ -417,10 +498,12 @@ export class PiIdeServer {
           `pi-web spawn in progress on :${booting.map((o) => o.port).join("/")} — waiting for it to come up…`,
         );
       }
-      for (const o of all) {
-        const origin = await this.tryAttach(o);
-        if (origin) return origin;
-      }
+      // 候选间无依赖（只读握手）——并发后最坏耗时仍是单次超时量级；串行
+      // 会让"绑口但不答"的僵尸堆积把启动拖成 N×4s 的静默卡死，攥着跨窗
+      // 锁把 EH 拖到被判无响应（e2e 残留 WMI 孤儿实证：10 端口 ~40s）。
+      const hits = await Promise.all(all.map((o) => this.tryAttach(o)));
+      const origin = hits.find((o): o is string => !!o);
+      if (origin) return origin;
       if (all.length && !waitLogged) {
         waitLogged = true;
         this.channel.appendLine(

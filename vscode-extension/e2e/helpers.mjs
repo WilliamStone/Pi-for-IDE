@@ -56,6 +56,7 @@ export function latestVsix(extDir) {
  * 也避免连上用户真身在跑的 3030 实例。
  */
 export function makeFixture() {
+  killLeakedFixtureServers();
   const root = mkdtempSync(path.join(tmpdir(), "pi-e2e-"));
   const workspace = path.join(root, "ws");
   const port = 39000 + Math.floor(Math.random() * 900);
@@ -165,6 +166,29 @@ export function killFixtureServers(fixture) {
       } catch { /* 已退 */ }
     }
   } catch { /* 查询失败不挡测试收尾 */ }
+}
+
+/**
+ * 套件级清扫：此前中断的 run 残留的 fixture 服务器——WMI spawn 的进程
+ * 按设计比宿主 EH 活得久，run 崩在收尾前就在 attach 扫描段留下"绑口
+ * 但不答"的僵尸堆，把后续 run 的启动拖到被判无响应。起手按 pi-e2e-
+ * userDataDir 标记全清；本进程自己的 fixture 还没 spawn，误伤不了。
+ */
+export function killLeakedFixtureServers() {
+  if (process.platform !== "win32") return;
+  try {
+    const out = execFileSync("powershell", [
+      "-NoProfile", "-Command",
+      "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'pi-e2e-' -and $_.CommandLine -match 'pi-web|spawn-[0-9]' } | Select-Object -ExpandProperty ProcessId",
+    ], { encoding: "utf8", timeout: 15000 });
+    for (const line of out.trim().split(/\r?\n/)) {
+      const pid = Number(line.trim());
+      if (!pid) continue;
+      try {
+        execFileSync("taskkill", ["/PID", String(pid), "/T", "/F"], { timeout: 8000 });
+      } catch { /* 已退 */ }
+    }
+  } catch { /* 查询失败不挡测试 */ }
 }
 
 /**
