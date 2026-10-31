@@ -361,6 +361,44 @@ export function registerSessionsFeature(
     if (title) panel.setTitleOverride(`Pi — ${title}`);
   };
 
+  // 死壳被点开/被菜单命中时的自救交换：宿主重启保住的已解析 Mp 输入
+  // 不重跑 resolve()，deserialize 永不来——唯一能"像收养一样"的动作
+  // 是关死壳+原位重开（openSession/reveal 各自的 take* 路径已涵盖）。
+  // composer/legacy 拿不到 state 身份不可考——同 dispatch：关窗自清理。
+  const reviveOrphan = (orphan: OrphanTab): void => {
+    const kind = orphan.kind;
+    if (kind?.kind === "session") {
+      if (sessionsProvider.listLoaded && !sessionsProvider.sessionById(kind.id)) {
+        orphans.drop(orphan.tab);
+        void closeOrphan(orphan);
+        return;
+      }
+      void openSession(kind.id, titleFromOrphanLabel(orphan.tab.label ?? orphan.label));
+      return;
+    }
+    if (kind?.kind === "main" || kind?.kind === "settings") {
+      void (async () => {
+        const taken = orphans.takeKind(kind.kind);
+        if (taken) await closeOrphan(taken);
+        const cwd =
+          resolveConfiguredCwd() ??
+          vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ??
+          "";
+        void ensureServer();
+        const target = kind.kind === "main" ? provider : settingsPanel;
+        await target.reveal(cwd, orphanColumn(orphan) ?? openViewColumn());
+      })();
+      return;
+    }
+    orphans.drop(orphan.tab);
+    void closeOrphan(orphan);
+  };
+  // tab 右键命令的孤儿兜底——入参只有 resource URI，按 viewType 反查登记处。
+  const orphanForMenuArg = (arg: unknown): OrphanTab | undefined => {
+    const path = (arg as { path?: unknown } | undefined)?.path;
+    return typeof path === "string" ? orphans.findByPath(path) : undefined;
+  };
+
   registerSessionCommands(context, {
     getBaseUrl: sessionsBaseUrl,
     ensureServer,
@@ -429,15 +467,27 @@ export function registerSessionsFeature(
     // ——视觉区分=树选中态）。区外会话 revealInExplorer 会误触 openFolder
     // 换掉本窗工作区，不可复用；树定位无此限。composer 无 sessionId 时空操作。
     vscode.commands.registerCommand("piIde.tab.revealInSessions", async (arg?: unknown) => {
-      const id = tabPanelFor(arg)?.session;
+      // 死壳不在 sessionPanels——孤儿兜底：登记处反查会话 id 照常定位。
+      let id = tabPanelFor(arg)?.session;
+      if (!id) {
+        const orphan = orphanForMenuArg(arg);
+        if (orphan?.kind?.kind === "session") id = orphan.kind.id;
+      }
       const item = id ? sessionsProvider.revealItemFor(id) : undefined;
       if (item) await sessionsView.reveal(item, { select: true, focus: true, expand: true });
     }),
     // tab 右键动作：整页重载——webview 快捷键不穿透进 iframe，菜单是
     // 面板卡死/OOPIF 合成器 wedge（DOM 完整但不上屏）时最近的逃生通道。
     // 所有 pi 面板类型（会话/composer/settings/主面板）共用此路径。
+    // 命中死壳（宿主重启的已解析孤儿）时 Reload Page 语义=复活→走交换。
     vscode.commands.registerCommand("piIde.tab.reloadPage", async (arg?: unknown) => {
-      tabPanelFor(arg)?.reloadPage();
+      const panel = tabPanelFor(arg);
+      if (panel) {
+        panel.reloadPage();
+        return;
+      }
+      const orphan = orphanForMenuArg(arg);
+      if (orphan) reviveOrphan(orphan);
     }),
   );
 
@@ -469,6 +519,7 @@ export function registerSessionsFeature(
     // 清单加载/刷新时补一轮枚举——重载下 tab 恢复晚于激活，清单到达
     // 时编辑器多半已就位；onDidChangeTabs 漏报时这是第二道兜底。
     onExtraEnumerate: sessionsProvider.onDidChangeTreeData,
+    onOrphanActivated: reviveOrphan,
     log: (l) => outputChannel().appendLine(l),
   });
 

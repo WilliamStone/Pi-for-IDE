@@ -178,18 +178,31 @@ webview inputs as lazy `IG` inputs (active-in-group resolves at restore →
 auto-adopt once its serializer registers; background stays lazy until
 clicked). **Extension-host restart** keeps the already-resolved `Mp` inputs —
 `resolve()` is not re-run, `deserialize` never fires, and the orphan is a
-permanent dead shell recoverable only by the reveal-path swap. So adoptable
-orphans are kept as **lazy placeholders** instead of being swept: the tab
-keeps its serialized title, looks normal, and:
+permanent dead shell — DOM and iframe stay alive (scroll-back fetches still
+hit the server directly), but the vscode bridge and SSE proxy are dead, so
+the tab can't run a new turn. Recovery for these used to be only the
+reveal-path swap; now the `onDidChangeTabs` `changed` event's `isActive`
+flip closes the gap: when a registered orphan's tab becomes active and no
+deserialize could ever arrive, `onOrphanActivated` fires the same swap the
+reveal paths use (session → `openSession`, main/settings → singleton reveal
++ `takeKind`, composer/legacy → self-clean close — no state exists to
+recover identity under host restart). `piIde.tab.reloadPage` and
+`revealInSessions` also fall back to `OrphanRegistry.findByPath` when
+`tabPanelFor` misses — Reload Page on a dead shell means "revive", which
+is the swap. So adoptable orphans are kept as **lazy placeholders** instead
+of being swept: the tab keeps its serialized title, looks normal, and:
 
-- **clicked** → resolve → deserialize → `adopt` revives it in place (same
-  DOM node, exact position — the best outcome);
+- **clicked** → (window-reload lazy inputs) resolve → deserialize → `adopt`
+  revives it in place (same DOM node, exact position — the best outcome);
+- **clicked** → (host-restart resolved `Mp` inputs) `changed`/`isActive`
+  fires `onOrphanActivated` → dead shell closes, equivalent live tab opens
+  at the same column — no duplicate ever coexists with the placeholder;
 - **targeted by openSession/reveal** (tree click, pending-open, settings,
   openOriginal, openSessionFull) → the matching `OrphanRegistry.take*` pulls
   it out and `sessions-feature` swaps it: close the placeholder, reopen an
   equivalent live tab at `tab.group.viewColumn` (live-read first, snapshot
   fallback) with the dead label's `Pi — ` prefix stripped back to a session
-  title — no duplicate ever coexists with the placeholder;
+  title;
 - **never touched** → harmless tombstone (title stays correct);
 - **manually closed** → `onDidChangeTabs` drops it from the registry.
 
@@ -206,7 +219,8 @@ nothing visible and preserves exact position/DOM on click-adopt.
 Diagnostics: `[revive] serializer registered for viewType=…`,
 `[revive] deserialize fired viewType=… state=…`,
 `[revive] session <id> no longer exists — closing orphan`,
-`[revive] legacy orphan … — closing (unrecoverable)`.
+`[revive] legacy orphan … — closing (unrecoverable)`,
+`[revive] orphan activated (dead shell, no deserialize) — swapping …`.
 
 ### TreeView visibility events can lag (sessions sidebar)
 

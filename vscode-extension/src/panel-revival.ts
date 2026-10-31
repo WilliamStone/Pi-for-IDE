@@ -94,6 +94,20 @@ export class OrphanRegistry {
     }
     return undefined;
   }
+
+  /** 按 tab 对象查登记项（不摘除）——onDidChangeTabs 激活检测用。 */
+  peek(tab: vscode.Tab): OrphanTab | undefined {
+    return this.byTab.get(tab);
+  }
+
+  /** 按 tab resource URI path 反查（path 形如 webview-<rawVt>-<uuid>）——
+   *  tab 右键命令入参只有 URI；死壳不在 sessionPanels 时它仍在登记处。 */
+  findByPath(path: string): OrphanTab | undefined {
+    for (const orphan of this.byTab.values()) {
+      if (path.includes(`${orphan.rawVt}-`)) return orphan;
+    }
+    return undefined;
+  }
 }
 
 export interface OrphanRevivalDeps {
@@ -111,6 +125,10 @@ export interface OrphanRevivalDeps {
   /** 追加的重扫触发（如会话清单加载/刷新）——重载下编辑器恢复晚于
    *  扩展激活，单靠激活时枚举必输赛跑；onDidChangeTabs 之外再挂一道。 */
   onExtraEnumerate?: vscode.Event<unknown>;
+  /** 孤儿 tab 被激活（点开/Tab 键循环到）——宿主重启下已解析的 Mp
+   *  输入不重跑 resolve()，deserialize 永不来，死壳只能走交换自救：
+   *  回调拿到仍在登记处的孤儿，经 takeSession/openSession/reveal 路径处置。 */
+  onOrphanActivated?: (orphan: OrphanTab) => void;
   log: (line: string) => void;
 }
 
@@ -246,6 +264,8 @@ export function registerOrphanPanelRevival(
   // 先挂事件再跑首轮枚举——两步骤间出现的 tab 由事件兜底，不丢窗口。
   // closed 清理照旧：手关的孤儿摘除（按 viewType 兜底 tab 移组换对象
   // 后对不上的情形）。收养路径在 deserialize 里摘除，交换在 take* 里。
+  // changed 的 isActive 翻转接住"死壳被点开"：宿主重启下 deserialize
+  // 对已解析输入永不触发，激活即交换是唯一能救回死壳的时机。
   context.subscriptions.push(
     vscode.window.tabGroups.onDidChangeTabs((e) => {
       if (e.opened.length || e.changed.length) enumerate();
@@ -253,6 +273,14 @@ export function registerOrphanPanelRevival(
         orphans.drop(t);
         const i = t.input;
         if (i instanceof vscode.TabInputWebview) orphans.drop(i.viewType);
+      }
+      for (const t of e.changed) {
+        if (!t.isActive) continue;
+        const orphan = orphans.peek(t);
+        if (orphan) {
+          log(`[revive] orphan activated (dead shell, no deserialize) — swapping ${orphan.rawVt}`);
+          deps.onOrphanActivated?.(orphan);
+        }
       }
     }),
   );

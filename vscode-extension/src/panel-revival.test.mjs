@@ -41,7 +41,7 @@ function orphanTab(viewType, label = "orphan") {
 }
 
 /** 桩共享的 tabGroups/calls2 每例重置。 */
-function setup(t, tabs, { viewColumn = 2, sessionExists } = {}) {
+function setup(t, tabs, { viewColumn = 2, sessionExists, onOrphanActivated } = {}) {
   stub.tabGroups.all.length = 0;
   const group = { tabs, viewColumn };
   for (const t0 of tabs) t0.group = group;
@@ -67,6 +67,7 @@ function setup(t, tabs, { viewColumn = 2, sessionExists } = {}) {
     settingsPanel: fakeWrapper(),
     orphans,
     sessionExists,
+    onOrphanActivated,
     log: (l) => calls.log.push(l),
   });
   t.after(() => {
@@ -187,6 +188,43 @@ test("legacy 裸 piIde.webview 孤儿不注册不留占位——枚举即关", (
   assert.equal(stub.calls2.serializers.size, 0);
   assert.deepEqual(stub.calls2.closedTabs, [tab], "身份不可考——枚举即关");
   assert.equal(orphans.size, 0, "不进登记处");
+});
+
+test("孤儿 tab 被激活（宿主重启死壳点开）→ onOrphanActivated 交交换路径", (t) => {
+  const activated = [];
+  const tab = orphanTab("piIde.webview.s.sess-dead");
+  tab.isActive = true;
+  const { orphans } = setup(t, [tab], {
+    onOrphanActivated: (o) => activated.push(o),
+  });
+  stub.tabGroups.change(tab);
+  assert.equal(activated.length, 1, "死壳激活即通知宿主侧");
+  assert.equal(activated[0].tab, tab, "通知的是被点开的孤儿本体");
+  assert.ok(orphans.peek(tab), "不摘除——处置归回调方的 take*/close");
+});
+
+test("isActive=false 的 changed 翻转与非孤儿 tab 不触发激活交换", (t) => {
+  const activated = [];
+  const orphan = orphanTab("piIde.webview.s.sess-d1");
+  orphan.isActive = false; // 失活方向——前活跃 tab 退位也报 changed
+  const stranger = { input: { kind: "text" }, label: "file.txt", isActive: true };
+  setup(t, [orphan, stranger], { onOrphanActivated: (o) => activated.push(o) });
+  stub.tabGroups.change(orphan);
+  stub.tabGroups.change(stranger);
+  assert.equal(activated.length, 0, "非激活孤儿与非孤儿都不误触");
+});
+
+test("findByPath 按 tab resource URI 反查死壳（tab 右键兜底）", (t) => {
+  const tab = orphanTab("piIde.webview.s.sess-menu");
+  const { orphans } = setup(t, [tab]);
+  const hit = orphans.findByPath(
+    "webview-panel/webview-piIde.webview.s.sess-menu-9f9a-uuid",
+  );
+  assert.equal(hit?.tab, tab, "URI 尾段 uuid 以 - 分隔——rawVt- 前缀命中");
+  assert.equal(
+    orphans.findByPath("webview-panel/webview-piIde.webview.s.other-uuid"),
+    undefined,
+  );
 });
 
 test("composer 孤儿按 state 落键：无身份则关，有 cwd 按 new:<cwd> 收养", async (t) => {

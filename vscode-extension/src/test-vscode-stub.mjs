@@ -160,6 +160,10 @@ export const tabGroups = {
     (tabGroups.all[0] ??= { tabs: [] }).tabs.push(tab);
     for (const cb of tabEventListeners) cb({ closed: [], opened: [tab], changed: [] });
   },
+  // tab 属性变化（isActive 翻转等）——死壳被点开的激活检测由它驱动。
+  change: (tab) => {
+    for (const cb of tabEventListeners) cb({ closed: [], opened: [], changed: [tab] });
+  },
   close: async (tab) => {
     calls2.closedTabs.push(tab);
     for (const g of tabGroups.all) {
