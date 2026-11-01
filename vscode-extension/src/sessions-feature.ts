@@ -476,6 +476,18 @@ export function registerSessionsFeature(
       const item = id ? sessionsProvider.revealItemFor(id) : undefined;
       if (item) await sessionsView.reveal(item, { select: true, focus: true, expand: true });
     }),
+    // tab 右键动作：系统文件管理器打开面板 cwd——死壳兜底同
+    // revealInSessions：孤儿反查会话 id 走 sessionDir 口径。
+    vscode.commands.registerCommand("piIde.tab.openInFileExplorer", async (arg?: unknown) => {
+      let dir = tabPanelFor(arg)?.cwd;
+      if (!dir) {
+        const orphan = orphanForMenuArg(arg);
+        if (orphan?.kind?.kind === "session") {
+          dir = sessionsProvider.sessionById(orphan.kind.id)?.cwd ?? undefined;
+        }
+      }
+      if (dir) await vscode.env.openExternal(vscode.Uri.file(dir));
+    }),
     // tab 右键动作：整页重载——webview 快捷键不穿透进 iframe，菜单是
     // 面板卡死/OOPIF 合成器 wedge（DOM 完整但不上屏）时最近的逃生通道。
     // 所有 pi 面板类型（会话/composer/settings/主面板）共用此路径。

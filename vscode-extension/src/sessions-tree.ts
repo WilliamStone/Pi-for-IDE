@@ -808,6 +808,12 @@ export function registerSessionCommands(
         name: typeof item.label === "string" ? item.label : "Pi",
       }).show();
     }),
+    // 系统文件管理器直接进目录——区别于 revealInExplorer（宿主 Explorer
+    // 视图定位）与 revealFileInOS（开父目录并选中条目）。
+    vscode.commands.registerCommand("piIde.session.openInFileExplorer", async (item: vscode.TreeItem) => {
+      const dir = provider.sessionDir(sessionIdOf(item));
+      if (dir) await vscode.env.openExternal(vscode.Uri.file(dir));
+    }),
     vscode.commands.registerCommand("piIde.session.copyTitle", async (item: vscode.TreeItem) => {
       const s = provider.sessionById(sessionIdOf(item));
       if (s) await vscode.env.clipboard.writeText(sessionTitle(s));

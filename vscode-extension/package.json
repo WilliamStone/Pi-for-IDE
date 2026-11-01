@@ -284,6 +284,12 @@
         "icon": "$(terminal)"
       },
       {
+        "command": "piIde.session.openInFileExplorer",
+        "title": "%cmd.session.openInFileExplorer%",
+        "category": "Pi for IDE",
+        "icon": "$(folder-opened)"
+      },
+      {
         "command": "piIde.session.openInWorkspaceWindow",
         "title": "%cmd.session.openInWorkspaceWindow%",
         "category": "Pi for IDE",
@@ -324,6 +330,12 @@
         "title": "%cmd.tab.revealInSessions%",
         "category": "Pi for IDE",
         "icon": "$(list-tree)"
+      },
+      {
+        "command": "piIde.tab.openInFileExplorer",
+        "title": "%cmd.tab.openInFileExplorer%",
+        "category": "Pi for IDE",
+        "icon": "$(folder-opened)"
       },
       {
         "command": "piIde.tab.reloadPage",
@@ -574,6 +586,10 @@
           "when": "false"
         },
         {
+          "command": "piIde.session.openInFileExplorer",
+          "when": "false"
+        },
+        {
           "command": "piIde.session.openInWorkspaceWindow",
           "when": "false"
         },
@@ -599,6 +615,10 @@
         },
         {
           "command": "piIde.tab.revealInSessions",
+          "when": "false"
+        },
+        {
+          "command": "piIde.tab.openInFileExplorer",
           "when": "false"
         },
         {
@@ -754,19 +774,24 @@
       ],
       "editor/title/context": [
         {
-          "command": "piIde.tab.copyWorkspacePath",
-          "when": "resourceFilename =~ /webview-.*piIde\\.webview/ || activeWebviewPanelId =~ /piIde\\.webview/ && !resourceSet",
+          "command": "piIde.tab.revealInSessions",
+          "when": "resourceFilename =~ /webview-.*piIde\\.webview\\.(s|n)/ || activeWebviewPanelId =~ /piIde\\.webview/ && !resourceSet",
           "group": "piweb@0"
         },
         {
-          "command": "piIde.tab.revealInSessions",
-          "when": "resourceFilename =~ /webview-.*piIde\\.webview\\.(s|n)/ || activeWebviewPanelId =~ /piIde\\.webview/ && !resourceSet",
+          "command": "piIde.tab.openInFileExplorer",
+          "when": "resourceFilename =~ /webview-.*piIde\\.webview/ || activeWebviewPanelId =~ /piIde\\.webview/ && !resourceSet",
           "group": "piweb@1"
+        },
+        {
+          "command": "piIde.tab.copyWorkspacePath",
+          "when": "resourceFilename =~ /webview-.*piIde\\.webview/ || activeWebviewPanelId =~ /piIde\\.webview/ && !resourceSet",
+          "group": "piweb@2"
         },
         {
           "command": "piIde.tab.reloadPage",
           "when": "resourceFilename =~ /webview-.*piIde\\.webview/ || activeWebviewPanelId =~ /piIde\\.webview/ && !resourceSet",
-          "group": "piweb@2"
+          "group": "piweb@3"
         }
       ],
       "view/item/context": [
@@ -806,14 +831,19 @@
           "group": "piweb@4"
         },
         {
+          "command": "piIde.session.openInFileExplorer",
+          "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session.*\\.hasDir/",
+          "group": "piweb@5"
+        },
+        {
           "command": "piIde.session.copyTitle",
           "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session/",
-          "group": "piweb@5"
+          "group": "piweb@6"
         },
         {
           "command": "piIde.session.copyWorkspacePath",
           "when": "view == 'piIde.sessions' && viewItem =~ /piIde\\.session.*\\.hasDir/",
-          "group": "piweb@6"
+          "group": "piweb@7"
         },
         {
           "command": "piIde.session.rename",
