@@ -133,6 +133,21 @@
 - **回退的安全线**：回退只恢复该轮写入的文件；你在该轮之后手动改过的文件会被跳过并提示，不会被覆盖。
 - **一份数据两端用**：同一个服务既在面板里也在浏览器里——`Open in Browser` 打开的是同一份会话与配置。
 
+## 故障恢复
+
+面板空白、一直停在加载提示、或升级提示不来？按下面的梯子逐级来，每步都安全独立：
+
+1. **重载面板**：tab 右键 → `Pi for IDE: Reload`。
+2. **重启服务**：`Pi for IDE: Stop Server` → `Pi for IDE: Start`。服务跨窗口共享，其他窗口还在用时停机需要确认。
+3. **重载窗口**：`Developer: Reload Window`——重建扩展宿主和全部 webview。
+4. **重装托管运行时**：先停服务，再删除 `<user-data>/globalStorage/williamstone.pi-for-ide/runtime`（如 `%APPDATA%\VSCodium\User\globalStorage\…` 或 `%APPDATA%\Code\User\globalStorage\…`）。下次启动时扩展按 `installSource` 重新解析安装。服务在跑时不要删版本目录。
+5. **重置设置**：删掉 `settings.json` 里所有 `Pi for IDE.*` 键——指向已移动文件的 `localPackage`/`executablePath` 是常见病根。
+6. **重装扩展**：卸载 → 重载 → 装回。
+
+会话与历史都在用户主目录 `~/.pi` 里——以上任何一步都不碰它。
+
+还不行？来这里报问题：https://github.com/WilliamStone/Pi-for-IDE/issues
+
 ## 上游与各层贡献
 
 - **[pi](https://github.com/earendil-works/pi)**（earendil-works）：底层的编程智能体。

@@ -4,14 +4,15 @@
 
 Embeds the [pi agent](https://github.com/earendil-works/pi)'s web UI into VSCode/VSCodium as a first-class panel, with an IDE-workflow integration layer on top.
 
-![Main UI](../docs/screenshots/main-ui.png)
+![Main UI](docs/screenshots/main-ui.png)
 
 This repo ships two independently installable and updateable deliverables:
 
-| Deliverable | Name | Role |
-|---|---|---|
-| VSCode extension | **`pi-for-ide`** (`WilliamStone.pi-for-ide`) | **The product**. A lightweight host shell (~190KB): launches/connects to a pi-web server and layers IDE integration inside the webview. |
-| npm package | **`@william_stone/pi-web-for-ide`** | The substrate. pi-web plus an IDE adaptation layer; IDE features activate when a host embeds it via `?embed=<host>`. CLI command: `pi-web-for-ide` (deliberately distinct from upstream's `pi-web` so the two can coexist). |
+
+| Deliverable      | Name                                         | Role                                                                                                                                                                                                                       |
+| ---------------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| VSCode extension | **`pi-for-ide`** (`WilliamStone.pi-for-ide`) | **The product**. A lightweight host shell (~190KB): launches/connects to a pi-web server and layers IDE integration inside the webview.                                                                                    |
+| npm package      | **`@william_stone/pi-web-for-ide`**          | The substrate. pi-web plus an IDE adaptation layer; IDE features activate when a host embeds it via`?embed=<host>`. CLI command: `pi-web-for-ide` (deliberately distinct from upstream's `pi-web` so the two can coexist). |
 
 The relationship: `@william_stone/pi-web-for-ide` is "pi-web + a host-adaptation layer". Standalone it behaves like stock pi-web (brand slot shows **Pi Web+**); IDE features activate only in embed mode. The extension carries no pi-web payload — the web app installs and upgrades separately.
 
@@ -38,23 +39,19 @@ All pi-web capabilities (session management, streaming chat, model/OAuth/MCP/ski
 
 - Settings UI
 
-![Settings UI](../docs/screenshots/native-settings-ui.png)
+![Settings UI](docs/screenshots/native-settings-ui.png)
 Added available model settings
 
 - Session tree view menu
-![Session tree view menu](../docs/screenshots/session-view-menus.png)
-
+  ![Session tree view menu](docs/screenshots/session-view-menus.png)
 - Session tree project menu
-![Session tree project menu](../docs/screenshots/session-view-project-popup-menu.png)
-
+  ![Session tree project menu](docs/screenshots/session-view-project-popup-menu.png)
 - Session tree session menu
-![Session tree session menu](../docs/screenshots/session-view-session-popup-menu.png)
-
+  ![Session tree session menu](docs/screenshots/session-view-session-popup-menu.png)
 - Session tree embedded
-![Session tree embedded](../docs/screenshots/session-view-embedded.png)
-
+  ![Session tree embedded](docs/screenshots/session-view-embedded.png)
 - F1 command list
-![F1 command list](../docs/screenshots/f1-command-list.png)
+  ![F1 command list](docs/screenshots/f1-command-list.png)
 
 ## Install & use
 
@@ -71,7 +68,6 @@ Published on [Open VSX](https://open-vsx.org/extension/WilliamStone/pi-for-ide) 
   ```
 
   or search `Pi for IDE` in the Extensions view.
-
 - **VS Code**: its gallery can't reach Open VSX and the CLI has no gallery switch — download the `.vsix` from the Open VSX page, then:
 
   ```powershell
@@ -105,19 +101,20 @@ pi-web status|stop|open|update|update-sdk
 
 ## Settings (extension)
 
-| Setting | Description |
-|---|---|
-| `Pi for IDE.executablePath` | Absolute path to a pi-web entry (standalone `server.js` or `bin/pi-web.js`); usually left empty for auto-resolution. |
-| `Pi for IDE.workspaceRoot` | Project dir for sessions (`cwd`); defaults to the workspace folder. |
-| `Pi for IDE.openBeside` | Open the panel in the adjacent column (default true). |
-| `Pi for IDE.port` | Preferred starting port (default 3030; auto-increments when busy). |
-| `Pi for IDE.package` | Package name for managed-runtime and global lookup (default `@william_stone/pi-web-for-ide`). |
-| `Pi for IDE.autoStart` | Start the server when the editor loads (default off). |
-| `Pi for IDE.autoStop` | Let the spawned server exit after everyone disconnects (default on). |
-| `Pi for IDE.autoStopAfterSec` | Silence before self-stop, min 90s (default `90`). |
-| `Pi for IDE.checkForUpdates` | Notify when a newer server package exists (default on). |
-| `Pi for IDE.localPackage` | Path to a local server tarball, or a folder of `.tgz` builds — the newest wins by `(version, builtAt)`. |
-| `Pi for IDE.installSource` | Upgrade source: `auto` (same version → local), `prefer-remote` (same version → registry), `local`, `registry`. |
+
+| Setting                       | Description                                                                                                         |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `Pi for IDE.executablePath`   | Absolute path to a pi-web entry (standalone`server.js` or `bin/pi-web.js`); usually left empty for auto-resolution. |
+| `Pi for IDE.workspaceRoot`    | Project dir for sessions (`cwd`); defaults to the workspace folder.                                                 |
+| `Pi for IDE.openBeside`       | Open the panel in the adjacent column (default true).                                                               |
+| `Pi for IDE.port`             | Preferred starting port (default 3030; auto-increments when busy).                                                  |
+| `Pi for IDE.package`          | Package name for managed-runtime and global lookup (default`@william_stone/pi-web-for-ide`).                        |
+| `Pi for IDE.autoStart`        | Start the server when the editor loads (default off).                                                               |
+| `Pi for IDE.autoStop`         | Let the spawned server exit after everyone disconnects (default on).                                                |
+| `Pi for IDE.autoStopAfterSec` | Silence before self-stop, min 90s (default`90`).                                                                    |
+| `Pi for IDE.checkForUpdates`  | Notify when a newer server package exists (default on).                                                             |
+| `Pi for IDE.localPackage`     | Path to a local server tarball, or a folder of`.tgz` builds — the newest wins by `(version, builtAt)`.             |
+| `Pi for IDE.installSource`    | Upgrade source:`auto` (same version → local), `prefer-remote` (same version → registry), `local`, `registry`.     |
 
 Can't connect, blank panel, save errors: see [docs/vscode-extension-deploy.md](./docs/vscode-extension-deploy.md).
 

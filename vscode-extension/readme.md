@@ -136,6 +136,21 @@ Session and project actions (open, rename, pin, archive, fork, delete, directory
 - **Revert's safety line**: revert only restores files the turn wrote; files you manually edited after the turn are skipped with a notice instead of being overwritten.
 - **Same data, two fronts**: the same server serves the panel and your browser — `Open in Browser` opens the same sessions and configuration.
 
+## Troubleshooting
+
+Panel blank, stuck on the loading notice, or upgrades not arriving? Walk this ladder — every step is safe and self-contained:
+
+1. **Reload the panel** — tab context menu → `Pi for IDE: Reload`.
+2. **Restart the server** — `Pi for IDE: Stop Server`, then `Pi for IDE: Start`. The server is shared across windows; if others still use it you'll be asked to confirm.
+3. **Reload the window** — `Developer: Reload Window` rebuilds the extension host and every webview.
+4. **Reinstall the managed runtime** — stop the server first, then delete `<user-data>/globalStorage/williamstone.pi-for-ide/runtime` (e.g. `%APPDATA%\VSCodium\User\globalStorage\…` or `%APPDATA%\Code\User\globalStorage\…`). On next start the extension re-resolves `installSource` and installs a fresh copy. Never delete version folders while a server is running.
+5. **Reset settings** — remove all `Pi for IDE.*` keys from `settings.json`; a stale `localPackage` or `executablePath` pointing at a moved file is a common culprit.
+6. **Reinstall the extension** — uninstall, reload, reinstall.
+
+Sessions and history live in `~/.pi` under your home folder — none of these steps touch them.
+
+Still stuck? File an issue: https://github.com/WilliamStone/Pi-for-IDE/issues
+
 ## Upstream & credits
 
 - **[pi](https://github.com/earendil-works/pi)** (earendil-works): the underlying coding agent.

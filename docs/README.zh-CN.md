@@ -113,7 +113,7 @@ pi-web status|stop|open|update|update-sdk
 | `Pi for IDE.port` | 起始端口（默认 3030，被占用自动 +1）。 |
 | `Pi for IDE.package` | 托管/全局查询用的包名（默认 `@william_stone/pi-web-for-ide`）。 |
 
-连不上服务器、面板空白、保存报错等排障指引：[vscode-extension-deploy.md](./vscode-extension-deploy.md)。
+连不上服务器、面板空白、保存报错等排障指引：[vscode-extension-deploy.md](./vscode-extension-deploy.md)；用户侧的逐级恢复梯子（面板空白/加载卡住/升级不到）见[扩展 readme 的「故障恢复」](../vscode-extension/readme.zh-CN.md#故障恢复)。
 
 ## 面向开发者
 
