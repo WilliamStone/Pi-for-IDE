@@ -140,11 +140,22 @@ export function AppShell() {
   const { soundEnabled, onSoundToggle, playDoneSound, unlockAudio, holdAudio, soundEnabledRef } = useAudio();
   const [quoteSelectionEnabled, setQuoteSelectionEnabled] = useState(false);
   useEffect(() => {
-    try {
-      setQuoteSelectionEnabled(localStorage.getItem("pi-quote-selection-enabled") === "true");
-    } catch {
-      // Browser storage is best-effort.
-    }
+    const read = () => {
+      try {
+        setQuoteSelectionEnabled(localStorage.getItem("pi-quote-selection-enabled") === "true");
+      } catch {
+        // Browser storage is best-effort.
+      }
+    };
+    read();
+    // The flag is per-origin but this component's copy is per-document: another
+    // tab/panel flipping it would leave this one stale until remount. `storage`
+    // fires in every same-origin document except the writer, so it syncs live.
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === "pi-quote-selection-enabled") read();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, []);
   const handleQuoteSelectionChange = useCallback((enabled: boolean) => {
     setQuoteSelectionEnabled(enabled);
