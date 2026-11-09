@@ -47,23 +47,43 @@ More: [project menu](docs/screenshots/session-view-project-popup-menu.png) · [s
 
 Requires Node.js ≥ 22.19.0.
 
-**Step 1 — install @william_stone/pi-web-for-ide globally (pnpm recommended):**
+**Step 1 — install the extension**
+
+Published on [Open VSX](https://open-vsx.org/extension/WilliamStone/pi-for-ide) only (for now).
+
+- **VSCodium / Cursor** (Open VSX is their default gallery — no source flag needed):
+
+  ```powershell
+  codium --install-extension WilliamStone.pi-for-ide
+  ```
+
+  or search `Pi for IDE` in the Extensions view.
+
+- **VS Code**: its gallery can't reach Open VSX and the CLI has no gallery switch — download the `.vsix` from the Open VSX page, then:
+
+  ```powershell
+  code --install-extension pi-for-ide-0.6.0.vsix    # or Extensions view → ⋯ → Install from VSIX…
+  ```
+
+**Step 2 — the server component usually needs no manual install**
+
+On first server start the extension installs a managed runtime automatically (versioned directories under `globalStorage`), and keeps checking for upgrades on its own:
+
+- `Pi for IDE: Upgrade Server Component` moves to the newest; `Pi for IDE: Manage Server Versions` picks which installed version runs.
+- `Pi for IDE.installSource` controls the upgrade source (`auto` / `prefer-remote` / `local` / `registry`); `Pi for IDE.localPackage` points at a local `.tgz` or folder for offline/intranet installs.
+- Resolution order: `executablePath` → bundled `resources/` → `npm root -g` → the `pi-web-for-ide` PATH shim → managed runtime — a global install wins when present, which is one way to pin a self-maintained server build.
+
+Then open the **Pi Sessions** view in the activity bar or run **Pi for IDE: Open**. On first use, configure a model/API key via the panel's Settings → Models (shares `~/.pi/agent/` with the pi CLI).
+
+**Optional: install the npm package standalone**
+
+Only needed for browser-only mode, or to have the extension attach to a server you launch yourself (pnpm recommended):
 
 ```bash
 pnpm add -g @william_stone/pi-web-for-ide   # npm i -g works too; local: pnpm i -g ./pi-web-for-ide-0.12.2-3.tgz
 ```
 
 > Why pnpm: it surfaces the package's postinstall for interactive approval (`pnpm approve-builds`) — needed to link the standalone external packages. npm's script blocking has no equivalent escape hatch. Fallback anyway: `pi-web` self-heals the links on startup (≥0.12.2); see `docs/vscode-extension-deploy.md`.
-
-**Step 2 — install the extension and open:**
-
-```powershell
-code --install-extension vscode-extension/pi-for-ide-0.6.0.vsix    # VSCodium: codium
-```
-
-Then open the **Pi Sessions** view in the activity bar or run **Pi for IDE: Open**. On first use, configure a model/API key via the panel's Settings → Models (shares `~/.pi/agent/` with the pi CLI).
-
-**Optional: standalone mode.** The installed package also runs in a plain browser like stock pi-web (brand shows Pi Web+):
 
 ```bash
 pi-web-for-ide            # http://127.0.0.1:3030; see pi-web-for-ide --help for --port/--hostname/--no-open

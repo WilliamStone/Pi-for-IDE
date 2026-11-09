@@ -4,6 +4,8 @@
 
 把 [pi 智能体](https://github.com/earendil-works/pi) 的 Web 界面作为一等面板嵌入 VSCode/VSCodium，并叠加一层面向 IDE 工作流的集成能力。
 
+![主界面](../docs/screenshots/main-ui.png)
+
 本仓库产出两个可独立安装、独立更新的产物：
 
 | 产物 | 名称 | 角色 |
@@ -34,36 +36,67 @@ pi-web 本体的能力（会话管理、流式对话、模型/OAuth/MCP/技能/�
 
 ## 界面截图
 
-![Pi for IDE——会话标签页与原生 Pi Sessions 树](./screenshots/main-ui.png)
+- 设置界面
 
-| | |
-|---|---|
-| ![设置界面](./screenshots/native-settings-ui.png) | ![会话树菜单](./screenshots/session-view-menus.png) |
-| ![会话树嵌入其他视图](./screenshots/session-view-embedded.png) | ![F1 命令清单](./screenshots/f1-command-list.png) |
+![设置界面](../docs/screenshots/native-settings-ui.png)
+增加了可用模型设置
 
-更多：[项目菜单](./screenshots/session-view-project-popup-menu.png) · [会话菜单](./screenshots/session-view-session-popup-menu.png)
+- 会话树视图菜单
+![会话树视图菜单](../docs/screenshots/session-view-menus.png)
+
+- 会话树项目菜单
+![会话树项目菜单](../docs/screenshots/session-view-project-popup-menu.png)
+
+- 会话树会话菜单
+![会话树会话菜单](../docs/screenshots/session-view-session-popup-menu.png)
+
+- 会话树嵌入其他视图
+![会话树嵌入其他视图](../docs/screenshots/session-view-embedded.png)
+
+- F1命令清单
+![F1命令清单](../docs/screenshots/f1-command-list.png)
 
 ## 安装与使用
 
 要求 Node.js ≥ 22.19.0。
 
-**第一步：全局安装 @william_stone/pi-web-for-ide（推荐 pnpm）：**
+**第一步：安装扩展**
+
+目前只发布到 [Open VSX](https://open-vsx.org/extension/WilliamStone/pi-for-ide)。
+
+- **VSCodium / Cursor**（默认商店即 Open VSX，无需指定源）：
+
+  ```powershell
+  codium --install-extension WilliamStone.pi-for-ide
+  ```
+
+  或扩展面板搜索 `Pi for IDE` 安装。
+
+- **VS Code**：扩展面板装不了 Open VSX，CLI 也没有选商店的参数——从 Open VSX 页面下载 `.vsix` 后安装：
+
+  ```powershell
+  code --install-extension pi-for-ide-0.6.0.vsix    # 或扩展面板 ⋯ → Install from VSIX…
+  ```
+
+**第二步：服务端组件——通常无需手动安装**
+
+扩展首次拉起服务时会自动从 npm 安装托管运行时（`globalStorage` 下按版本分目录共存），之后的检查升级也自动：
+
+- `Pi for IDE: Upgrade Server Component` 升到最新；`Pi for IDE: Manage Server Versions` 选择运行哪个已装版本。
+- `Pi for IDE.installSource` 控制升级来源（`auto`/`prefer-remote`/`local`/`registry`）；`Pi for IDE.localPackage` 指向本地 `.tgz` 或目录即可离线/内网安装。
+- 解析顺序：`executablePath` → 内置 `resources/` → `npm root -g` → `pi-web-for-ide` PATH shim → 托管运行时——全局安装若存在会优先命中，可用它锁死自维护的服务端版本。
+
+然后打开活动栏的 **Pi Sessions** 视图，或命令面板执行 **Pi for IDE: Open**。首次使用在面板内 Settings → Models 配模型/API Key（与 pi CLI 共享 `~/.pi/agent/` 配置）。
+
+**可选：独立安装 npm 包**
+
+想要脱离 IDE 的浏览器模式、或让扩展接入你自己拉起的服务时，才需要全局安装（推荐 pnpm）：
 
 ```bash
 pnpm add -g @william_stone/pi-web-for-ide   # 也可用 npm i -g；本地包：pnpm i -g ./pi-web-for-ide-0.12.2-3.tgz
 ```
 
 > 推荐 pnpm 的原因：它装完会列出待批准的构建脚本并可交互勾选确认（`pnpm approve-builds`）——包的 postinstall 要把 standalone 外部包接成 junction；npm 的脚本拦截则没有对应入口。被拦了也有兜底：`pi-web` 启动时会自检补链（≥0.12.2），见 `docs/vscode-extension-deploy.md` 排障节。
-
-**第二步：安装扩展并打开：**
-
-```powershell
-code --install-extension vscode-extension/pi-for-ide-0.6.0.vsix    # VSCodium 用 codium
-```
-
-然后打开活动栏的 **Pi Sessions** 视图，或命令面板执行 **Pi for IDE: Open**。首次使用在面板内 Settings → Models 配模型/API Key（与 pi CLI 共享 `~/.pi/agent/` 配置）。
-
-**可选：独立运行**。装好的包也能脱离 IDE 在浏览器里跑（此时即原版 pi-web 形态，品牌位显示 Pi Web+）：
 
 ```bash
 pi-web-for-ide            # http://127.0.0.1:3030；--port/--hostname/--no-open 等参数见 pi-web-for-ide --help
