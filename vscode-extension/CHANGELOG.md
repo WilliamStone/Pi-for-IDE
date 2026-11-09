@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.0] - 2026-11-09
+
+- **Open Workspace in File Explorer**: new command on the session-tree context menu and the session-tab context menu opens the session's working directory in the OS file manager — it enters the folder itself, distinct from *Reveal in Explorer* (the host's Explorer view) and reveal-file (parent folder + selection).
+- **Dead-shell tabs revive on activation**: a session tab that was already resolved when the extension host restarted (VS Code never re-runs `deserializeWebviewPanel` on it) is detected when you activate it and swapped for a live panel in place — previously it stayed a permanently dead shell whose tab-menu commands silently no-opped. `Reload Page` / `Reveal in Sessions` on such a shell now fall back to the orphan registry and revive it the same way.
+- **Attach robustness**: attach candidates are handshaken concurrently — a pile of bound-but-unresponsive ports no longer stalls startup at N×4s — and the instance marker is itself a candidate, so after an extension-host restart the window re-attaches to its own server even when its port sits outside the scanned range.
+- **Attached-server death detection**: heartbeat failures on an attached (unowned) instance now trigger a `/api/embed` probe; a confirmed-dead instance is released so the next request respawns a healthy server instead of reusing the dead address forever. `stop()` waits until the port actually refuses connections, closing the race where a shutting-down server was immediately re-attached during upgrades.
+- **Windows server spawn via WMI**: spawned servers escape the extension host's Job Object, so they survive extension-host restarts (upgrade, reload-with-extensions) instead of being killed with the host.
+
 ## [0.3.0] - 2026-10-26
 
 - **Native Pi Sessions sidebar**: a dedicated activity-bar view replaces the web sidebar for navigation — sessions grouped by project (or a flat "recent" mode), live running / awaiting-input icons, pinned projects and sessions at the top, and a one-click workspace filter. Startup stages ("Checking for a running server…", "Starting local server…") show inside the view while the server comes up.

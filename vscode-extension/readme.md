@@ -1,8 +1,8 @@
 # Pi for IDE — VS Code extension
 
-![Pi for IDE screenshot](screen.png)
-
 **[Pi for IDE](https://github.com/WilliamStone/Pi-for-IDE)** makes the Pi agent a native part of your editor: the session list is a real tree in the activity bar, chats and settings open as editor tabs, and file reviews run through native diffs — it looks and works like something the IDE shipped with, not a web app in a frame.
+
+![Main UI](../docs/screenshots/main-ui.png)
 
 ## What you get
 
@@ -15,11 +15,12 @@ The **Pi Sessions** view in the activity bar — a native session tree and the e
 - **Grouped by project** (or a flat *Recent* mode), with live **running** / **awaiting input** icons; projects and sessions can be pinned to the top.
 - **Session meta**: last-active time and message count shown in the tree, so the session you want is easy to spot — switch between a trailing inline layout and a two-line layout.
 - **Collapse All / Expand All**: handy when projects and sessions pile up.
-- **Session actions**: open, open in the full page, rename, pin, archive, fork, delete — plus directory actions: reveal in Explorer, open the workspace in a new window, open in an integrated terminal, copy the workspace path.
+- **Session actions**: open, open in the full page, rename, pin, archive, fork, delete, copy title, copy workspace path — plus directory actions: reveal in Explorer, open the workspace in a new window, open in an integrated terminal.
 - **Project actions**: new session, rename, pin, copy path, edit the project's `.pi/settings.json`.
 - **Cross-workspace jumps**: send a session from another workspace to its own window in one click.
 - **Awaiting input**: sessions waiting on you get a badge in the tree, a status-bar count that cycles to the next one when clicked, and an optional toast.
 - **Settings entry**: open the global settings page; edit a project's `.pi/settings.json`.
+- **Drafts survive**: unsent text in the composer survives server restarts and window reloads.
 
 ### Session tabs (editor area)
 
@@ -58,7 +59,33 @@ After each turn, a **File review** card lists the files the agent touched:
 - **Server component updates**: automatically checks for new versions against both a local folder and the npm registry, and shows a source / version / build-stamp comparison.
 - **Shared server instance**: multiple windows and browser tabs connect to the same server — a single view of sessions and configuration, no duplicate processes.
 - **Self-managing server**: can start with the editor; a server the extension spawned exits on its own after every window and page has been disconnected for a quiet period — manually started servers are never managed.
-- **Drafts survive**: unsent text in the composer survives server restarts and window reloads.
+
+## Screenshots
+
+- Settings page
+
+![Settings](../docs/screenshots/native-settings-ui.png)
+Adds an enabled-models section.
+
+- Session tree view menu
+
+![Session view menus](../docs/screenshots/session-view-menus.png)
+
+- Session tree project menu
+
+![Session tree project menu](../docs/screenshots/session-view-project-popup-menu.png)
+
+- Session tree session menu
+
+![Session tree session menu](../docs/screenshots/session-view-session-popup-menu.png)
+
+- Session tree embedded in another view
+
+![Session tree embedded](../docs/screenshots/session-view-embedded.png)
+
+- F1 command list
+
+![F1 command list](../docs/screenshots/f1-command-list.png)
 
 ## Commands
 
@@ -112,11 +139,8 @@ Session and project actions (open, rename, pin, archive, fork, delete, directory
 ## Upstream & credits
 
 - **[pi](https://github.com/earendil-works/pi)** (earendil-works): the underlying coding agent.
-
 - **[pi-web](https://github.com/agegr/pi-web)** (agegr): the Next.js web UI for pi — the interface the panel hosts.
-
 - **[pi-code](https://github.com/wangjinxin613/pi-code)** (wangjinxin613): the original IDE integration — the extension, embed bridge, file review/revert, and active-file injection all originate there; this extension is rebuilt on that work.
-
 - **[Pi-for-IDE](https://github.com/WilliamStone/Pi-for-IDE)** (this repo): what this project adds on top of pi-code:
   - Native **Pi Sessions** tree (activity bar): by-project / recent modes, single- and two-line meta layouts, a collapse/expand-all two-state button, workspace filter, awaiting badges, cross-workspace jumps.
   - Split tab system: sessions, composer, and settings each get their own tabs (`perSession`); lazy placeholder restore across window reloads and extension updates; tab context actions and full-page reload.

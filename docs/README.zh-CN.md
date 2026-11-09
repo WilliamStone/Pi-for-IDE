@@ -17,16 +17,31 @@
 
 以下能力只在 VSCode/VSCodium 内以 `?embed=vscode` 嵌入时激活：
 
-- **Pi Sessions 侧栏**：活动栏上的原生会话树——项目分组/最近模式、运行中/待输入徽标、工作区过滤、单行/双行元信息布局、折叠/展开双态、跨工作区跳转
-- **会话开在编辑器标签页**：每个会话一个真实标签（`perSession`），与文件标签自由混排，窗口重载与扩展升级后原位恢复；文件编辑器标题栏提供 **+** 按钮，在活动文件所属工作区一键新建会话
+- **Pi Sessions 侧栏**：活动栏上的原生会话树——项目分组/最近/fork 树三种模式、运行中/待输入徽标、工作区过滤、单行/双行元信息布局、折叠/展开双态、跨工作区跳转。会话与项目右键菜单承载全部动作：打开、整页打开、重命名、钉住、归档、fork、删除、复制标题、复制工作区路径、资源管理器定位、新窗口/集成终端/文件管理器打开工作区
+- **会话开在编辑器标签页**：每个会话一个真实标签（`perSession`），与文件标签自由混排，窗口重载与扩展升级后原位恢复——扩展宿主重启后的死壳也能收养复活；文件编辑器标题栏提供 **+** 按钮，在活动文件所属工作区一键新建会话
 - **`@` 文件提及**：补全走 `vscode.workspace.findFiles`，按工作区索引而不是服务器文件系统
 - **右键提及**：资源管理器/编辑器右键「Pi for IDE 提及」文件与选中代码段
 - **活动文件上下文注入**：正在查看的文件以隐藏 marker 注入 system prompt（AI 可见、UI 不显示、不落盘）
 - **文件审查卡片 + inline diff + 一键回退**：每轮列出 AI 改动文件；回退恢复代码并删除该轮记录——只读 git，不产生 stash/commit
 - **剪贴板桥接**：沙箱 iframe 里的复制/粘贴改走 `vscode.env.clipboard`
+- **快捷键路由**：面板内未消费的 Ctrl/Alt/Meta 组合键和 F 键落回 VS Code 键绑定服务——自定义快捷键与 `when` 条件照常生效
+- **跨窗口接力**：服务端升级/重启自动把所有窗口的面板切到新实例
 - **界面裁剪**：内置文件树/预览面板在宿主模式下隐藏，交还 VSCode 资源管理器与编辑器组
+- **设置 tab**：完整的设置界面（模型与 API key、OAuth、MCP、技能、插件、主题），与 pi CLI 共享 `~/.pi/agent/`——含按项目的精选模型清单
+- **草稿不丢**：输入框中未发送的文字，服务重启、窗口重载后仍在
 
 pi-web 本体的能力（会话管理、流式对话、模型/OAuth/MCP/技能/插件配置、终端、i18n、主题、PWA）全部保留，独立与嵌入模式都可用。
+
+## 界面截图
+
+![Pi for IDE——会话标签页与原生 Pi Sessions 树](./screenshots/main-ui.png)
+
+| | |
+|---|---|
+| ![设置界面](./screenshots/native-settings-ui.png) | ![会话树菜单](./screenshots/session-view-menus.png) |
+| ![会话树嵌入其他视图](./screenshots/session-view-embedded.png) | ![F1 命令清单](./screenshots/f1-command-list.png) |
+
+更多：[项目菜单](./screenshots/session-view-project-popup-menu.png) · [会话菜单](./screenshots/session-view-session-popup-menu.png)
 
 ## 安装与使用
 
@@ -43,7 +58,7 @@ pnpm add -g @william_stone/pi-web-for-ide   # 也可用 npm i -g；本地包：p
 **第二步：安装扩展并打开：**
 
 ```powershell
-code --install-extension vscode-extension/pi-for-ide-0.3.0.vsix    # VSCodium 用 codium
+code --install-extension vscode-extension/pi-for-ide-0.6.0.vsix    # VSCodium 用 codium
 ```
 
 然后打开活动栏的 **Pi Sessions** 视图，或命令面板执行 **Pi for IDE: Open**。首次使用在面板内 Settings → Models 配模型/API Key（与 pi CLI 共享 `~/.pi/agent/` 配置）。

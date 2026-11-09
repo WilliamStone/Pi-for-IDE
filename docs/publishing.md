@@ -84,7 +84,7 @@ npx vsce publish                   # 或 --packagePath pi-for-ide-0.3.0.vsix 直
 ### 上架前建议补齐（可选但推荐）
 
 - `vscode-extension/` 下补 `LICENSE` 文件（仓根有 MIT，扩展目录内单独放一份，商店页会显示）
-- `readme.md` 里的截图 `screen.png` 已打包 ✓
+- readme 里的截图放在仓根 `docs/screenshots/`，vsce 发布时按 `repository` 字段解析为商店页绝对 URL，无需打包进 vsix ✓
 - marketplace 链接徽标等按需在扩展 `package.json` 的 `galleryBanner`/`badges` 加
 
 ## 3. 发布到 Open VSX（VSCodium/Cursor 等开源商店）

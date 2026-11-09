@@ -17,8 +17,8 @@ The relationship: `@william_stone/pi-web-for-ide` is "pi-web + a host-adaptation
 
 Active only when embedded in VSCode/VSCodium via `?embed=vscode`:
 
-- **Pi Sessions sidebar**: a native activity-bar session tree — by-project/recent modes, running/awaiting badges, workspace filter, single- or two-line meta rows, collapse/expand-all, cross-workspace jumps
-- **Sessions as editor tabs**: every session opens as a real editor tab (`perSession`), freely mixed with file tabs and restored in place across window reloads and extension updates; the file-editor title bar gets a `+` button that starts a session in the active file's workspace
+- **Pi Sessions sidebar**: a native activity-bar session tree — by-project/recent/fork-view modes, running/awaiting badges, workspace filter, single- or two-line meta rows, collapse/expand-all, cross-workspace jumps. Session and project context menus carry the actions: open, open in full page, rename, pin, archive, fork, delete, copy title, copy workspace path, reveal in Explorer, open in a new window / integrated terminal / file explorer
+- **Sessions as editor tabs**: every session opens as a real editor tab (`perSession`), freely mixed with file tabs and restored in place across window reloads and extension updates — including dead-shell adoption after an extension-host restart; the file-editor title bar gets a `+` button that starts a session in the active file's workspace
 - **`@` file mention**: completion queries `vscode.workspace.findFiles` (workspace index, not server filesystem)
 - **Right-click mention**: Explorer/editor context menus "Mention in Pi for IDE" for files and selections
 - **Active-file context injection**: the file you're viewing is injected into the system prompt as a hidden marker (AI-visible, UI-hidden, never persisted)
@@ -27,8 +27,21 @@ Active only when embedded in VSCode/VSCodium via `?embed=vscode`:
 - **Shortcut routing**: chords the web app doesn't consume (Ctrl/Alt/Meta combos, F-keys) are forwarded to VS Code's own keybinding service — your keybindings and `when` clauses apply natively
 - **Cross-window handoff**: server upgrades/restarts swap every window's panel to the new instance automatically
 - **UI trim**: pi-web's file tree/preview panels hide in host mode — VSCode's explorer and editor groups take over
+- **Settings tab**: a complete settings surface (models and API keys, OAuth, MCP, skills, plugins, themes) sharing `~/.pi/agent/` with the pi CLI — including a curated enabled-models list per project
+- **Drafts survive**: unsent composer text persists across server restarts and window reloads
 
 All pi-web capabilities (session management, streaming chat, model/OAuth/MCP/skills/plugin config, terminal, i18n, themes, PWA) remain available in both modes.
+
+## Screenshots
+
+![Pi for IDE — session tabs and the native Pi Sessions tree](docs/screenshots/main-ui.png)
+
+| | |
+|---|---|
+| ![Settings](docs/screenshots/native-settings-ui.png) | ![Session tree menus](docs/screenshots/session-view-menus.png) |
+| ![Session tree embedded](docs/screenshots/session-view-embedded.png) | ![F1 command list](docs/screenshots/f1-command-list.png) |
+
+More: [project menu](docs/screenshots/session-view-project-popup-menu.png) · [session menu](docs/screenshots/session-view-session-popup-menu.png)
 
 ## Install & use
 
@@ -45,7 +58,7 @@ pnpm add -g @william_stone/pi-web-for-ide   # npm i -g works too; local: pnpm i 
 **Step 2 — install the extension and open:**
 
 ```powershell
-code --install-extension vscode-extension/pi-for-ide-0.3.0.vsix    # VSCodium: codium
+code --install-extension vscode-extension/pi-for-ide-0.6.0.vsix    # VSCodium: codium
 ```
 
 Then open the **Pi Sessions** view in the activity bar or run **Pi for IDE: Open**. On first use, configure a model/API key via the panel's Settings → Models (shares `~/.pi/agent/` with the pi CLI).
