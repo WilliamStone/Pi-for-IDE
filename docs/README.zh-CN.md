@@ -75,7 +75,7 @@ pi-web 本体的能力（会话管理、流式对话、模型/OAuth/MCP/技能/�
 - **VS Code**：扩展面板装不了 Open VSX，CLI 也没有选商店的参数——从 Open VSX 页面下载 `.vsix` 后安装：
 
   ```powershell
-  code --install-extension pi-for-ide-0.6.0.vsix    # 或扩展面板 ⋯ → Install from VSIX…
+  code --install-extension pi-for-ide-0.6.0.vsix    # 或扩展面板右上 ⋯ 菜单 → Install from VSIX…
   ```
 
 **第二步：服务端组件——通常无需手动安装**
@@ -114,13 +114,6 @@ pi-web status|stop|open|update|update-sdk
 | `Pi for IDE.package` | 托管/全局查询用的包名（默认 `@william_stone/pi-web-for-ide`）。 |
 
 连不上服务器、面板空白、保存报错等排障指引：[vscode-extension-deploy.md](./vscode-extension-deploy.md)。
-
-## 上游与各层贡献
-
-- **[pi](https://github.com/earendil-works/pi)**（earendil-works）：底层智能体本体。
-- **[pi-web](https://github.com/agegr/pi-web)**（agegr）：pi 的 Next.js Web UI——本仓的直接上游；Web 应用本体全部出自上游，我们定期合并上游版本而非重写。  
-- **[pi-code](https://github.com/wangjinxin613/pi-code)**（wangjinxin613）：首个 IDE 集成——VSCode 扩展、embed 桥、文件审查/回退、活动文件注入均源于它；本仓库从它 fork。
-- **[pi-for-ide](https://github.com/WilliamStone/Pi-for-IDE)（本仓）**：在 pi-code 之上——发行形态解耦（外置 npm 包 + 轻量扩展壳）、品牌分层（Pi Web+/Pi for IDE）、原生 **Pi Sessions** 树与会话/composer/设置分体标签、多窗口并发基建（扩展侧 SSE 代理、共享实例协调、自动启停）、双源服务端版本管理、`.pi/settings.json` 编辑与按项目模型清单、pnpm/PATH shim 解析、持续 pi-web 上游同步。详见 `docs/decoupling-plan.md`。
 
 ## 面向开发者
 
@@ -173,6 +166,20 @@ demo/              发布到 GitHub Pages 的静态演示站（见 demo/README.m
 ```
 
 架构说明和详细文件地图见 [AGENTS.md](../AGENTS.md)。
+
+## 上游与各层贡献
+
+- **[pi](https://github.com/earendil-works/pi)**（earendil-works）：底层的编程智能体。
+- **[pi-web](https://github.com/agegr/pi-web)**（agegr）：pi 的 Next.js Web 界面——本扩展面板里的界面即来自它。
+- **[pi-code](https://github.com/wangjinxin613/pi-code)**（wangjinxin613）：最初的 IDE 集成——扩展、嵌入桥、文件审查/回退、活动文件注入皆源于此，本扩展在其基础上重构而来。
+- **[Pi-for-IDE](https://github.com/WilliamStone/Pi-for-IDE)** (This Repo)：在 pi-code 基础上，本项目的演进：
+
+  - 原生 **Pi Sessions** 树（活动栏）：项目分组/最近双模式、单双行元信息布局、折叠/展开双态、工作区过滤、等待输入徽标、跨工作区跳转。
+  - 分体标签体系：会话/composer/设置各自标签化（`perSession`），窗口重载与扩展升级后懒占位恢复，标签右键动作与整页重载。
+  - 多窗口/多标签并发基建：扩展侧 SSE 事件代理（绕开 webview 连接池上限）、共享服务实例与实例协调、服务自动启停、嵌入生命周期协议演进。
+  - 服务端管理：本地目录与 npm 仓库双源版本检查与升级、本地包安装来源。
+  - 项目级配置：`.pi/settings.json` 编辑入口、按项目启用模型清单、输入框草稿跨重启保留。
+  - 独立分发：`@william_stone/pi-web-for-ide` npm 包 + 本扩展，不再打包统一发布。
 
 ## 许可证
 

@@ -4,6 +4,8 @@
 
 Embeds the [pi agent](https://github.com/earendil-works/pi)'s web UI into VSCode/VSCodium as a first-class panel, with an IDE-workflow integration layer on top.
 
+![Main UI](../docs/screenshots/main-ui.png)
+
 This repo ships two independently installable and updateable deliverables:
 
 | Deliverable | Name | Role |
@@ -34,14 +36,25 @@ All pi-web capabilities (session management, streaming chat, model/OAuth/MCP/ski
 
 ## Screenshots
 
-![Pi for IDE — session tabs and the native Pi Sessions tree](docs/screenshots/main-ui.png)
+- Settings UI
 
-| | |
-|---|---|
-| ![Settings](docs/screenshots/native-settings-ui.png) | ![Session tree menus](docs/screenshots/session-view-menus.png) |
-| ![Session tree embedded](docs/screenshots/session-view-embedded.png) | ![F1 command list](docs/screenshots/f1-command-list.png) |
+![Settings UI](../docs/screenshots/native-settings-ui.png)
+Added available model settings
 
-More: [project menu](docs/screenshots/session-view-project-popup-menu.png) · [session menu](docs/screenshots/session-view-session-popup-menu.png)
+- Session tree view menu
+![Session tree view menu](../docs/screenshots/session-view-menus.png)
+
+- Session tree project menu
+![Session tree project menu](../docs/screenshots/session-view-project-popup-menu.png)
+
+- Session tree session menu
+![Session tree session menu](../docs/screenshots/session-view-session-popup-menu.png)
+
+- Session tree embedded
+![Session tree embedded](../docs/screenshots/session-view-embedded.png)
+
+- F1 command list
+![F1 command list](../docs/screenshots/f1-command-list.png)
 
 ## Install & use
 
@@ -62,7 +75,7 @@ Published on [Open VSX](https://open-vsx.org/extension/WilliamStone/pi-for-ide) 
 - **VS Code**: its gallery can't reach Open VSX and the CLI has no gallery switch — download the `.vsix` from the Open VSX page, then:
 
   ```powershell
-  code --install-extension pi-for-ide-0.6.0.vsix    # or Extensions view → ⋯ → Install from VSIX…
+  code --install-extension pi-for-ide-0.6.0.vsix    # or Extensions view → ⋯ menu → Install from VSIX…
   ```
 
 **Step 2 — the server component usually needs no manual install**
@@ -107,13 +120,6 @@ pi-web status|stop|open|update|update-sdk
 | `Pi for IDE.installSource` | Upgrade source: `auto` (same version → local), `prefer-remote` (same version → registry), `local`, `registry`. |
 
 Can't connect, blank panel, save errors: see [docs/vscode-extension-deploy.md](./docs/vscode-extension-deploy.md).
-
-## Upstream & credits
-
-- **[pi](https://github.com/earendil-works/pi)** (earendil-works): the underlying coding agent.
-- **[pi-web](https://github.com/agegr/pi-web)** (agegr): the Next.js web UI for pi — this repo's direct upstream; the entire web application is theirs, and we merge upstream releases rather than re-implementing.
-- **[pi-code](https://github.com/wangjinxin613/pi-code)** (wangjinxin613): the original IDE integration — the VSCode extension, embed bridge, file review/revert, and active-file injection all originate there; this repo forks from it.
-- **[pi-for-ide](https://github.com/WilliamStone/Pi-for-IDE) (This Repo)**: on top of pi-code — decoupled packaging (external npm package + thin extension), brand layering (Pi Web+ / Pi for IDE), the native **Pi Sessions** tree and per-session/composer/settings editor tabs, multi-window concurrency groundwork (extension-side SSE proxy, shared instance coordination, auto start/stop), dual-source server version management, `.pi/settings.json` editing and per-project model lists, pnpm/PATH-shim server resolution, and continued pi-web upstream sync. See `docs/decoupling-plan.md`.
 
 ## For developers
 
@@ -164,6 +170,19 @@ demo/              Static browser demo published to GitHub Pages (see demo/READM
 ```
 
 See [AGENTS.md](./AGENTS.md) for the architecture notes and detailed file map.
+
+## Upstream & credits
+
+- **[pi](https://github.com/earendil-works/pi)** (earendil-works): the underlying coding agent.
+- **[pi-web](https://github.com/agegr/pi-web)** (agegr): the Next.js web UI for pi — the interface the panel hosts.
+- **[pi-code](https://github.com/wangjinxin613/pi-code)** (wangjinxin613): the original IDE integration — the extension, embed bridge, file review/revert, and active-file injection all originate there; this extension is rebuilt on that work.
+- **[Pi-for-IDE](https://github.com/WilliamStone/Pi-for-IDE)** (this repo): what this project adds on top of pi-code:
+  - Native **Pi Sessions** tree (activity bar): by-project / recent modes, single- and two-line meta layouts, a collapse/expand-all two-state button, workspace filter, awaiting badges, cross-workspace jumps.
+  - Split tab system: sessions, composer, and settings each get their own tabs (`perSession`); lazy placeholder restore across window reloads and extension updates; tab context actions and full-page reload.
+  - Multi-window / multi-tab concurrency groundwork: extension-side SSE event proxy (works around the webview connection-pool ceiling), shared server instance and instance coordination, server auto start/stop, embed lifecycle protocol evolution.
+  - Server management: version checks and upgrades against both a local folder and the npm registry, local-package install source.
+  - Project-level config: `.pi/settings.json` editing, per-project enabled-model lists, composer drafts that survive restarts.
+  - Independent distribution: the `@william_stone/pi-web-for-ide` npm package and this extension, no longer released as one bundle.
 
 ## License
 

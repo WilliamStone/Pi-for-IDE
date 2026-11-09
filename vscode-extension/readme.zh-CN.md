@@ -133,7 +133,7 @@
 - **回退的安全线**：回退只恢复该轮写入的文件；你在该轮之后手动改过的文件会被跳过并提示，不会被覆盖。
 - **一份数据两端用**：同一个服务既在面板里也在浏览器里——`Open in Browser` 打开的是同一份会话与配置。
 
-## Upstream & credits
+## 上游与各层贡献
 
 - **[pi](https://github.com/earendil-works/pi)**（earendil-works）：底层的编程智能体。
 - **[pi-web](https://github.com/agegr/pi-web)**（agegr）：pi 的 Next.js Web 界面——本扩展面板里的界面即来自它。
