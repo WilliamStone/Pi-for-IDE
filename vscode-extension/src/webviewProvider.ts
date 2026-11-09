@@ -268,7 +268,7 @@ export class PiWebWebviewPanel extends vscode.Disposable {
         {
           location: vscode.ProgressLocation.Notification,
           title: "Pi for IDE panel is loading (webview init is slow)…",
-          cancellable: false,
+          cancellable: true,
         },
         () => this.shellReadyPromise(),
       );
